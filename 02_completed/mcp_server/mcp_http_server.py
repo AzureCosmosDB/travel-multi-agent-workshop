@@ -2,6 +2,7 @@ import sys
 import os
 import logging
 import json
+import re
 from typing import Any, Dict, List, Optional
 from langsmith import traceable
 from dotenv import load_dotenv
@@ -556,6 +557,34 @@ def call_llm_with_prompt(template: str, variables: Dict[str, Any], temperature: 
     return content
 
 
+_EXPLICIT_PREFERENCE_PATTERNS = [
+    r"\b(i|we)\s+(am|are|have|need|prefer|like|love|hate|avoid|require|want)\b",
+    r"\b(i'm|im|we're|were)\b",
+    r"\bmy\s+(preference|preferences|diet|budget|allergy|allergies|restriction|restrictions|requirement|requirements)\b",
+    r"\b(no|avoid)\s+(seafood|meat|pork|dairy|gluten|nuts|peanuts|crowds|stairs)\b",
+]
+
+_SEARCH_INTENT_PATTERN = re.compile(
+    r"\b(find|show|recommend|search|suggest|where should|what should|places?|restaurants?|hotels?|activities?|museums?|attractions?)\b",
+    re.IGNORECASE,
+)
+
+
+def _should_skip_preference_llm(message: str) -> bool:
+    """Skip preference extraction for plain search requests with no explicit user preference."""
+    normalized = message.strip().lower()
+    if not normalized:
+        return True
+
+    has_search_intent = bool(_SEARCH_INTENT_PATTERN.search(normalized))
+    has_explicit_preference = any(
+        re.search(pattern, normalized, re.IGNORECASE)
+        for pattern in _EXPLICIT_PREFERENCE_PATTERNS
+    )
+
+    return has_search_intent and not has_explicit_preference
+
+
 @mcp.tool()
 @traceable
 def extract_preferences_from_message(
@@ -581,6 +610,14 @@ def extract_preferences_from_message(
         - preferences: list of extracted preferences with category, value, text, salience, type
     """
     logger.info(f"🔍 Extracting preferences from {role} message for user {user_id}")
+
+    if _should_skip_preference_llm(message):
+        logger.info("⏭️ Skipping preference extraction LLM for plain search request")
+        return {
+            "shouldExtract": False,
+            "skipReason": "Plain search request without explicit new preferences",
+            "preferences": []
+        }
     
     try:
         # Load prompty template

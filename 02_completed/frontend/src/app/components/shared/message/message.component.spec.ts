@@ -59,7 +59,7 @@ describe('MessageComponent', () => {
     };
     fixture.detectChanges();
     let compiled = fixture.nativeElement as HTMLElement;
-    let messageDiv = compiled.querySelector('.bg-cosmos-primary');
+    let messageDiv = compiled.querySelector('.bg-black.text-white');
     expect(messageDiv).toBeTruthy();
 
     // Assistant message
@@ -100,8 +100,7 @@ describe('MessageComponent', () => {
     };
     fixture.detectChanges();
     const compiled = fixture.nativeElement as HTMLElement;
-    const icons = compiled.querySelectorAll('svg');
-    expect(icons.length).toBeGreaterThan(0);
+    expect(compiled.textContent).toContain('👤');
   });
 
   it('should render assistant avatar icon', () => {
@@ -111,7 +110,6 @@ describe('MessageComponent', () => {
     };
     fixture.detectChanges();
     const compiled = fixture.nativeElement as HTMLElement;
-    const icons = compiled.querySelectorAll('svg');
-    expect(icons.length).toBeGreaterThan(0);
+    expect(compiled.textContent).toContain('🤖');
   });
 });
