@@ -23,6 +23,10 @@ describe('AppComponent', () => {
     createdAt: '2025-01-01T00:00:00Z'
   };
 
+  function setRouterUrl(url: string): void {
+    Object.defineProperty(router, 'url', { value: url, configurable: true });
+  }
+
   beforeEach(async () => {
     currentUserSubject = new BehaviorSubject<User | null>(null);
     
@@ -56,14 +60,7 @@ describe('AppComponent', () => {
 
   it('should have navigation screens defined', () => {
     expect(component.screens).toBeDefined();
-    expect(component.screens.length).toBe(4);
-  });
-
-  it('should contain home screen', () => {
-    const homeScreen = component.screens.find(s => s.key === 'home');
-    expect(homeScreen).toBeDefined();
-    expect(homeScreen?.label).toBe('Home');
-    expect(homeScreen?.route).toBe('/home');
+    expect(component.screens.length).toBe(3);
   });
 
   it('should contain explore screen', () => {
@@ -95,7 +92,7 @@ describe('AppComponent', () => {
 
   it('should redirect to login when no user and not on login page', (done) => {
     spyOn(router, 'navigate');
-    spyOn(router, 'url').and.returnValue('/home');
+    setRouterUrl('/home');
     
     component.ngOnInit();
     currentUserSubject.next(null);
@@ -108,7 +105,7 @@ describe('AppComponent', () => {
 
   it('should not redirect when on login page', () => {
     spyOn(router, 'navigate');
-    Object.defineProperty(router, 'url', { value: '/login' });
+    setRouterUrl('/login');
     
     component.ngOnInit();
     currentUserSubject.next(null);
@@ -135,17 +132,17 @@ describe('AppComponent', () => {
   });
 
   it('should return true for isLoginPage when on login route', () => {
-    Object.defineProperty(router, 'url', { value: '/login' });
+    setRouterUrl('/login');
     expect(component.isLoginPage).toBeTrue();
   });
 
   it('should return false for isLoginPage when not on login route', () => {
-    Object.defineProperty(router, 'url', { value: '/home' });
+    setRouterUrl('/home');
     expect(component.isLoginPage).toBeFalse();
   });
 
   it('should hide top bar on login page', () => {
-    Object.defineProperty(router, 'url', { value: '/login' });
+    setRouterUrl('/login');
     fixture.detectChanges();
     
     const compiled = fixture.nativeElement as HTMLElement;
@@ -156,7 +153,7 @@ describe('AppComponent', () => {
 
   it('should show user name when logged in', () => {
     currentUserSubject.next(mockUser);
-    Object.defineProperty(router, 'url', { value: '/home' });
+    setRouterUrl('/home');
     fixture.detectChanges();
     
     const compiled = fixture.nativeElement as HTMLElement;
@@ -166,7 +163,7 @@ describe('AppComponent', () => {
 
   it('should show logout button when logged in', () => {
     currentUserSubject.next(mockUser);
-    Object.defineProperty(router, 'url', { value: '/home' });
+    setRouterUrl('/home');
     fixture.detectChanges();
     
     const compiled = fixture.nativeElement as HTMLElement;
@@ -177,7 +174,7 @@ describe('AppComponent', () => {
 
   it('should hide navigation tabs when not logged in', () => {
     currentUserSubject.next(null);
-    Object.defineProperty(router, 'url', { value: '/home' });
+    setRouterUrl('/home');
     fixture.detectChanges();
     
     const compiled = fixture.nativeElement as HTMLElement;

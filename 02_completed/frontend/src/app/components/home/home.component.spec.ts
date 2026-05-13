@@ -2,16 +2,27 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { Router } from '@angular/router';
 import { HomeComponent } from './home.component';
 import { provideRouter } from '@angular/router';
+import { of } from 'rxjs';
+import { TravelApiService } from '../../services/travel-api.service';
 
 describe('HomeComponent', () => {
   let component: HomeComponent;
   let fixture: ComponentFixture<HomeComponent>;
   let router: Router;
+  let mockApiService: jasmine.SpyObj<TravelApiService>;
 
   beforeEach(async () => {
+    mockApiService = jasmine.createSpyObj('TravelApiService', ['getCities']);
+    mockApiService.getCities.and.returnValue(of([
+      { id: 'rome', name: 'rome', displayName: 'Rome' }
+    ]));
+
     await TestBed.configureTestingModule({
       imports: [HomeComponent],
-      providers: [provideRouter([])]
+      providers: [
+        provideRouter([]),
+        { provide: TravelApiService, useValue: mockApiService }
+      ]
     }).compileComponents();
 
     fixture = TestBed.createComponent(HomeComponent);
@@ -46,12 +57,14 @@ describe('HomeComponent', () => {
   it('should render CTA buttons', () => {
     const compiled = fixture.nativeElement as HTMLElement;
     const buttons = compiled.querySelectorAll('button');
-    expect(buttons.length).toBeGreaterThanOrEqual(2);
+    expect(buttons.length).toBeGreaterThanOrEqual(1);
   });
 
   it('should navigate to explore on startTrip()', () => {
+    component.selectedCity = 'Rome';
+    component.cities = [{ id: 'rome', name: 'rome', displayName: 'Rome' }];
     component.startTrip();
-    expect(router.navigate).toHaveBeenCalledWith(['/explore']);
+    expect(router.navigate).toHaveBeenCalledWith(['/explore'], { queryParams: { city: 'rome' } });
   });
 
   it('should navigate to explore on exploreCities()', () => {
