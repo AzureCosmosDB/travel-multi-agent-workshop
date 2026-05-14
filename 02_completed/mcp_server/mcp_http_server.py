@@ -559,7 +559,7 @@ def call_llm_with_prompt(template: str, variables: Dict[str, Any], temperature: 
 
 _EXPLICIT_PREFERENCE_PATTERNS = [
     r"\b(i|we)\s+(am|are|have|need|prefer|like|love|hate|avoid|require|want)\b",
-    r"\b(i'm|im|we're|were)\b",
+    r"\b(i'm|im|we're)\b",
     r"\bmy\s+(preference|preferences|diet|budget|allergy|allergies|restriction|restrictions|requirement|requirements)\b",
     r"\b(no|avoid)\s+(seafood|meat|pork|dairy|gluten|nuts|peanuts|crowds|stairs)\b",
 ]
@@ -1437,7 +1437,7 @@ if __name__ == "__main__":
         "transport": "streamable-http"
     }
 
-    print("� Starting server without built-in authentication...")
+    print("Starting server without built-in authentication...")
     print("💡 For OAuth, use a reverse proxy like nginx or API gateway")
 
     try:

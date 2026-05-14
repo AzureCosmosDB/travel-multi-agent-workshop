@@ -193,7 +193,7 @@ Locate the **def recall_memories** tool, and add the following helper and tool a
 ````python
 _EXPLICIT_PREFERENCE_PATTERNS = [
     r"\b(i|we)\s+(am|are|have|need|prefer|like|love|hate|avoid|require|want)\b",
-    r"\b(i'm|im|we're|were)\b",
+    r"\b(i'm|im|we're)\b",
     r"\bmy\s+(preference|preferences|diet|budget|allergy|allergies|restriction|restrictions|requirement|requirements)\b",
     r"\b(no|avoid)\s+(seafood|meat|pork|dairy|gluten|nuts|peanuts|crowds|stairs)\b",
 ]
@@ -2606,11 +2606,7 @@ def _deterministic_specialist_route(message: str) -> str | None:
         r"\b(i|we)\s+(am|are|have|need|prefer|like|love|hate|avoid|require)\b|\bmy\s+(preference|preferences|diet|budget|allergy|allergies|restriction|restrictions|requirement|requirements)\b",
         normalized,
     )
-    has_search_intent = re.search(
-        r"\b(find|show|recommend|search|suggest|where should|what should|places?|restaurants?|hotels?|activities?|museums?|attractions?)\b",
-        normalized,
-    )
-    if has_preference_statement and not has_search_intent:
+    if has_preference_statement:
         return None
 
     if re.search(r"\b(restaurant|restaurants|dining|dinner|lunch|breakfast|food|eat|cafe|cafes)\b", normalized):
@@ -2873,11 +2869,7 @@ async def _memory_first_recommendations(state: MessagesState, config, agent_labe
     geo_scope = _extract_geo_scope(user_message)
     if not geo_scope:
         response_text = "Which city should I use for these recommendations?"
-        latest_user_message = _latest_user_message(state)
-        messages = [AIMessage(content=response_text, name=agent_label)]
-        if latest_user_message:
-            messages.insert(0, latest_user_message)
-        return {"messages": messages}
+        return {"messages": [AIMessage(content=response_text, name=agent_label)]}
 
     query = f"{place_type} recommendations in {geo_scope.replace('-', ' ')}"
 
@@ -2922,25 +2914,30 @@ async def _memory_first_recommendations(state: MessagesState, config, agent_labe
         logger.error(f"{agent_label} hybrid discovery failed; falling back to filtered search: {repr(exc)}")
 
     if not places:
-        places = query_places_filtered(
-            geo_scope_id=geo_scope,
-            place_type=place_type,
-            dietary=filters.get("dietary"),
-            accessibility=filters.get("accessibility"),
-            price_tier=None,
-        )[:10]
+        try:
+            places = await asyncio.wait_for(
+                asyncio.to_thread(
+                    query_places_filtered,
+                    geo_scope_id=geo_scope,
+                    place_type=place_type,
+                    dietary=filters.get("dietary"),
+                    accessibility=filters.get("accessibility"),
+                    price_tier=None,
+                ),
+                timeout=10,
+            )
+            places = places[:10]
+        except Exception as exc:
+            logger.error(f"{agent_label} filtered discovery fallback failed: {repr(exc)}")
+            places = []
 
     places = _filter_places_by_required_memory(places, preference_profile)
     places = _rank_places_by_memory(places, preference_profile)
 
     response_text = _format_places_response(agent_label, place_type, geo_scope, places, memories, preference_profile, memory_error)
-    latest_user_message = _latest_user_message(state)
-    messages = [AIMessage(content=response_text, name=agent_label)]
-    if latest_user_message:
-        messages.insert(0, latest_user_message)
 
     return {
-        "messages": messages
+        "messages": [AIMessage(content=response_text, name=agent_label)]
     }
 
 
@@ -3379,7 +3376,7 @@ def get_active_agent(state: MessagesState, config) -> str:
 
     # If activeAgent is unknown or None, default to orchestrator
     if activeAgent in [None, "unknown"]:
-        logger.info(f"� activeAgent is '{activeAgent}', defaulting to Orchestrator")
+        logger.info(f"activeAgent is '{activeAgent}', defaulting to Orchestrator")
         activeAgent = "orchestrator"
 
     return activeAgent
@@ -4105,7 +4102,7 @@ def call_llm_with_prompt(template: str, variables: Dict[str, Any], temperature: 
 
 _EXPLICIT_PREFERENCE_PATTERNS = [
     r"\b(i|we)\s+(am|are|have|need|prefer|like|love|hate|avoid|require|want)\b",
-    r"\b(i'm|im|we're|were)\b",
+    r"\b(i'm|im|we're)\b",
     r"\bmy\s+(preference|preferences|diet|budget|allergy|allergies|restriction|restrictions|requirement|requirements)\b",
     r"\b(no|avoid)\s+(seafood|meat|pork|dairy|gluten|nuts|peanuts|crowds|stairs)\b",
 ]
@@ -4983,7 +4980,7 @@ if __name__ == "__main__":
         "transport": "streamable-http"
     }
 
-    print("� Starting server without built-in authentication...")
+    print("Starting server without built-in authentication...")
     print("💡 For OAuth, use a reverse proxy like nginx or API gateway")
 
     try:
