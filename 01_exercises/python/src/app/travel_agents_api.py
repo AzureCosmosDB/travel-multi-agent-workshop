@@ -1417,6 +1417,16 @@ def filter_places(tenantId: str, filter_request: PlaceFilterRequest):
                 accessibility=filter_request.accessibility,
                 price_tier=filter_request.priceTiers
             )
+
+            if not places:
+                logger.info("Theme search returned no results; falling back to simple filtered search")
+                places = query_places_filtered(
+                    geo_scope_id=filter_request.city,
+                    place_type=place_type,
+                    dietary=filter_request.dietary,
+                    accessibility=filter_request.accessibility,
+                    price_tier=filter_request.priceTiers
+                )
         else:
             # SCENARIO 3: Explore without theme - use simple filter
             logger.info("📊 Using SIMPLE FILTERED SEARCH")

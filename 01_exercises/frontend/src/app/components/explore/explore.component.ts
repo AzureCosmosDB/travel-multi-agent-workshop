@@ -92,7 +92,9 @@ export class ExploreComponent implements OnInit, OnDestroy, AfterViewChecked {
           } else {
             this.selectedCity = this.formatCityName(city); // Fallback to formatting
           }
-          this.loadPlacesForCity(city);
+          if (city !== this.currentCityName) {
+            this.loadPlacesForCity(city);
+          }
         }
       })
     );
@@ -500,21 +502,58 @@ export class ExploreComponent implements OnInit, OnDestroy, AfterViewChecked {
       return;
     }
 
-    const city = this.cities.find(c => 
-      c.displayName === this.selectedCity
-    );
+    const city = this.findSelectedCity();
 
     console.log('Found city object:', city);
 
     if (city) {
-      console.log('Loading places for city:', city.name);
-      this.currentCityName = city.name; // Store the city name for filtering
-      this.loadPlacesForCity(city.name);
-      this.travelApi.setSelectedCity(city.name);
-    } else {
-      console.error('❌ City not found in cities array!');
-      alert('City not found. Please select from the dropdown.');
+      this.startTripForCity(city);
+      return;
     }
+
+    if (this.cities.length === 0) {
+      this.isLoadingCities = true;
+      this.travelApi.getCities().subscribe({
+        next: (cities) => {
+          this.cities = cities;
+          this.filteredCities = cities;
+          this.isLoadingCities = false;
+
+          const loadedCity = this.findSelectedCity();
+          console.log('Found city object after loading cities:', loadedCity);
+          if (loadedCity) {
+            this.startTripForCity(loadedCity);
+          } else {
+            console.error('❌ City not found in cities array!');
+            alert('City not found. Please select from the dropdown.');
+          }
+        },
+        error: (error) => {
+          console.error('Error loading cities:', error);
+          this.isLoadingCities = false;
+          alert('Unable to load cities. Please try again.');
+        }
+      });
+      return;
+    }
+
+    console.error('❌ City not found in cities array!');
+    alert('City not found. Please select from the dropdown.');
+  }
+
+  private findSelectedCity(): City | undefined {
+    const selectedCity = this.selectedCity.trim().toLowerCase();
+    return this.cities.find(c =>
+      c.displayName.toLowerCase() === selectedCity ||
+      c.name.toLowerCase() === selectedCity
+    );
+  }
+
+  private startTripForCity(city: City): void {
+    console.log('Loading places for city:', city.name);
+    this.currentCityName = city.name; // Store the city name for filtering
+    this.loadPlacesForCity(city.name);
+    this.travelApi.setSelectedCity(city.name);
   }
 
   loadPlacesForCity(cityName: string): void {

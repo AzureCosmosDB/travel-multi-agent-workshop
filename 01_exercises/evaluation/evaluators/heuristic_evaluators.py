@@ -57,7 +57,7 @@ def tool_call_accuracy(outputs: dict, reference_outputs: dict) -> float:
     expected_tools = required_tools | optional_tools
     
     if not expected_tools:
-        return 1.0
+        return 1.0 if not tools_called else 0.0
     
     # Calculate overlap
     correct_calls = len(tools_called & expected_tools)

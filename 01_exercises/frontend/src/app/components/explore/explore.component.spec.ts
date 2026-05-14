@@ -1,13 +1,17 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { ExploreComponent } from './explore.component';
 import { TravelApiService } from '../../services/travel-api.service';
-import { of } from 'rxjs';
-import { Place } from '../../models/travel.models';
+import { BehaviorSubject, of } from 'rxjs';
+import { ActivatedRoute } from '@angular/router';
+import { City, Place, Thread } from '../../models/travel.models';
 
 describe('ExploreComponent', () => {
   let component: ExploreComponent;
   let fixture: ComponentFixture<ExploreComponent>;
   let mockApiService: jasmine.SpyObj<TravelApiService>;
+  let selectedCitySubject: BehaviorSubject<string | null>;
+  let messagesSubject: BehaviorSubject<any[]>;
+  let currentThreadSubject: BehaviorSubject<Thread | null>;
 
   const mockPlaces: Place[] = [
     {
@@ -34,12 +38,51 @@ describe('ExploreComponent', () => {
     }
   ];
 
+  const mockCities: City[] = [
+    {
+      id: 'amsterdam',
+      name: 'amsterdam',
+      displayName: 'Amsterdam, Netherlands'
+    },
+    {
+      id: 'rome',
+      name: 'rome',
+      displayName: 'Rome, Italy'
+    }
+  ];
+
   beforeEach(async () => {
+    spyOn(window, 'alert');
+    selectedCitySubject = new BehaviorSubject<string | null>(null);
+    messagesSubject = new BehaviorSubject<any[]>([]);
+    currentThreadSubject = new BehaviorSubject<Thread | null>(null);
+
     mockApiService = jasmine.createSpyObj('TravelApiService', [
       'searchPlaces',
-      'sendMessage'
-    ]);
+      'sendMessage',
+      'filterPlaces',
+      'getCities',
+      'createThread',
+      'getThreadMessages',
+      'setSelectedCity'
+    ], {
+      selectedCity$: selectedCitySubject.asObservable(),
+      messages$: messagesSubject.asObservable(),
+      currentThread$: currentThreadSubject.asObservable()
+    });
     mockApiService.searchPlaces.and.returnValue(of(mockPlaces));
+    mockApiService.filterPlaces.and.returnValue(of(mockPlaces));
+    mockApiService.getCities.and.returnValue(of(mockCities));
+    mockApiService.createThread.and.returnValue(of({
+      id: 'thread-1',
+      sessionId: 'thread-1',
+      threadId: 'thread-1',
+      tenantId: 'test',
+      userId: 'user1',
+      title: 'Test',
+      createdAt: new Date().toISOString()
+    }));
+    mockApiService.getThreadMessages.and.returnValue(of([]));
     mockApiService.sendMessage.and.returnValue(of({
       response: 'Hello! How can I help?',
       threadId: 'thread-1',
@@ -49,7 +92,8 @@ describe('ExploreComponent', () => {
     await TestBed.configureTestingModule({
       imports: [ExploreComponent],
       providers: [
-        { provide: TravelApiService, useValue: mockApiService }
+        { provide: TravelApiService, useValue: mockApiService },
+        { provide: ActivatedRoute, useValue: { queryParams: of({}) } }
       ]
     }).compileComponents();
 
@@ -65,11 +109,46 @@ describe('ExploreComponent', () => {
   it('should initialize with default filters', () => {
     expect(component.filters).toBeDefined();
     expect(component.filters.placeType).toBe('all');
-    expect(component.filters.budget).toBe('any');
+    expect(component.filters.budget).toEqual([]);
   });
 
-  it('should load places on init', () => {
-    expect(component.places.length).toBeGreaterThan(0);
+  it('should not load places until a city is selected', () => {
+    expect(component.places.length).toBe(0);
+  });
+
+  it('should start trip when user types a city name without selecting from dropdown', () => {
+    component.cities = mockCities;
+    component.selectedCity = 'amsterdam';
+
+    component.startTrip();
+
+    expect(component.currentCityName).toBe('amsterdam');
+    expect(mockApiService.filterPlaces).toHaveBeenCalledWith(
+      jasmine.objectContaining({ city: 'amsterdam' })
+    );
+  });
+
+  it('should load cities before starting trip if city list is not ready yet', () => {
+    component.cities = [];
+    component.selectedCity = 'amsterdam';
+
+    component.startTrip();
+
+    expect(mockApiService.getCities).toHaveBeenCalled();
+    expect(component.currentCityName).toBe('amsterdam');
+    expect(mockApiService.filterPlaces).toHaveBeenCalledWith(
+      jasmine.objectContaining({ city: 'amsterdam' })
+    );
+  });
+
+  it('should not reload places when selected city event matches current city', () => {
+    component.cities = mockCities;
+    component.currentCityName = 'amsterdam';
+    mockApiService.filterPlaces.calls.reset();
+
+    selectedCitySubject.next('amsterdam');
+
+    expect(mockApiService.filterPlaces).not.toHaveBeenCalled();
   });
 
   it('should have chat closed by default', () => {
@@ -84,29 +163,32 @@ describe('ExploreComponent', () => {
   });
 
   it('should apply filters when applyFilters is called', () => {
+    component.currentCityName = 'rome';
     component.filters.placeType = 'hotel';
     component.applyFilters();
-    expect(mockApiService.searchPlaces).toHaveBeenCalledWith(
-      jasmine.objectContaining({ placeType: 'hotel' })
+    expect(mockApiService.filterPlaces).toHaveBeenCalledWith(
+      jasmine.objectContaining({ city: 'rome', types: ['hotel'] })
     );
   });
 
   it('should reset filters', () => {
+    component.currentCityName = 'rome';
     component.filters.placeType = 'hotel';
-    component.filters.budget = 'luxury';
+    component.filters.budget = ['luxury'];
     component.resetFilters();
     expect(component.filters.placeType).toBe('all');
-    expect(component.filters.budget).toBe('any');
+    expect(component.filters.budget).toEqual([]);
   });
 
   it('should send chat message', () => {
+    component.currentThread = { id: 'thread-1', sessionId: 'thread-1', threadId: 'thread-1', tenantId: 'test', userId: 'user1', title: 'Test', createdAt: new Date().toISOString() };
     component.newMessage = 'Show me hotels';
     component.sendMessage();
     expect(mockApiService.sendMessage).toHaveBeenCalled();
   });
 
   it('should clear chat input after sending message', () => {
-    component.currentThread = { id: 'thread-1', threadId: 'thread-1', tenantId: 'test', userId: 'user1', title: 'Test', createdAt: new Date().toISOString(), lastMessageAt: new Date().toISOString() };
+    component.currentThread = { id: 'thread-1', sessionId: 'thread-1', threadId: 'thread-1', tenantId: 'test', userId: 'user1', title: 'Test', createdAt: new Date().toISOString(), lastMessageAt: new Date().toISOString() };
     component.newMessage = 'Show me hotels';
     component.sendMessage();
     expect(component.newMessage).toBe('');
@@ -119,7 +201,8 @@ describe('ExploreComponent', () => {
   });
 
   it('should add user message to chat on send', () => {
-    component.currentThread = { id: 'thread-1', threadId: 'thread-1', tenantId: 'test', userId: 'user1', title: 'Test', createdAt: new Date().toISOString(), lastMessageAt: new Date().toISOString() };
+    mockApiService.sendMessage.and.returnValue(of([]));
+    component.currentThread = { id: 'thread-1', sessionId: 'thread-1', threadId: 'thread-1', tenantId: 'test', userId: 'user1', title: 'Test', createdAt: new Date().toISOString(), lastMessageAt: new Date().toISOString() };
     component.newMessage = 'Show me hotels';
     const initialLength = component.messages.length;
     component.sendMessage();
@@ -149,8 +232,7 @@ describe('ExploreComponent', () => {
 
   it('should render filters sidebar', () => {
     const compiled = fixture.nativeElement as HTMLElement;
-    const sidebar = compiled.querySelector('.w-64');
-    expect(sidebar).toBeTruthy();
+    expect(compiled.textContent).toContain('Filters');
   });
 
   it('should render place grid', () => {
@@ -165,7 +247,7 @@ describe('ExploreComponent', () => {
     component.chatOpen = false;
     fixture.detectChanges();
     const compiled = fixture.nativeElement as HTMLElement;
-    const fab = compiled.querySelector('.fixed.bottom-6.right-6');
+    const fab = compiled.querySelector('.fixed.right-4.bottom-24');
     expect(fab).toBeTruthy();
   });
 
@@ -173,7 +255,7 @@ describe('ExploreComponent', () => {
     component.chatOpen = true;
     fixture.detectChanges();
     const compiled = fixture.nativeElement as HTMLElement;
-    const drawer = compiled.querySelector('.fixed.top-0.right-0');
+    const drawer = compiled.querySelector('.fixed.inset-0');
     expect(drawer).toBeTruthy();
   });
 });

@@ -200,11 +200,6 @@ async def call_orchestrator_agent(state: MessagesState, config) -> Command[Liter
     user_id = config["configurable"].get("userId", "UNKNOWN_USER_ID")
     tenant_id = config["configurable"].get("tenantId", "UNKNOWN_TENANT_ID")
 
-    # Add context about available parameters
-    state["messages"].append(SystemMessage(
-        content=f"If tool to be called requires tenantId='{tenant_id}', userId='{user_id}', session_id='{thread_id}', include these in the JSON parameters when invoking the tool. Do not ask the user for them."
-    ))
-
     # Check for active agent in database
     try:
         logging.info(f"Looking up active agent for thread {thread_id}")
@@ -235,7 +230,16 @@ async def call_orchestrator_agent(state: MessagesState, config) -> Command[Liter
 
     # Always call orchestrator to analyze the message and decide routing
     # Don't blindly route to the last active agent - user's request may have changed
+    state["messages"].append(SystemMessage(
+        content=f"If tool to be called requires tenantId='{tenant_id}', userId='{user_id}', session_id='{thread_id}', include these in the JSON parameters when invoking the tool. Do not ask the user for them."
+    ))
     response = await orchestrator_agent.ainvoke(state, config)
+
+    destination = _extract_transfer_destination(response)
+    if destination and destination != "orchestrator":
+        logger.info(f"🎯 Orchestrator transferring to {destination}")
+        return Command(update=response, goto=destination)
+
     return Command(update=response, goto="human")
 ```
 
@@ -281,12 +285,48 @@ builder.add_node("dining", call_dining_agent)
 
 Next, we need to add conditional edges between nodes to enable dynamic agent routing based on tool responses.
 
-Above the **def build_agent_graph** function, add the below funcion:
+Above the **def build_agent_graph** function, add the routing helpers below:
 
 ```python
+def _extract_transfer_destination(response: dict) -> str | None:
+    """Return the specialist destination from the latest transfer tool result."""
+    valid_destinations = {
+        "hotel",
+        "activity",
+        "dining",
+        "itinerary_generator",
+        "summarizer",
+        "orchestrator",
+    }
+
+    for message in reversed(response.get("messages", [])):
+        if isinstance(message, AIMessage):
+            for tool_call in message.additional_kwargs.get("tool_calls", []):
+                function_name = tool_call.get("function", {}).get("name", "")
+                if function_name.startswith("transfer_to_"):
+                    goto = function_name.replace("transfer_to_", "")
+                    if goto in valid_destinations:
+                        return goto
+
+        if not isinstance(message, ToolMessage):
+            continue
+
+        try:
+            content = json.loads(message.content)
+        except Exception as exc:
+            logger.debug(f"Could not parse transfer ToolMessage: {exc}")
+            continue
+
+        goto = content.get("goto")
+        if goto in valid_destinations:
+            return goto
+
+    return None
+
+
 def get_active_agent(state: MessagesState, config) -> str:
     """
-    Extract active agent from ToolMessage or fallback to Cosmos DB.
+    Extract active agent from transfer tool calls or fallback to Cosmos DB.
     This is used by the router to determine which specialized agent to call.
     Also checks if auto-summarization should be triggered.
     """
@@ -296,8 +336,18 @@ def get_active_agent(state: MessagesState, config) -> str:
 
     activeAgent = None
 
-    # Search for last ToolMessage and try to extract `goto`
+    # Search for the latest transfer tool call.
     for message in reversed(state['messages']):
+        if isinstance(message, AIMessage):
+            for tool_call in message.additional_kwargs.get("tool_calls", []):
+                function_name = tool_call.get("function", {}).get("name", "")
+                if function_name.startswith("transfer_to_"):
+                    activeAgent = function_name.replace("transfer_to_", "")
+                    logger.info(f"🎯 Extracted activeAgent from AI tool call: {activeAgent}")
+                    break
+            if activeAgent:
+                break
+
         if isinstance(message, ToolMessage):
             try:
                 content_json = json.loads(message.content)
@@ -346,38 +396,12 @@ Then, within the **def build_agent_graph** function, after the line **builder.ad
         }
     )
 
-    # Hotel routing - can call itinerary_generator or orchestrator
-    builder.add_conditional_edges(
-        "hotel",
-        get_active_agent,
-        {
-            "itinerary_generator": "itinerary_generator",
-            "orchestrator": "orchestrator",
-            "hotel": "hotel",  # Can stay in hotel
-        }
-    )
-
-    # Activity routing - can call itinerary_generator or orchestrator
-    builder.add_conditional_edges(
-        "activity",
-        get_active_agent,
-        {
-            "itinerary_generator": "itinerary_generator",
-            "orchestrator": "orchestrator",
-            "activity": "activity",  # Can stay in activity
-        }
-    )
-
-    # Dining routing - can call itinerary_generator or orchestrator
-    builder.add_conditional_edges(
-        "dining",
-        get_active_agent,
-        {
-            "itinerary_generator": "itinerary_generator",
-            "orchestrator": "orchestrator",
-            "dining": "dining",  # Can stay in dining
-        }
-    )
+    # Specialist agents answer the current user turn, then return control to the user.
+    # The next user turn starts at the orchestrator again, avoiding loops through
+    # stale session activeAgent values after non-routing tools.
+    builder.add_edge("hotel", "human")
+    builder.add_edge("activity", "human")
+    builder.add_edge("dining", "human")
 
     # Itinerary Generator routing - can return to orchestrator or stay
     builder.add_conditional_edges(

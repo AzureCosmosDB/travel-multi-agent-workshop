@@ -60,10 +60,10 @@ A traditional unit test can check if a function returns the right type, but it c
 - Ensures "Find hotels in Paris" goes to the hotel agent, not the dining agent
 - Uses simple comparisons (heuristic evaluation)
 
-**3. Tool Usage Correctness**
+**3. Tool Usage and Trace Correctness**
 
-- Checks if agents call the expected tools
-- Verifies tools like `extract_preferences` or `discover_places` are invoked
+- Checks if LLM-backed paths call the expected MCP tools
+- Verifies deterministic recommendation paths avoid unnecessary specialist LLM/tool loops
 - Measures both precision (no unexpected tools) and recall (all required tools called)
 
 ### Evaluation Approaches
@@ -135,8 +135,8 @@ Each dataset is a JSON file containing test cases with inputs and expected outpu
     "question": "Find me hotels in Barcelona"
   },
   "outputs": {
-    "answer": "Before I search for hotels in Barcelona, I'd love to personalize my recommendations for you. Do you have any preferences or requirements",
-    "expected_tools": ["recall_memories", "discover_places"],
+    "answer": "I checked your saved preferences first",
+    "expected_tools": [],
     "expected_agent": "hotel"
   }
 }
@@ -144,8 +144,8 @@ Each dataset is a JSON file containing test cases with inputs and expected outpu
 
 This test case checks:
 
-- The response quality (does it appropriately ask for preferences?)
-- The tools called (recall_memories and discover_places)
+- The response quality (does it check saved preferences before recommending?)
+- The absence of unnecessary MCP tool calls on the deterministic specialist path
 - The agent routing (should go to hotel agent)
 
 ### Understanding the Evaluators
@@ -228,7 +228,7 @@ Each test case has:
 
 - `question`: The user's input
 - `answer`: The expected response pattern (not exact match)
-- `expected_tools`: Tools that should be called
+- `expected_tools`: MCP tools that should be called. Deterministic specialist paths may have an empty list because memory and place lookup happen inside the specialist service node.
 - `expected_agent`: Which specialist should handle the request
 
 ### Step 2: Understand the Evaluators
@@ -478,8 +478,8 @@ Open `evaluation/datasets/tool_usage_dataset.json` and review the 4 test cases.
 
 Examples:
 
-- "I prefer budget hotels" → Required tools: `extract_preferences_from_message`, `resolve_memory_conflicts`, `store_resolved_preferences`, `transfer_to_hotel`
-- "Find hotels in Barcelona" → Required tools: `extract_preferences_from_message`, `transfer_to_hotel`, `recall_memories`, `discover_places`
+- "I prefer budget hotels" → Required tools: `extract_preferences_from_message`, `resolve_memory_conflicts`, `store_resolved_preferences`
+- "Find hotels in Barcelona" → Required tools: none on the MCP stream; this should route to the deterministic hotel specialist node, load memories, and query places without a second specialist LLM/tool loop
 
 ### Step 2: Understand the Tool Evaluators
 
@@ -496,6 +496,7 @@ The tool usage evaluation uses two heuristic evaluators:
 - Calculates a score from 0.0 to 1.0
 - Measures both precision (no unexpected tools) and recall (all required tools)
 - Formula: (correct_calls / total_calls) - (missing_required \* 0.2)
+- If no tools are expected, the score is 1.0 only when no MCP tools were called
 - Penalizes missing required tools
 
 ### Step 3: Run the Tool Usage Evaluation
@@ -514,7 +515,7 @@ The tool usage evaluation:
 
 1. Runs each question through the agent graph
 2. Tracks which tools are called using event streaming
-3. Compares the tools_called list to required_tools
+3. Compares the tools_called list to required_tools, allowing empty requirements for deterministic specialist paths
 4. Calculates both boolean (all required called?) and accuracy score
 5. Logs results to LangSmith
 
@@ -597,8 +598,7 @@ Example test case for conflict resolution:
   "outputs": {
     "answer": "I notice you previously preferred budget hotels, but now you're asking for luxury hotels. Would you like me to update your preference?",
     "expected_tools": [
-      "recall_memories",
-      "detect_conflict",
+      "extract_preferences_from_message",
       "resolve_memory_conflicts"
     ]
   }
@@ -635,7 +635,7 @@ Example multi-turn test:
   },
   "outputs": {
     "final_answer_should_mention": ["Barcelona", "beach", "restaurants"],
-    "expected_tools": ["recall_memories", "discover_places"],
+    "expected_tools": [],
     "context_retained": true
   }
 }
@@ -795,7 +795,7 @@ To add a new test case, edit `evaluation/datasets/e2e_dataset.json`:
   },
   "outputs": {
     "answer": "Let me find wheelchair accessible hotels near museums in London for you.",
-    "expected_tools": ["recall_memories", "discover_places"],
+    "expected_tools": [],
     "expected_agent": "hotel",
     "accessibility_mentioned": true
   }

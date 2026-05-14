@@ -926,11 +926,9 @@ def discover_places(
         logger.error(f"{traceback.format_exc()}")
         return []
 
-    # Memory alignment scoring using the filters the agent already provided.
-    # The calling agent recalls memories BEFORE calling discover_places and
-    # encodes them as filters, so we score alignment against those filters
-    # instead of re-fetching memories (which would duplicate the embedding +
-    # Cosmos query the agent already did).
+    # Memory alignment scoring uses filters the caller already provided.
+    # Deterministic specialist nodes query places directly; this MCP tool is
+    # retained for LLM-backed flows that pass explicit filters into discovery.
     for place in places:
         alignment_score = 0.0
         match_reasons = ["Hybrid search match (text + semantic)"]

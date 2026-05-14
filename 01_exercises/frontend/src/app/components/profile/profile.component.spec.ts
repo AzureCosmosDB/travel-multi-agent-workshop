@@ -15,28 +15,33 @@ describe('ProfileComponent', () => {
       memoryId: 'mem-1',
       tenantId: 'test',
       userId: 'user1',
-      category: 'dining',
-      key: 'favorite_cuisine',
-      value: 'Italian',
-      facet: 'preferences',
       memoryType: 'declarative',
-      createdAt: new Date().toISOString()
+      text: 'Favorite cuisine is Italian',
+      facets: { category: 'dining', preference: 'Italian' },
+      salience: 0.9,
+      justification: 'User explicitly stated a cuisine preference',
+      extractedAt: new Date().toISOString(),
+      lastUsedAt: new Date().toISOString()
     },
     {
       id: 'mem-2',
       memoryId: 'mem-2',
       tenantId: 'test',
       userId: 'user1',
-      category: 'hotel',
-      key: 'visited_cities',
-      value: 'Rome, Paris',
-      facet: 'history',
       memoryType: 'episodic',
-      createdAt: new Date().toISOString()
+      text: 'Visited Rome and Paris',
+      facets: { category: 'hotel', cities: ['Rome', 'Paris'] },
+      salience: 0.7,
+      justification: 'User discussed previous trips',
+      extractedAt: new Date().toISOString(),
+      lastUsedAt: new Date().toISOString()
     }
   ];
 
   beforeEach(async () => {
+    spyOn(window, 'alert');
+    spyOn(window, 'confirm').and.returnValue(true);
+
     mockApiService = jasmine.createSpyObj('TravelApiService', [
       'getMemories',
       'createMemory',
@@ -94,7 +99,7 @@ describe('ProfileComponent', () => {
     fixture.detectChanges();
     const compiled = fixture.nativeElement as HTMLElement;
     const content = compiled.textContent;
-    expect(content).toContain('dining');
+    expect(content).toContain('Favorite cuisine is Italian');
   });
 
   it('should have save preferences button', () => {

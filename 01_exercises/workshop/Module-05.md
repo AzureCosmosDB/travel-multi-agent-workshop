@@ -35,7 +35,7 @@ By the end of this module, you'll be able to visualize the complete execution pa
 Your travel assistant has grown complex with multiple agents orchestrating sophisticated workflows:
 
 - **Orchestrator** extracts preferences, routes to specialists, coordinates responses
-- **Specialists** (Hotel/Dining/Activity) query memories and recommend options
+- **Specialists** (Hotel/Dining/Activity) run deterministic memory-first recommendation logic
 - **Itinerary Generator** creates day plans
 - **Summarizer** condenses conversation history
 - **Memory Tools** extract preferences, resolve conflicts, store in Cosmos DB
@@ -48,8 +48,8 @@ When something goes wrong—preferences aren't stored, the wrong agent is called
 - Where bottlenecks occur in your pipeline
 
 Traditional logging isn't sufficient for multi-agent systems because:
-- Agent interactions are **nested and hierarchical** (orchestrator → specialist → tool → database)
-- Execution paths are **non-deterministic** (LLMs make different routing decisions)
+- Agent interactions are **nested and hierarchical** (orchestrator → specialist → retriever/database)
+- Execution paths combine **LLM decisions** with **deterministic service nodes** for fast recommendation requests
 - Context flows across **multiple asynchronous operations**
 - You need to correlate **timing, token usage, and costs** across the entire request
 
@@ -186,24 +186,24 @@ async def call_orchestrator_agent(state: MessagesState):
 **Why `run_type="llm"`?**  
 The orchestrator uses an LLM to analyze user messages, extract preferences, and decide which specialist agent to route to. This run type shows the prompt, completion, and token usage in LangSmith.
 
-### Step 3: Add @traceable to Specialist Agents
+### Step 3: Add @traceable to Specialist Agent Nodes
 
-Add the decorator to all three specialist agents:
+Hotel, Dining, and Activity are still graph specialist nodes, but after Module 04 they are deterministic memory-first service nodes rather than LLM-backed ReAct agents. Add `run_type="chain"` so traces show orchestration work without implying a second LLM call:
 
 ```python
-@traceable(run_type="llm")
+@traceable(run_type="chain")
 async def call_hotel_agent(state: MessagesState):
-    """Hotel specialist agent."""
+    """Hotel specialist node."""
     # Existing code...
 
-@traceable(run_type="llm")
+@traceable(run_type="chain")
 async def call_dining_agent(state: MessagesState):
-    """Dining specialist agent."""
+    """Dining specialist node."""
     # Existing code...
 
-@traceable(run_type="llm")
+@traceable(run_type="chain")
 async def call_activity_agent(state: MessagesState):
-    """Activity specialist agent."""
+    """Activity specialist node."""
     # Existing code...
 ```
 
@@ -843,7 +843,7 @@ Now, let's copy the sessionId and navigate back to the **Runs** tab. Click on fi
 - Continue the previous conversation.
 - Send: **Find me some hotels.**
 
-You should see a new run/trace. You can see in the trace that the app starts with the orchestrator agent, which extracts preferences from the user message. Clicking on the agent nodes and tool calls, you can check the complete stack trace of the multi agent app.
+You should see a new run/trace. The app starts with the orchestrator, then routes to the hotel specialist node. For obvious recommendation requests, the specialist trace should show a fast chain/retriever path that loads memories and queries places, rather than a second specialist LLM call.
 
 ![Test4](./media/Module-05/Test4.png)
 
@@ -859,7 +859,7 @@ You should see a new run/trace. You can see in the trace that the app starts wit
 | No traces in LangSmith       | Environment variables | Verify `LANGCHAIN_TRACING_V2=true` and API key is correct in `.env`               |
 | `@traceable` not found       | Imports               | Add `from langsmith import traceable` at top of file                              |
 | Traces missing tool calls    | MCP server            | Ensure `mcp_http_server.py` has `@traceable` on all tool functions                |
-| Agent routing not visible    | Agent nodes           | Add `@traceable(run_type="llm")` to all agent functions in `travel_agents.py`     |
+| Agent routing not visible    | Agent nodes           | Add `@traceable(run_type="llm")` to LLM agents and `@traceable(run_type="chain")` to deterministic specialist nodes |
 | Database queries not showing | Database functions    | Add `@traceable(run_type="retriever")` to query functions in `azure_cosmos_db.py` |
 | Incomplete trace tree        | Async functions       | Ensure all async functions use `await` correctly                                  |
 | API key errors               | LangSmith account     | Regenerate API key in LangSmith settings and update `.env`                        |
@@ -868,7 +868,7 @@ You should see a new run/trace. You can see in the trace that the app starts wit
 ## Key Takeaways
 
 1. **@traceable decorator** automatically captures inputs, outputs, timing, and errors without manual logging
-2. **Nested traces** show the complete execution path from orchestrator → specialist → tools → database
+2. **Nested traces** show the complete execution path from orchestrator → specialist → retrievers/database
 3. **Run types** (LLM, Tool, Retriever) help LangSmith render different components appropriately
 4. **Memory extraction chain** is now fully visible (extract → resolve → store → database)
 5. **Performance bottlenecks** are easy to identify with timing data for each operation

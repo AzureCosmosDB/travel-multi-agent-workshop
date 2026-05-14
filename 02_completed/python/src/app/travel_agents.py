@@ -139,6 +139,17 @@ def _extract_transfer_destination(response: dict) -> str | None:
 def _deterministic_specialist_route(message: str) -> str | None:
     """Route obvious domain requests without spending an LLM turn."""
     normalized = message.lower()
+    has_preference_statement = re.search(
+        r"\b(i|we)\s+(am|are|have|need|prefer|like|love|hate|avoid|require)\b|\bmy\s+(preference|preferences|diet|budget|allergy|allergies|restriction|restrictions|requirement|requirements)\b",
+        normalized,
+    )
+    has_search_intent = re.search(
+        r"\b(find|show|recommend|search|suggest|where should|what should|places?|restaurants?|hotels?|activities?|museums?|attractions?)\b",
+        normalized,
+    )
+    if has_preference_statement and not has_search_intent:
+        return None
+
     if re.search(r"\b(restaurant|restaurants|dining|dinner|lunch|breakfast|food|eat|cafe|cafes)\b", normalized):
         return "dining"
     if re.search(r"\b(hotel|hotels|stay|stays|lodging|accommodation|accommodations)\b", normalized):
@@ -422,7 +433,8 @@ async def _memory_first_recommendations(state: MessagesState, config, agent_labe
         memory_error = repr(exc)
         logger.error(f"{agent_label} memory recall failed: {repr(exc)}")
 
-    preference_profile = _preference_profile_from_memories(memories)
+    # Apply durable memories plus explicit constraints from this turn.
+    preference_profile = _preference_profile_from_memories(memories + [{"text": user_message}])
     filters = preference_profile["filters"]
     filters["type"] = place_type
     memory_keywords = preference_profile["search_terms"]
@@ -557,7 +569,7 @@ async def setup_agents():
     # Orchestrator: Session management + memory tools + all transfer tools
     orchestrator_tools = filter_tools_by_prefix(all_tools, [
         "create_session", "get_session_context", "append_turn",
-        "extract_preferences_from_message", "resolve_memory_conflicts", "store_resolved_preferences",
+        "recall_memories", "extract_preferences_from_message", "resolve_memory_conflicts", "store_resolved_preferences",
         "transfer_to_"  # All transfer tools
     ])
 
@@ -681,7 +693,7 @@ async def call_orchestrator_agent(state: MessagesState, config) -> Command[Liter
     return Command(update=response, goto="human")
 
 
-@traceable(run_type="llm")
+@traceable(run_type="chain")
 async def call_hotel_agent(state: MessagesState, config) -> Command[Literal["hotel", "itinerary_generator", "orchestrator", "human"]]:
     """
     Hotel Agent: Searches accommodations and stores hotel preferences.
@@ -703,7 +715,7 @@ async def call_hotel_agent(state: MessagesState, config) -> Command[Literal["hot
     return Command(update=response, goto="human")
 
 
-@traceable(run_type="llm")
+@traceable(run_type="chain")
 async def call_activity_agent(state: MessagesState, config) -> Command[Literal["activity", "itinerary_generator", "orchestrator", "human"]]:
     """
     Activity Agent: Searches attractions and stores activity preferences.
@@ -723,7 +735,7 @@ async def call_activity_agent(state: MessagesState, config) -> Command[Literal["
     return Command(update=response, goto="human")
 
 
-@traceable(run_type="llm")
+@traceable(run_type="chain")
 async def call_dining_agent(state: MessagesState, config) -> Command[Literal["dining", "itinerary_generator", "orchestrator", "human"]]:
     """
     Dining Agent: Searches restaurants and stores dining preferences.

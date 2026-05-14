@@ -4,11 +4,8 @@
             "question": "Find me hotels in Barcelona"
         },
         "outputs": {
-            "answer": "Before I search for hotels in Barcelona, I'd love to personalize my recommendations for you. Do you have any preferences or requirements",
-            "expected_tools": [
-                "recall_memories",
-                "discover_places"
-            ],
+            "answer": "I checked your saved preferences first",
+            "expected_tools": [],
             "expected_agent": "hotel",
             "should_extract_preferences": false
         }
@@ -18,16 +15,10 @@
             "question": "Show me vegetarian restaurants in Paris"
         },
         "outputs": {
-            "answer": "I've noted your vegetarian preference. Let me find some great vegetarian restaurants in Paris for you.",
-            "expected_tools": [
-                "extract_preferences",
-                "discover_places"
-            ],
+            "answer": "I checked your saved preferences first",
+            "expected_tools": [],
             "expected_agent": "dining",
-            "should_extract_preferences": true,
-            "expected_preferences": [
-                "vegetarian"
-            ]
+            "should_extract_preferences": false
         }
     },
     {
@@ -37,8 +28,7 @@
         "outputs": {
             "answer": "Here's a 3-day itinerary for Rome",
             "expected_tools": [
-                "create_trip",
-                "recall_memories"
+                "create_new_trip"
             ],
             "expected_agent": "itinerary_generator",
             "should_extract_preferences": false
@@ -49,11 +39,11 @@
             "question": "What are my hotel preferences?"
         },
         "outputs": {
-            "answer": "Let me check your hotel preferences for you.",
+            "answer": "saved hotel preferences",
             "expected_tools": [
                 "recall_memories"
             ],
-            "expected_agent": "hotel",
+            "expected_agent": "orchestrator",
             "should_extract_preferences": false
         }
     },
@@ -63,9 +53,7 @@
         },
         "outputs": {
             "answer": "Great! I'd be happy to help you plan your trip to Seattle. What kind of experience are you looking for - hotels, dining, activities, or a complete itinerary?",
-            "expected_tools": [
-                "extract_preferences"
-            ],
+            "expected_tools": [],
             "expected_agent": "orchestrator",
             "should_extract_preferences": false
         }
@@ -77,7 +65,7 @@
         "outputs": {
             "answer": "I've noted your gluten-free dining preference. To help you find the best dinner options, which city or location are you interested in?",
             "expected_tools": [
-                "extract_preferences",
+                "extract_preferences_from_message",
                 "store_resolved_preferences"
             ],
             "expected_agent": "orchestrator",
