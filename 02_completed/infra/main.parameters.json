@@ -16,6 +16,12 @@
     },
     "owner": {
       "value": "${OWNER_EMAIL}"
+    },
+    "resourceGroupName": {
+      "value": "${AZURE_RESOURCE_GROUP=}"
+    },
+    "deployGsi": {
+      "value": "${DEPLOY_GSI=false}"
     }
   }
 }

@@ -1,3 +1,5 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/Azure/azure-dev/main/schemas/v1.0/azure.yaml.json
+
 name: TravelAssistant
 metadata:
   template: azd-init@1.5.1
@@ -44,7 +46,7 @@ hooks:
       run: |
         echo "
         COSMOSDB_ENDPOINT=\"$COSMOSDB_ENDPOINT\"
-        COSMOS_DB_DATABASE_NAME=\"TravelAssistant\"
+        COSMOSDB_DATABASE_NAME=\"TravelAssistant\"
         AZURE_OPENAI_ENDPOINT=\"$AZURE_OPENAI_ENDPOINT\"
         AZURE_OPENAI_EMBEDDING_DEPLOYMENT=\"$AZURE_OPENAI_EMBEDDINGDEPLOYMENTID\"
         AZURE_OPENAI_DEPLOYMENT=\"$AZURE_OPENAI_COMPLETIONSDEPLOYMENTID\"
@@ -52,6 +54,10 @@ hooks:
         MCP_AUTH_SECRET_KEY=\"travel-mcp-server-jwt-secret-for-local-development\"
         MCP_AUTH_TOKEN=\"travel-server-dev-token-2024\"
         MCP_SERVER_BASE_URL=\"http://localhost:8080\"
+        FACT_EXTRACTION_EVERY_N=\"1\"
+        DEDUP_EVERY_N=\"1\"
+        THREAD_SUMMARY_EVERY_N=\"5\"
+        USER_SUMMARY_EVERY_N=\"5\"
         " > ./python/.env
 
         echo "✅ Environment file created at ./python/.env"
@@ -59,7 +65,7 @@ hooks:
         # Create environment file for MCP server
         echo "
         COSMOSDB_ENDPOINT=\"$COSMOSDB_ENDPOINT\"
-        COSMOS_DB_DATABASE_NAME=\"TravelAssistant\"
+        COSMOSDB_DATABASE_NAME=\"TravelAssistant\"
         AZURE_OPENAI_ENDPOINT=\"$AZURE_OPENAI_ENDPOINT\"
         AZURE_OPENAI_EMBEDDING_DEPLOYMENT=\"$AZURE_OPENAI_EMBEDDINGDEPLOYMENTID\"
         AZURE_OPENAI_DEPLOYMENT=\"$AZURE_OPENAI_COMPLETIONSDEPLOYMENTID\"
@@ -67,6 +73,10 @@ hooks:
         MCP_AUTH_SECRET_KEY=\"travel-mcp-server-jwt-secret-for-local-development\"
         MCP_AUTH_TOKEN=\"travel-server-dev-token-2024\"
         MCP_SERVER_BASE_URL=\"http://localhost:8080\"
+        FACT_EXTRACTION_EVERY_N=\"1\"
+        DEDUP_EVERY_N=\"1\"
+        THREAD_SUMMARY_EVERY_N=\"5\"
+        USER_SUMMARY_EVERY_N=\"5\"
         " > ./mcp_server/.env
 
         echo "✅ Environment file created at ./mcp_server/.env"
@@ -106,13 +116,24 @@ hooks:
 
         echo ""
         echo "═══════════════════════════════════════════════════════════════"
-        echo "� Loading data into Cosmos DB..."
+        echo "📥 Loading data into Cosmos DB..."
         echo "═══════════════════════════════════════════════════════════════"
         echo ""
 
         cd python
         # Load data into Cosmos DB (from python directory)
         python data/seed_data.py
+
+        # If GSI mode is enabled, seed 25K trips and manage throughput
+        if [ "$DEPLOY_GSI" = "true" ]; then
+          echo ""
+          echo "═══════════════════════════════════════════════════════════════"
+          echo "🔧 GSI mode enabled — seeding 25K trips and scaling throughput..."
+          echo "═══════════════════════════════════════════════════════════════"
+          echo ""
+          python data/seed_gsi_trips.py
+        fi
+
         cd ..
 
         echo ""
@@ -125,11 +146,10 @@ hooks:
       interactive: true
       continueOnError: false
       run: |
-
         echo "
         COSMOSDB_ENDPOINT=""$env:COSMOSDB_ENDPOINT""
-        COSMOS_KEY=""$env:COSMOS_KEY""
-        COSMOS_DB_DATABASE_NAME=""TravelAssistant""
+        COSMOSDB_KEY=""$env:COSMOSDB_KEY""
+        COSMOSDB_DATABASE_NAME=""TravelAssistant""
         AZURE_OPENAI_ENDPOINT=""$env:AZURE_OPENAI_ENDPOINT""
         AZURE_OPENAI_EMBEDDING_DEPLOYMENT=""$env:AZURE_OPENAI_EMBEDDINGDEPLOYMENTID""
         AZURE_OPENAI_DEPLOYMENT=""$env:AZURE_OPENAI_COMPLETIONSDEPLOYMENTID""
@@ -137,6 +157,10 @@ hooks:
         MCP_AUTH_SECRET_KEY=""travel-mcp-server-jwt-secret-for-local-development""
         MCP_AUTH_TOKEN=""travel-server-dev-token-2024""
         MCP_SERVER_BASE_URL=""http://localhost:8080""
+        FACT_EXTRACTION_EVERY_N=""1""
+        DEDUP_EVERY_N=""1""
+        THREAD_SUMMARY_EVERY_N=""5""
+        USER_SUMMARY_EVERY_N=""5""
         " > ./python/.env
 
         Write-Host "✅ Environment file created at ./python/.env"
@@ -144,8 +168,8 @@ hooks:
         # Create environment file for MCP server
         echo "
         COSMOSDB_ENDPOINT=""$env:COSMOSDB_ENDPOINT""
-        COSMOS_KEY=""$env:COSMOS_KEY""
-        COSMOS_DB_DATABASE_NAME=""TravelAssistant""
+        COSMOSDB_KEY=""$env:COSMOSDB_KEY""
+        COSMOSDB_DATABASE_NAME=""TravelAssistant""
         AZURE_OPENAI_ENDPOINT=""$env:AZURE_OPENAI_ENDPOINT""
         AZURE_OPENAI_EMBEDDING_DEPLOYMENT=""$env:AZURE_OPENAI_EMBEDDINGDEPLOYMENTID""
         AZURE_OPENAI_DEPLOYMENT=""$env:AZURE_OPENAI_COMPLETIONSDEPLOYMENTID""
@@ -153,6 +177,10 @@ hooks:
         MCP_AUTH_SECRET_KEY=""travel-mcp-server-jwt-secret-for-local-development""
         MCP_AUTH_TOKEN=""travel-server-dev-token-2024""
         MCP_SERVER_BASE_URL=""http://localhost:8080""
+        FACT_EXTRACTION_EVERY_N=""1""
+        DEDUP_EVERY_N=""1""
+        THREAD_SUMMARY_EVERY_N=""5""
+        USER_SUMMARY_EVERY_N=""5""
         " > ./mcp_server/.env
 
         Write-Host "✅ Environment file created at ./mcp_server/.env"
@@ -193,6 +221,16 @@ hooks:
         if (Test-Path "python\data\seed_data.py") {
             Push-Location python
             python data\seed_data.py
+        
+            # If GSI mode is enabled, seed 25K trips and manage throughput
+            if ($env:DEPLOY_GSI -eq "true") {
+                Write-Host ""
+                Write-Host "═══════════════════════════════════════════════════════════════"
+                Write-Host "🔧 GSI mode enabled — seeding 25K trips and scaling throughput..."
+                Write-Host "═══════════════════════════════════════════════════════════════"
+                Write-Host ""
+                python data\seed_gsi_trips.py
+            }
             Pop-Location
         }
 

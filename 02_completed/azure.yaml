@@ -1,3 +1,5 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/Azure/azure-dev/main/schemas/v1.0/azure.yaml.json
+
 name: TravelAssistant
 metadata:
   template: azd-init@1.5.1
@@ -44,7 +46,7 @@ hooks:
       run: |
         echo "
         COSMOSDB_ENDPOINT=\"$COSMOSDB_ENDPOINT\"
-        COSMOS_DB_DATABASE_NAME=\"TravelAssistant\"
+        COSMOSDB_DATABASE_NAME=\"TravelAssistant\"
         AZURE_OPENAI_ENDPOINT=\"$AZURE_OPENAI_ENDPOINT\"
         AZURE_OPENAI_EMBEDDING_DEPLOYMENT=\"$AZURE_OPENAI_EMBEDDINGDEPLOYMENTID\"
         AZURE_OPENAI_DEPLOYMENT=\"$AZURE_OPENAI_COMPLETIONSDEPLOYMENTID\"
@@ -52,6 +54,10 @@ hooks:
         MCP_AUTH_SECRET_KEY=\"travel-mcp-server-jwt-secret-for-local-development\"
         MCP_AUTH_TOKEN=\"travel-server-dev-token-2024\"
         MCP_SERVER_BASE_URL=\"http://localhost:8080\"
+        FACT_EXTRACTION_EVERY_N=1
+        DEDUP_EVERY_N=1
+        THREAD_SUMMARY_EVERY_N=5
+        USER_SUMMARY_EVERY_N=5
         " > ./python/.env
 
         echo "✅ Environment file created at ./python/.env"
@@ -59,7 +65,7 @@ hooks:
         # Create environment file for MCP server
         echo "
         COSMOSDB_ENDPOINT=\"$COSMOSDB_ENDPOINT\"
-        COSMOS_DB_DATABASE_NAME=\"TravelAssistant\"
+        COSMOSDB_DATABASE_NAME=\"TravelAssistant\"
         AZURE_OPENAI_ENDPOINT=\"$AZURE_OPENAI_ENDPOINT\"
         AZURE_OPENAI_EMBEDDING_DEPLOYMENT=\"$AZURE_OPENAI_EMBEDDINGDEPLOYMENTID\"
         AZURE_OPENAI_DEPLOYMENT=\"$AZURE_OPENAI_COMPLETIONSDEPLOYMENTID\"
@@ -67,6 +73,10 @@ hooks:
         MCP_AUTH_SECRET_KEY=\"travel-mcp-server-jwt-secret-for-local-development\"
         MCP_AUTH_TOKEN=\"travel-server-dev-token-2024\"
         MCP_SERVER_BASE_URL=\"http://localhost:8080\"
+        FACT_EXTRACTION_EVERY_N=1
+        DEDUP_EVERY_N=1
+        THREAD_SUMMARY_EVERY_N=5
+        USER_SUMMARY_EVERY_N=5
         " > ./mcp_server/.env
 
         echo "✅ Environment file created at ./mcp_server/.env"
@@ -77,15 +87,21 @@ hooks:
         echo "═══════════════════════════════════════════════════════════════"
         echo ""
 
+        VENV_DIR=".venv-travel"
+
         # Check if virtual environment exists, create if not
-        if [ ! -d "venv" ]; then
-            echo "Creating Python virtual environment..."
-            python3 -m venv venv
+        if [ ! -d "$VENV_DIR" ]; then
+            echo "Creating Python virtual environment with python3.11..."
+            python3.11 -m venv "$VENV_DIR" 2>/dev/null || python3 -m venv "$VENV_DIR"
         fi
 
         # Activate virtual environment
         echo "Activating virtual environment..."
-        . venv/bin/activate
+        . "$VENV_DIR/bin/activate"
+
+        # Verify Python version
+        ACTIVE_PYTHON_VERSION=$(python --version 2>&1)
+        echo "Active Python version: $ACTIVE_PYTHON_VERSION"
 
         # Install requirements
         echo "Installing Python dependencies from requirements.txt..."
@@ -100,13 +116,24 @@ hooks:
 
         echo ""
         echo "═══════════════════════════════════════════════════════════════"
-        echo "� Loading data into Cosmos DB..."
+        echo "📥 Loading data into Cosmos DB..."
         echo "═══════════════════════════════════════════════════════════════"
         echo ""
 
         cd python
         # Load data into Cosmos DB (from python directory)
         python data/seed_data.py
+
+        # If GSI mode is enabled, seed 25K trips and manage throughput
+        if [ "$DEPLOY_GSI" = "true" ]; then
+          echo ""
+          echo "═══════════════════════════════════════════════════════════════"
+          echo "🔧 GSI mode enabled — seeding 25K trips and scaling throughput..."
+          echo "═══════════════════════════════════════════════════════════════"
+          echo ""
+          python data/seed_gsi_trips.py
+        fi
+
         cd ..
 
         echo ""
@@ -121,8 +148,8 @@ hooks:
       run: |
         echo "
         COSMOSDB_ENDPOINT=""$env:COSMOSDB_ENDPOINT""
-        COSMOS_KEY=""$env:COSMOS_KEY""
-        COSMOS_DB_DATABASE_NAME=""TravelAssistant""
+        COSMOSDB_KEY=""$env:COSMOSDB_KEY""
+        COSMOSDB_DATABASE_NAME=""TravelAssistant""
         AZURE_OPENAI_ENDPOINT=""$env:AZURE_OPENAI_ENDPOINT""
         AZURE_OPENAI_EMBEDDING_DEPLOYMENT=""$env:AZURE_OPENAI_EMBEDDINGDEPLOYMENTID""
         AZURE_OPENAI_DEPLOYMENT=""$env:AZURE_OPENAI_COMPLETIONSDEPLOYMENTID""
@@ -130,6 +157,10 @@ hooks:
         MCP_AUTH_SECRET_KEY=""travel-mcp-server-jwt-secret-for-local-development""
         MCP_AUTH_TOKEN=""travel-server-dev-token-2024""
         MCP_SERVER_BASE_URL=""http://localhost:8080""
+        FACT_EXTRACTION_EVERY_N=1
+        DEDUP_EVERY_N=1
+        THREAD_SUMMARY_EVERY_N=5
+        USER_SUMMARY_EVERY_N=5
         " > ./python/.env
 
         Write-Host "✅ Environment file created at ./python/.env"
@@ -137,8 +168,8 @@ hooks:
         # Create environment file for MCP server
         echo "
         COSMOSDB_ENDPOINT=""$env:COSMOSDB_ENDPOINT""
-        COSMOS_KEY=""$env:COSMOS_KEY""
-        COSMOS_DB_DATABASE_NAME=""TravelAssistant""
+        COSMOSDB_KEY=""$env:COSMOSDB_KEY""
+        COSMOSDB_DATABASE_NAME=""TravelAssistant""
         AZURE_OPENAI_ENDPOINT=""$env:AZURE_OPENAI_ENDPOINT""
         AZURE_OPENAI_EMBEDDING_DEPLOYMENT=""$env:AZURE_OPENAI_EMBEDDINGDEPLOYMENTID""
         AZURE_OPENAI_DEPLOYMENT=""$env:AZURE_OPENAI_COMPLETIONSDEPLOYMENTID""
@@ -146,6 +177,10 @@ hooks:
         MCP_AUTH_SECRET_KEY=""travel-mcp-server-jwt-secret-for-local-development""
         MCP_AUTH_TOKEN=""travel-server-dev-token-2024""
         MCP_SERVER_BASE_URL=""http://localhost:8080""
+        FACT_EXTRACTION_EVERY_N=1
+        DEDUP_EVERY_N=1
+        THREAD_SUMMARY_EVERY_N=5
+        USER_SUMMARY_EVERY_N=5
         " > ./mcp_server/.env
 
         Write-Host "✅ Environment file created at ./mcp_server/.env"
@@ -155,37 +190,49 @@ hooks:
         Write-Host "═══════════════════════════════════════════════════════════════"
         Write-Host ""
 
-        # Check if virtual environment exists, create if not
-        if (-not (Test-Path "venv")) {
+        $venvDir = ".venv-travel"
+
+        if (-not (Test-Path $venvDir)) {
             Write-Host "Creating Python virtual environment..."
-            python -m venv venv
+            py -3.11 -m venv $venvDir 2>$null
+            if ($LASTEXITCODE -ne 0) {
+                py -3 -m venv $venvDir
+            }
         }
 
-        # Activate virtual environment
         Write-Host "Activating virtual environment..."
-        & ".\venv\Scripts\Activate.ps1"
+        & ".\$venvDir\Scripts\Activate.ps1"
 
-        # Install requirements
+        $activePythonVersion = python --version 2>&1
+        Write-Host "Active Python version: $activePythonVersion"
+
         Write-Host "Installing Python dependencies from requirements.txt..."
         if (Test-Path "requirements.txt") {
             python -m pip install --upgrade pip setuptools wheel
             python -m pip install --prefer-binary -r requirements.txt
-        } else {
-            Write-Host "⚠️  requirements.txt not found, installing basic dependencies..."
-            python -m pip install --upgrade pip setuptools wheel
-            python -m pip install azure-cosmos azure-identity openai python-dotenv
         }
 
         Write-Host ""
         Write-Host "═══════════════════════════════════════════════════════════════"
-        Write-Host "� Loading data into Cosmos DB..."
+        Write-Host "📊 Loading data into Cosmos DB..."
         Write-Host "═══════════════════════════════════════════════════════════════"
         Write-Host ""
 
-        Set-Location python
-        # Load data into Cosmos DB (from python directory)
-        python data\seed_data.py
-        Set-Location ..
+        if (Test-Path "python\data\seed_data.py") {
+            Push-Location python
+            python data\seed_data.py
+        
+            # If GSI mode is enabled, seed 25K trips and manage throughput
+            if ($env:DEPLOY_GSI -eq "true") {
+                Write-Host ""
+                Write-Host "═══════════════════════════════════════════════════════════════"
+                Write-Host "🔧 GSI mode enabled — seeding 25K trips and scaling throughput..."
+                Write-Host "═══════════════════════════════════════════════════════════════"
+                Write-Host ""
+                python data\seed_gsi_trips.py
+            }
+            Pop-Location
+        }
 
         Write-Host ""
         Write-Host "✅ Setup complete!"

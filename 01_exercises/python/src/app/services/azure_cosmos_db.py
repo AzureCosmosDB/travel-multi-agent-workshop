@@ -3,92 +3,98 @@ import os
 import uuid
 from datetime import UTC, datetime
 from typing import List, Dict, Optional, Any
-from azure.cosmos import CosmosClient
+from azure.cosmos import CosmosClient, PartitionKey
+from azure.cosmos.aio import CosmosClient as AsyncCosmosClient
 from azure.cosmos.exceptions import CosmosResourceNotFoundError
 from azure.identity import DefaultAzureCredential
+from azure.identity.aio import DefaultAzureCredential as AsyncDefaultAzureCredential
 from dotenv import load_dotenv
-from langgraph_checkpoint_cosmosdb import CosmosDBSaver
+from langchain_azure_cosmosdb import CosmosDBSaver
 from langsmith import traceable
 
 from src.app.services.azure_open_ai import generate_embedding, extract_keywords
 
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 load_dotenv(override=False)
 
 # Azure Cosmos DB configuration
 COSMOS_DB_URL = os.getenv("COSMOSDB_ENDPOINT")
-COSMOS_DB_KEY = os.getenv("COSMOS_KEY")
-DATABASE_NAME = os.getenv("COSMOS_DB_DATABASE_NAME", "TravelAssistant")
+COSMOS_DB_KEY = os.getenv("COSMOSDB_KEY")
+DATABASE_NAME = os.getenv("COSMOSDB_DATABASE_NAME", "TravelAssistant")
 checkpoint_container = "Checkpoints"
 
-# Global client variables
+# Global client variables (sync — for app data)
 cosmos_client = None
 database = None
 
 # Container clients - for both MCP server and agent use
 sessions_container = None
 messages_container = None
-summaries_container = None
-memories_container = None
 api_events_container = None
 debug_logs_container = None
 places_container = None
 trips_container = None
 users_container = None
 
+# Async client globals for the LangGraph checkpointer.
+# CosmosDBSaver v1.0.0+ is async-only and requires an AsyncContainerProxy,
+# so we keep a parallel AsyncCosmosClient alive for the app lifetime.
+_async_cosmos_client = None
+_async_credential = None
+_async_checkpoint_container = None
+_checkpoint_saver = None
+
 
 def initialize_cosmos_client():
     """Initialize the Cosmos DB client and all containers"""
     global cosmos_client, database
-    global sessions_container, messages_container, summaries_container
-    global memories_container, api_events_container, debug_logs_container, places_container, trips_container, users_container
+    global sessions_container, messages_container
+    global api_events_container, debug_logs_container, places_container, trips_container, users_container
     
     if cosmos_client is None:
         try:
             credential = DefaultAzureCredential()
             cosmos_client = CosmosClient(COSMOS_DB_URL, credential=credential)
-            logger.info(f"Connected to Cosmos DB successfully using DefaultAzureCredential.")
+            logger.info(f"✅ Connected to Cosmos DB successfully using DefaultAzureCredential.")
         except Exception as dac_error:
-            logger.error(f"Failed to authenticate using DefaultAzureCredential: {dac_error}")
-            logger.warning("Continuing without Cosmos DB client - some features may not work")
+            logger.error(f"❌ Failed to authenticate using DefaultAzureCredential: {dac_error}")
+            logger.warning("⚠️ Continuing without Cosmos DB client - some features may not work")
             return
 
         # Initialize database and containers
         try:
             database = cosmos_client.get_database_client(DATABASE_NAME)
-            logger.info(f"Connected to database: {DATABASE_NAME}")
+            logger.info(f"✅ Connected to database: {DATABASE_NAME}")
 
             # Initialize all containers (using PascalCase names to match Bicep)
             sessions_container = database.get_container_client("Sessions")
             messages_container = database.get_container_client("Messages")
-            summaries_container = database.get_container_client("Summaries")
-            memories_container = database.get_container_client("Memories")
             api_events_container = database.get_container_client("ApiEvents")
             debug_logs_container = database.get_container_client("Debug")
             places_container = database.get_container_client("Places")
             trips_container = database.get_container_client("Trips")
             users_container = database.get_container_client("Users")
             
-            logger.info("All Cosmos DB containers initialized")
+            logger.info("✅ All Cosmos DB containers initialized")
         except Exception as e:
-            logger.error(f"Error initializing Cosmos DB containers: {e}")
-            logger.warning("Continuing without containers - some features may not work")
+            logger.error(f"❌ Error initializing Cosmos DB containers: {e}")
+            logger.warning("⚠️ Continuing without containers - some features may not work")
 
 
 # Initialize on import
 try:
     initialize_cosmos_client()
 except Exception as e:
-    logger.warning(f"Failed to initialize Cosmos DB client during import: {e}")
+    logger.warning(f"⚠️ Failed to initialize Cosmos DB client during import: {e}")
 
 
 def is_cosmos_available():
     """Check if Cosmos DB is available"""
     return all([
-        sessions_container, messages_container, summaries_container,
-        memories_container, api_events_container, debug_logs_container, places_container, trips_container, users_container
+        sessions_container, messages_container,
+        api_events_container, debug_logs_container, places_container, trips_container, users_container
     ])
 
 
@@ -97,25 +103,71 @@ def get_cosmos_client():
     return cosmos_client
 
 
-def get_checkpoint_saver():
+async def aget_checkpoint_saver():
+    """Return the async CosmosDBSaver, initializing it on first call.
+
+    Idempotent: subsequent calls return the cached saver. Call
+    ``close_async_cosmos_client()`` at shutdown to release the underlying
+    async client and credential cleanly.
     """
-    Return a CosmosDBSaver for LangGraph checkpoint persistence.
-    Falls back to MemorySaver if Cosmos DB is not available.
+    global _async_cosmos_client, _async_credential, _async_checkpoint_container, _checkpoint_saver
+
+    if _checkpoint_saver is not None:
+        return _checkpoint_saver
+
+    if COSMOS_DB_KEY:
+        _async_cosmos_client = AsyncCosmosClient(COSMOS_DB_URL, credential=COSMOS_DB_KEY)
+    else:
+        _async_credential = AsyncDefaultAzureCredential()
+        _async_cosmos_client = AsyncCosmosClient(COSMOS_DB_URL, credential=_async_credential)
+
+    db = await _async_cosmos_client.create_database_if_not_exists(DATABASE_NAME)
+    _async_checkpoint_container = await db.create_container_if_not_exists(
+        id=checkpoint_container,
+        partition_key=PartitionKey(path="/partition_key"),
+    )
+    _checkpoint_saver = CosmosDBSaver(_async_checkpoint_container)
+    logger.info(f"✅ CosmosDBSaver initialized on container: {checkpoint_container}")
+    return _checkpoint_saver
+
+
+async def close_async_cosmos_client():
+    """Release the async client and credential on app shutdown."""
+    global _async_cosmos_client, _async_credential, _async_checkpoint_container, _checkpoint_saver
+    if _async_cosmos_client is not None:
+        await _async_cosmos_client.close()
+        _async_cosmos_client = None
+    if _async_credential is not None:
+        await _async_credential.close()
+        _async_credential = None
+    _async_checkpoint_container = None
+    _checkpoint_saver = None
+
+
+async def adelete_checkpoints_for_thread(thread_id: str) -> int:
+    """Delete every checkpoint document associated with a LangGraph thread.
+
+    ``CosmosDBSaver.adelete_thread()`` raises ``NotImplementedError`` in
+    v1.0.0, so we issue the query + delete loop ourselves against the
+    async container. Returns the number of documents deleted.
     """
-    if cosmos_client is not None:
+    if _async_checkpoint_container is None:
+        logger.warning("Checkpoint container not initialized — skipping checkpoint delete")
+        return 0
+
+    deleted = 0
+    query = "SELECT c.id, c.partition_key FROM c WHERE c.thread_id = @thread_id"
+    params = [{"name": "@thread_id", "value": thread_id}]
+    async for item in _async_checkpoint_container.query_items(query=query, parameters=params):
         try:
-            logger.info("Using CosmosDBSaver for checkpoint persistence")
-            return CosmosDBSaver(
-                database_name=DATABASE_NAME,
-                container_name=checkpoint_container
+            await _async_checkpoint_container.delete_item(
+                item=item["id"],
+                partition_key=item["partition_key"],
             )
+            deleted += 1
         except Exception as e:
-            logger.warning(f"Failed to create CosmosDBSaver: {e}")
-    
-    # Fallback to in-memory checkpointer
-    logger.warning("Using MemorySaver for checkpoint persistence (data will not persist)")
-    from langgraph.checkpoint.memory import MemorySaver
-    return MemorySaver()
+            logger.warning(f"Failed to delete checkpoint {item.get('id')}: {e}")
+    return deleted
 
 
 # ============================================================================
@@ -140,14 +192,25 @@ def update_session_container(session_doc: dict):
 
 
 def patch_active_agent(tenantId: str, userId: str, sessionId: str, activeAgent: str):
-    """Patch the active agent field using 'set' operation (no read needed)."""
+    """
+    Patch the active agent field in the sessions' container.
+    Uses Cosmos DB 'set' operation which creates or replaces the field
+    in a single round trip (no read-before-write needed).
+    """
     if sessions_container is None:
         logger.warning("Sessions container not initialized")
         return
+    
     try:
         pk = [tenantId, userId, sessionId]
-        operations = [{'op': 'set', 'path': '/activeAgent', 'value': activeAgent}]
-        sessions_container.patch_item(item=sessionId, partition_key=pk, patch_operations=operations)
+        operations = [
+            {'op': 'set', 'path': '/activeAgent', 'value': activeAgent}
+        ]
+        sessions_container.patch_item(
+            item=sessionId, 
+            partition_key=pk,
+            patch_operations=operations
+        )
         logger.info(f"✅ Patched active agent to '{activeAgent}' for session: {sessionId}")
     except Exception as e:
         logger.error(f"❌ Error patching active agent for session {sessionId}: {e}")
@@ -156,7 +219,7 @@ def patch_active_agent(tenantId: str, userId: str, sessionId: str, activeAgent: 
 # ============================================================================
 # MCP Tool Functions (for mcp_http_server.py)
 # ============================================================================
-
+@traceable
 def create_session_record(user_id: str, tenant_id: str, activeAgent: str, title: str = None) -> Dict[str, Any]:
     """Create a new session record"""
     if not sessions_container:
@@ -179,7 +242,7 @@ def create_session_record(user_id: str, tenant_id: str, activeAgent: str, title:
     }
     
     sessions_container.upsert_item(session)
-    logger.info(f"Created session: {session_id}")
+    logger.info(f"✅ Created session: {session_id}")
     return session
 
 
@@ -188,6 +251,7 @@ def get_session_by_id(session_id: str, tenant_id: str, user_id: str) -> Optional
     """Get session by ID using point read (partition key known)"""
     if not sessions_container:
         raise Exception("Cosmos DB not available")
+    
     try:
         return sessions_container.read_item(
             item=session_id,
@@ -206,13 +270,18 @@ def update_session_activity(session_id: str, tenant_id: str, user_id: str, messa
     """Update session's last activity timestamp using patch (single round trip)"""
     if not sessions_container:
         return
+    
     try:
         pk = [tenant_id, user_id, session_id]
         operations = [
             {'op': 'set', 'path': '/lastActivityAt', 'value': datetime.now(UTC).isoformat()},
             {'op': 'incr', 'path': '/messageCount', 'value': message_count}
         ]
-        sessions_container.patch_item(item=session_id, partition_key=pk, patch_operations=operations)
+        sessions_container.patch_item(
+            item=session_id,
+            partition_key=pk,
+            patch_operations=operations
+        )
     except Exception as e:
         logger.error(f"Error updating session activity: {e}")
 
@@ -220,7 +289,6 @@ def update_session_activity(session_id: str, tenant_id: str, user_id: str, messa
 # ============================================================================
 # Message Management Functions
 # ============================================================================
-
 @traceable
 def append_message(
     session_id: str,
@@ -276,6 +344,7 @@ def append_message(
     return message_id
 
 
+@traceable(run_type="retriever")
 def get_message_by_id(
     message_id: str,
     session_id: str,
@@ -312,6 +381,7 @@ def get_message_by_id(
         return None
 
 
+@traceable(run_type="retriever")
 def get_session_messages(
     session_id: str,
     tenant_id: str,
@@ -346,6 +416,7 @@ def get_session_messages(
     return items
 
 
+@traceable(run_type="retriever")
 def count_active_messages(
     session_id: str,
     tenant_id: str,
@@ -391,424 +462,9 @@ def count_active_messages(
 
 
 # ============================================================================
-# Summary Management Functions
-# ============================================================================
-
-def create_summary(
-    session_id: str,
-    tenant_id: str,
-    user_id: str,
-    summary_text: str,
-    span: Dict[str, str],
-    summary_timestamp: str,
-    supersedes: Optional[List[str]] = None
-) -> str:
-    """
-    Create a summary and mark messages as superseded.
-    Stores the summary in BOTH the messages container (for chronological display)
-    and the summaries container (for cross-session querying).
-    
-    Args:
-        summary_timestamp: Timestamp of the last message being summarized (for chronological ordering)
-    """
-    if not summaries_container or not messages_container:
-        raise Exception("Cosmos DB not available")
-    
-    summary_id = f"summary_{uuid.uuid4().hex[:12]}"
-    message_id = f"msg_{uuid.uuid4().hex[:12]}"
-
-
-    embedding = generate_embedding(summary_text) if summary_text else None
-    
-    # Store in Summaries container (for cross-session queries)
-    summary_doc = {
-        "id": summary_id,
-        "summaryId": summary_id,
-        "sessionId": session_id,
-        "tenantId": tenant_id,
-        "userId": user_id,
-        "span": span,
-        "text": summary_text,
-        "embedding": embedding,
-        "createdAt": summary_timestamp,  # Use timestamp of last message
-        "supersedes": supersedes or []
-    }
-    summaries_container.upsert_item(summary_doc)
-    
-    # Store in Messages container (for chronological timeline)
-    message_doc = {
-        "id": message_id,
-        "messageId": message_id,
-        "sessionId": session_id,
-        "tenantId": tenant_id,
-        "userId": user_id,
-        "role": "assistant",
-        "content": summary_text,
-        "embedding": embedding,
-        "ts": summary_timestamp,  # Use timestamp of last message for chronological ordering
-        "superseded": False,
-        "isSummary": True,  # Flag to identify summaries
-        "summaryId": summary_id  # Reference to summary in Summaries container
-    }
-    messages_container.upsert_item(message_doc)
-    
-    # Mark superseded messages using patch (avoid read+upsert per message)
-    if supersedes:
-        pk = [tenant_id, user_id, session_id]
-        for msg_id in supersedes:
-            try:
-                # Query within partition to find the document id
-                query = "SELECT c.id FROM c WHERE c.messageId = @msgId"
-                items = list(messages_container.query_items(
-                    query=query,
-                    parameters=[{"name": "@msgId", "value": msg_id}],
-                    partition_key=pk
-                ))
-                if items:
-                    doc_id = items[0]["id"]
-                    messages_container.patch_item(
-                        item=doc_id,
-                        partition_key=pk,
-                        patch_operations=[
-                            {'op': 'set', 'path': '/superseded', 'value': True},
-                            {'op': 'set', 'path': '/ttl', 'value': 2592000}  # 30 days
-                        ]
-                    )
-            except Exception as e:
-                logger.error(f"Error marking message {msg_id} as superseded: {e}")
-    
-    logger.info(f"Created summary: {summary_id} (message: {message_id}) superseding {len(supersedes or [])} messages")
-    return summary_id
-
-
-def get_session_summaries(
-    session_id: str,
-    tenant_id: str,
-    user_id: str,
-) -> List[Dict[str, Any]]:
-    """Get summaries for a session"""
-    if not summaries_container:
-        return []
-    
-    query = """
-    SELECT * FROM c 
-    WHERE c.sessionId = @sessionId 
-    AND c.tenantId = @tenantId 
-    AND c.userId = @userId
-    ORDER BY c.createdAt DESC
-    """
-    
-    items = list(summaries_container.query_items(
-        query=query,
-        parameters=[
-            {"name": "@sessionId", "value": session_id},
-            {"name": "@tenantId", "value": tenant_id},
-            {"name": "@userId", "value": user_id}
-        ],
-        partition_key=[tenant_id, user_id, session_id]
-    ))
-    
-    return items
-
-
-def get_user_summaries(
-    user_id: str,
-    tenant_id: str,
-) -> List[Dict[str, Any]]:
-    """Get all summaries for a user across all sessions"""
-    if not summaries_container:
-        return []
-    
-    query = """
-    SELECT * FROM c 
-    WHERE c.userId = @userId 
-    AND c.tenantId = @tenantId
-    ORDER BY c.createdAt DESC
-    """
-    
-    items = list(summaries_container.query_items(
-        query=query,
-        parameters=[
-            {"name": "@userId", "value": user_id},
-            {"name": "@tenantId", "value": tenant_id}
-        ],
-        enable_cross_partition_query=True
-    ))
-    
-    logger.info(f"Retrieved {len(items)} summaries for user: {user_id}")
-    return items
-
-
-# ============================================================================
-# Memory Management Functions
-# ============================================================================
-
-def store_memory(
-    user_id: str,
-    tenant_id: str,
-    memory_type: str,
-    text: str,
-    facets: Dict[str, Any],
-    salience: float,
-    justification: str,
-    embedding: Optional[List[float]] = None
-) -> str:
-    """Store a user memory"""
-    if not memories_container:
-        raise Exception("Cosmos DB not available")
-    
-    memory_id = f"mem_{uuid.uuid4().hex[:12]}"
-    now = datetime.now(UTC)
-
-    # Generate embedding and keywords from text
-    if text:
-        embedding = generate_embedding(text)
-        keywords = extract_keywords(text)
-    else:
-        embedding = None
-        keywords = []
-    
-    # Set TTL based on memory type
-    ttl = -1
-    if memory_type == "episodic":
-        ttl = 7776000  # 90 days in seconds
-    
-    memory = {
-        "id": memory_id,
-        "memoryId": memory_id,
-        "userId": user_id,
-        "tenantId": tenant_id,
-        "memoryType": memory_type,
-        "text": text,
-        "facets": facets,
-        "keywords": keywords,
-        "salience": salience,
-        "ttl": ttl,
-        "justification": justification,
-        "lastUsedAt": now.isoformat(),
-        "extractedAt": now.isoformat(),
-        "embedding": embedding
-    }
-    
-    memories_container.upsert_item(memory)
-    logger.info(f"Stored memory: {memory_id} (type: {memory_type}, salience: {salience})")
-    return memory_id
-
-
-@traceable
-def update_memory_last_used(
-    memory_id: str,
-    user_id: str,
-    tenant_id: str
-) -> None:
-    """Update the lastUsedAt timestamp for a memory when it's recalled/used"""
-    if not memories_container:
-        return
-    try:
-        pk = [tenant_id, user_id, memory_id]
-        operations = [{'op': 'set', 'path': '/lastUsedAt', 'value': datetime.now(UTC).isoformat()}]
-        memories_container.patch_item(item=memory_id, partition_key=pk, patch_operations=operations)
-    except Exception as e:
-        logger.error(f"❌ Failed to update memory lastUsedAt: {e}")
-
-
-@traceable
-def supersede_memory(
-        memory_id: str,
-        user_id: str,
-        tenant_id: str,
-        superseded_by: str
-) -> bool:
-    """
-    Mark a memory as superseded by a newer memory.
-
-    Args:
-        memory_id: The memory to supersede
-        user_id: User identifier
-        tenant_id: Tenant identifier
-        superseded_by: The new memory ID that supersedes this one
-
-    Returns:
-        True if successful, False otherwise
-    """
-    if not memories_container:
-        return False
-    try:
-        pk = [tenant_id, user_id, memory_id]
-        operations = [
-            {'op': 'set', 'path': '/supersededBy', 'value': superseded_by},
-            {'op': 'set', 'path': '/supersededAt', 'value': datetime.now(UTC).isoformat()}
-        ]
-        memories_container.patch_item(item=memory_id, partition_key=pk, patch_operations=operations)
-        return True
-    except Exception as e:
-        logger.error(f"❌ Failed to supersede memory {memory_id}: {e}")
-        return False
-
-
-def boost_memory_salience(
-        memory_id: str,
-        user_id: str,
-        tenant_id: str,
-        boost_amount: float = 0.05
-) -> Dict[str, Any]:
-    """
-    Increase salience when a preference is confirmed or reinforced.
-
-    Args:
-        memory_id: The memory to boost
-        user_id: User identifier
-        tenant_id: Tenant identifier
-        boost_amount: Amount to increase salience (default: 0.05)
-
-    Returns:
-        Dictionary with old and new salience values
-    """
-    if not memories_container:
-        return {"success": False, "error": "Memories container not available"}
-
-    try:
-        # Read the memory
-        memory = memories_container.read_item(
-            item=memory_id,
-            partition_key=[tenant_id, user_id, memory_id]
-        )
-
-        # Boost salience (cap at 1.0)
-        old_salience = memory.get("salience", 0.7)
-        new_salience = min(1.0, old_salience + boost_amount)
-        memory["salience"] = new_salience
-
-        # Update timestamp
-        now = datetime.now(UTC)
-        memory["lastBoostedAt"] = now.isoformat()
-
-        # Upsert back
-        memories_container.upsert_item(memory)
-        logger.info(f"Boosted memory {memory_id} salience: {old_salience:.2f} → {new_salience:.2f}")
-
-        return {
-            "success": True,
-            "memoryId": memory_id,
-            "oldSalience": old_salience,
-            "newSalience": new_salience,
-            "boost": boost_amount
-        }
-    except Exception as e:
-        logger.error(f"Failed to boost memory salience: {e}")
-        return {"success": False, "error": str(e)}
-
-
-def query_memories(
-    user_id: str,
-    tenant_id: str,
-    query: str,
-    min_salience: float = 0.0,
-    include_superseded: bool = False
-) -> List[Dict[str, Any]]:
-    """
-    Query memories for a user using semantic search.
-
-    Args:
-        user_id: User identifier
-        tenant_id: Tenant identifier
-        query: Search query text
-        min_salience: Minimum salience threshold (default: 0.0)
-        include_superseded: Include superseded memories (default: False)
-
-    Returns:
-        List of memory dictionaries sorted by lastUsedAt
-    """
-    if not memories_container:
-        return []
-
-    logger.info(f"🔍 Querying memories with: {query}")
-    
-    # Generate embedding from query
-    embedding = generate_embedding(query)
-
-    # Build WHERE clause based on include_superseded flag
-    superseded_filter = "" if include_superseded else "AND (NOT IS_DEFINED(c.supersededBy) OR c.supersededBy = null)"
-    
-    sql_query = f"""
-    SELECT TOP 5 c.memoryId, c.userId, c.tenantId, c.memoryType, 
-    c.text, c.facets, c.salience, c.justification, c.extractedAt, 
-    c.lastUsedAt, c.ttl, VectorDistance(c.embedding, @embedding) AS similarityScore
-    FROM c 
-    WHERE c.userId = @userId 
-    AND c.tenantId = @tenantId
-    AND c.salience >= @minSalience
-    {superseded_filter}
-    ORDER BY VectorDistance(c.embedding, @embedding)
-    """
-
-    items = list(memories_container.query_items(
-        query=sql_query,
-        parameters=[
-            {"name": "@userId", "value": user_id},
-            {"name": "@tenantId", "value": tenant_id},
-            {"name": "@minSalience", "value": min_salience},
-            {"name": "@embedding", "value": embedding}
-        ],
-        enable_cross_partition_query=True
-    ))
-
-    # Sort by lastUsedAt in descending order (most recent first)
-    items_sorted = sorted(items, key=lambda x: x.get('lastUsedAt', ''), reverse=True)
-
-    return items_sorted
-
-
-def get_all_user_memories(
-        user_id: str,
-        tenant_id: str,
-        include_superseded: bool = False
-) -> List[Dict[str, Any]]:
-    """
-    Get all memories for a user without any filtering.
-    Used for conflict detection where we need to check ALL preferences.
-
-    Args:
-        user_id: User identifier
-        tenant_id: Tenant identifier
-        include_superseded: Include superseded memories (default: False)
-
-    Returns:
-        List of all memory dictionaries sorted by salience (highest first)
-    """
-    if not memories_container:
-        return []
-
-    logger.info(f"📚 Retrieving all memories for user {user_id}")
-
-    # Build WHERE clause - only filter out superseded memories by default
-    superseded_filter = "" if include_superseded else "AND (NOT IS_DEFINED(c.supersededBy) OR c.supersededBy = null)"
-
-    sql_query = f"""
-    SELECT * FROM c 
-    WHERE c.userId = @userId 
-    AND c.tenantId = @tenantId
-    {superseded_filter}
-    ORDER BY c.salience DESC
-    """
-
-    items = list(memories_container.query_items(
-        query=sql_query,
-        parameters=[
-            {"name": "@userId", "value": user_id},
-            {"name": "@tenantId", "value": tenant_id}
-        ],
-        enable_cross_partition_query=True
-    ))
-
-    logger.info(f"📚 Retrieved {len(items)} memories")
-    return items
-
-
-# ============================================================================
 # Place Discovery Functions
 # ============================================================================
-
+@traceable(run_type="retriever")
 def query_places_hybrid(
     query: str,
     geo_scope_id: str,
@@ -828,7 +484,7 @@ def query_places_hybrid(
     logger.info(f"     - price_tier: {price_tier}")
     
     if not places_container:
-        logger.error(f"places_container is None! Cosmos DB not initialized properly.")
+        logger.error(f"❌ places_container is None! Cosmos DB not initialized properly.")
         return []
     
     # Extract keywords from query for tags
@@ -899,15 +555,16 @@ def query_places_hybrid(
             parameters=params,
             partition_key=geo_scope_id
         ))
-        logger.info(f"Returned {len(items)} items")
+        logger.info(f"✅ Returned {len(items)} items")
         return items
     except Exception as ex:
-        logger.error(f"Error in hybrid search: {ex}")
+        logger.error(f"❌ Error in hybrid search: {ex}")
         import traceback
         logger.error(f"{traceback.format_exc()}")
         return []
 
 
+@traceable(run_type="retriever")
 def query_places_with_theme(
     theme: str,
     geo_scope_id: str,
@@ -932,7 +589,7 @@ def query_places_with_theme(
     Returns:
         List of places ranked by vector similarity with filters
     """
-    logger.info(f"========== THEME VECTOR SEARCH (EXPLORE) ==========")
+    logger.info(f"🎨 ========== THEME VECTOR SEARCH (EXPLORE) ==========")
     logger.info(f"     Theme: {theme}")
     logger.info(f"     City: {geo_scope_id}")
     
@@ -1027,15 +684,16 @@ def query_places_with_theme(
             parameters=params,
             partition_key=geo_scope_id
         ))
-        logger.info(f"Returned {len(items)} items")
+        logger.info(f"✅ Returned {len(items)} items")
         return items
     except Exception as ex:
-        logger.error(f"Error in theme search: {ex}")
+        logger.error(f"❌ Error in theme search: {ex}")
         import traceback
         logger.error(f"{traceback.format_exc()}")
         return []
 
 
+@traceable(run_type="retriever")
 def query_places_filtered(
     geo_scope_id: str,
     place_type: Optional[str] = None,
@@ -1057,7 +715,7 @@ def query_places_filtered(
     Returns:
         List of places filtered and sorted by rating
     """
-    logger.info(f"========== FILTERED SEARCH (EXPLORE) ==========")
+    logger.info(f"🔍 ========== FILTERED SEARCH (EXPLORE) ==========")
     logger.info(f"     City: {geo_scope_id}")
     
     if not places_container:
@@ -1108,7 +766,7 @@ def query_places_filtered(
     ORDER BY c.rating DESC
     """
     
-    logger.info(f"Filtered Query: {query_sql[:200]}...")
+    logger.info(f"📝 Filtered Query: {query_sql[:200]}...")
     
     try:
         items = list(places_container.query_items(
@@ -1116,20 +774,20 @@ def query_places_filtered(
             parameters=params,
             partition_key=geo_scope_id
         ))
-        logger.info(f"Returned {len(items)} items")
+        logger.info(f"✅ Returned {len(items)} items")
         return items
     except Exception as ex:
-        logger.error(f"Error querying places: {ex}")
-        logger.error(f"Exception type: {type(ex).__name__}")
+        logger.error(f"❌ Error querying places: {ex}")
+        logger.error(f"❌ Exception type: {type(ex).__name__}")
         import traceback
-        logger.error(f"Full traceback:\n{traceback.format_exc()}")
+        logger.error(f"❌ Full traceback:\n{traceback.format_exc()}")
         raise ex
 
 
 # ============================================================================
 # Trip Management Functions
 # ============================================================================
-
+@traceable
 def create_trip(
     user_id: str,
     tenant_id: str,
@@ -1166,17 +824,21 @@ def create_trip(
     }
     
     trips_container.upsert_item(trip)
-    logger.info(f"Created trip: {trip_id} with {trip_duration} days")
+    logger.info(f"✅ Created trip: {trip_id} with {trip_duration} days")
     return trip_id
 
 
 @traceable(run_type="retriever")
 def get_trip(trip_id: str, user_id: str, tenant_id: str) -> Optional[Dict[str, Any]]:
-    """Get a trip by ID"""
+    """Get a trip by ID using point read"""
     if not trips_container:
         return None
+    
     try:
-        return trips_container.read_item(item=trip_id, partition_key=[tenant_id, user_id, trip_id])
+        return trips_container.read_item(
+            item=trip_id,
+            partition_key=[tenant_id, user_id, trip_id]
+        )
     except CosmosResourceNotFoundError:
         logger.debug(f"Trip not found: {trip_id}")
         return None
@@ -1188,7 +850,7 @@ def get_trip(trip_id: str, user_id: str, tenant_id: str) -> Optional[Dict[str, A
 # ============================================================================
 # User Management Functions
 # ============================================================================
-
+@traceable
 def create_user(
     user_id: str,
     tenant_id: str,
@@ -1219,10 +881,11 @@ def create_user(
     }
     
     users_container.upsert_item(user)
-    logger.info(f"Created user: {user_id} ({name})")
+    logger.info(f"✅ Created user: {user_id} ({name})")
     return user_id
 
 
+@traceable(run_type="retriever")
 def get_all_users(tenant_id: str) -> List[Dict[str, Any]]:
     """Get all users for a tenant"""
     if not users_container:
@@ -1241,7 +904,7 @@ def get_all_users(tenant_id: str) -> List[Dict[str, Any]]:
             ],
             enable_cross_partition_query=True
         ))
-        logger.info(f"Retrieved {len(items)} users for tenant: {tenant_id}")
+        logger.info(f"✅ Retrieved {len(items)} users for tenant: {tenant_id}")
         return items
     except Exception as e:
         logger.error(f"Error getting users: {e}")
@@ -1250,18 +913,23 @@ def get_all_users(tenant_id: str) -> List[Dict[str, Any]]:
 
 @traceable(run_type="retriever")
 def get_user_by_id(user_id: str, tenant_id: str) -> Optional[Dict[str, Any]]:
-    """Get a user by ID"""
+    """Get a user by ID using point read"""
     if not users_container:
         return None
+    
     try:
-        user = users_container.read_item(item=user_id, partition_key=user_id)
+        user = users_container.read_item(
+            item=user_id,
+            partition_key=user_id
+        )
         # Validate tenant isolation
         if user.get("tenantId") != tenant_id:
-            logger.warning(f"Tenant mismatch for user {user_id}: expected {tenant_id}")
+            logger.warning(f"⚠️  Tenant mismatch for user {user_id}: expected {tenant_id}")
             return None
+        logger.info(f"✅ Retrieved user: {user_id}")
         return user
     except CosmosResourceNotFoundError:
-        logger.warning(f"User not found: {user_id}")
+        logger.warning(f"⚠️  User not found: {user_id}")
         return None
     except Exception as e:
         logger.error(f"Error reading user {user_id}: {e}")
@@ -1302,7 +970,7 @@ def record_api_event(
     }
     
     api_events_container.upsert_item(event)
-    logger.info(f"Recorded API event: {event_id} ({provider}.{operation})")
+    logger.info(f"✅ Recorded API event: {event_id} ({provider}.{operation})")
     return event_id
 
 
@@ -1326,7 +994,8 @@ def store_debug_log(
     transfer_success: bool = False,
     tool_calls: List[Dict[str, Any]] = None,
     logprobs: Optional[Dict[str, Any]] = None,
-    content_filter_results: Optional[Dict[str, Any]] = None
+    content_filter_results: Optional[Dict[str, Any]] = None,
+    debug_log_id: Optional[str] = None
 ) -> str:
     """
     Store detailed debug log information in Cosmos DB.
@@ -1355,7 +1024,8 @@ def store_debug_log(
     if not debug_logs_container:
         raise Exception("Debug logs container not available")
     
-    debug_log_id = str(uuid.uuid4())
+    if not debug_log_id:
+        debug_log_id = str(uuid.uuid4())
     message_id = str(uuid.uuid4())
     timestamp = datetime.now(UTC).isoformat()
     
@@ -1388,7 +1058,7 @@ def store_debug_log(
     }
     
     debug_logs_container.upsert_item(debug_entry)
-    logger.info(f"Stored debug log: {debug_log_id} (agent: {agent_selected}, tokens: {total_tokens})")
+    logger.info(f"✅ Stored debug log: {debug_log_id} (agent: {agent_selected}, tokens: {total_tokens})")
     return debug_log_id
 
 
@@ -1411,10 +1081,10 @@ def get_debug_log(debug_log_id: str, tenant_id: str, user_id: str, session_id: s
     try:
         partition_key = [tenant_id, user_id, session_id]
         item = debug_logs_container.read_item(item=debug_log_id, partition_key=partition_key)
-        logger.info(f"Retrieved debug log: {debug_log_id}")
+        logger.info(f"✅ Retrieved debug log: {debug_log_id}")
         return item
     except Exception as e:
-        logger.warning(f"Debug log not found: {debug_log_id} - {e}")
+        logger.warning(f"⚠️ Debug log not found: {debug_log_id} - {e}")
         return None
 
 
@@ -1460,7 +1130,7 @@ def query_debug_logs(
         enable_cross_partition_query=False
     ))
     
-    logger.info(f"Retrieved {len(items)} debug logs for session {session_id}")
+    logger.info(f"✅ Retrieved {len(items)} debug logs for session {session_id}")
     return items
 
 
@@ -1543,11 +1213,9 @@ def get_distinct_cities(tenant_id: str) -> List[Dict[str, str]]:
                 "displayName": display_name
             })
         
-        logger.info(f"Retrieved {len(cities)} distinct cities")
+        logger.info(f"✅ Retrieved {len(cities)} distinct cities")
         return cities
         
     except Exception as e:
         logger.error(f"Error getting distinct cities: {e}")
         return []
-
-

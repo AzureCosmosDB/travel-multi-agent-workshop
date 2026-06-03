@@ -7,7 +7,7 @@ from pathlib import Path
 import fastapi
 from dotenv import load_dotenv
 from datetime import datetime
-from fastapi import BackgroundTasks, Depends, HTTPException, Body
+from fastapi import BackgroundTasks, Depends, HTTPException, Body, Response
 from langchain_core.messages import HumanMessage, ToolMessage, AIMessage
 from pydantic import BaseModel
 from typing import List, Dict, Optional, Any
@@ -35,18 +35,19 @@ else:
     print(f"⚠️  .env file not found at: {env_file}, trying default locations")
     load_dotenv(override=False)
 
-from src.app.services.azure_open_ai import model, generate_embedding
+from src.app.services.azure_open_ai import model
 from src.app.services.azure_cosmos_db import (
     sessions_container, messages_container, trips_container,
-    memories_container, places_container, debug_logs_container, get_checkpoint_saver,
+    places_container, aget_checkpoint_saver, adelete_checkpoints_for_thread, close_async_cosmos_client,
     create_session_record, get_session_by_id,
     append_message, get_session_messages, query_places_hybrid,
-    get_trip, query_memories, get_all_user_memories, query_places_with_theme, query_places_filtered,
+    get_trip, query_places_with_theme, query_places_filtered,
     patch_active_agent, update_session_activity,
     create_user, get_all_users, get_user_by_id,
     store_debug_log, get_debug_log, query_debug_logs
 )
 from src.app.travel_agents import setup_agents, build_agent_graph, cleanup_persistent_session
+from src.app.services.agent_memory import get_memory_client, get_memory_write_lock
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -119,25 +120,17 @@ class Trip(BaseModel):
     createdAt: Optional[str] = None
 
 
-class MemoryType(str, Enum):
-    DECLARATIVE = "declarative"
-    EPISODIC = "episodic"
-    PROCEDURAL = "procedural"
-
-
 class Memory(BaseModel):
     id: str
-    memoryId: str
-    userId: str
-    tenantId: str
-    memoryType: str  # "declarative" | "episodic" | "procedural"
-    text: str
-    facets: Dict[str, Any]  # {"category": "dining", "preference": "vegetarian"}
-    salience: float
-    justification: str
-    extractedAt: str
-    lastUsedAt: str
-    ttl: Optional[int] = None
+    user_id: str
+    thread_id: Optional[str] = None
+    role: Optional[str] = None
+    type: str
+    content: str
+    metadata: Dict[str, Any] = {}
+    created_at: Optional[str] = None
+    tags: List[str] = []
+    salience: Optional[float] = None
 
 
 class PlaceType(str, Enum):
@@ -262,7 +255,6 @@ agent_mapping = {
     "activity": "Activity",
     "dining": "Dining",
     "itinerary_generator": "Itinerary",
-    "summarizer": "Summarizer"
 }
 
 
@@ -280,8 +272,8 @@ async def initialize_agents():
         try:
             logger.info(f"Attempt {attempt + 1}/{max_retries}: Initializing agents...")
             await setup_agents()
-            _graph = build_agent_graph()
-            _checkpointer = get_checkpoint_saver()
+            _checkpointer = await aget_checkpoint_saver()
+            _graph = build_agent_graph(_checkpointer)
             _agents_initialized = True
             logger.info("✅ Agents initialized successfully!")
             return
@@ -321,6 +313,7 @@ async def shutdown_event():
     """Cleanup resources on shutdown"""
     logger.info("🛑 Shutting down Travel Assistant API...")
     await cleanup_persistent_session()
+    await close_async_cosmos_client()
     logger.info("✅ Cleanup complete")
 
 
@@ -333,8 +326,8 @@ async def ensure_agents_initialized():
         try:
             await setup_agents()
             global _graph, _checkpointer
-            _graph = build_agent_graph()
-            _checkpointer = get_checkpoint_saver()
+            _checkpointer = await aget_checkpoint_saver()
+            _graph = build_agent_graph(_checkpointer)
             _agents_initialized = True
             logger.info("✅ Agents initialized successfully!")
         except Exception as e:
@@ -614,27 +607,14 @@ def delete_session(tenantId: str, userId: str, sessionId: str, background_tasks:
                     logger.warning(f"Failed to delete message {item['id']}: {e}")
         
         # Schedule checkpoint cleanup as background task
-        def delete_checkpoints():
+        async def delete_checkpoints_background():
             try:
-                if _checkpointer and hasattr(_checkpointer, 'container'):
-                    query = "SELECT c.id, c.partition_key FROM c WHERE CONTAINS(c.partition_key, @sessionId)"
-                    partitions = list(_checkpointer.container.query_items(
-                        query=query,
-                        parameters=[{"name": "@sessionId", "value": sessionId}],
-                        enable_cross_partition_query=True
-                    ))
-                    for partition in partitions:
-                        try:
-                            _checkpointer.container.delete_item(
-                                item=partition["id"],
-                                partition_key=partition["partition_key"]
-                            )
-                        except Exception as e:
-                            logger.warning(f"Failed to delete checkpoint: {e}")
+                deleted = await adelete_checkpoints_for_thread(sessionId)
+                logger.info(f"🧹 Deleted {deleted} checkpoint(s) for session {sessionId}")
             except Exception as e:
-                logger.error(f"Error cleaning up checkpoints: {e}")
-        
-        background_tasks.add_task(delete_checkpoints)
+                logger.error(f"Error cleaning up checkpoints for {sessionId}: {e}")
+
+        background_tasks.add_task(delete_checkpoints_background)
         
         return {"message": "Session deleted successfully", "sessionId": sessionId}
     except Exception as e:
@@ -872,21 +852,97 @@ def process_messages_background(message_tuples: List[tuple], userId: str, tenant
         logger.error(f"Error storing messages: {e}")
 
 
-def _post_response_background(sessionId: str, tenantId: str, userId: str, response_data, messages, debug_log_id: str):
+def _write_turns_to_memory(
+    user_id: str,
+    thread_id: str,
+    user_message: str,
+    messages: List[tuple],
+) -> None:
+    """Buffer the user + assistant turns and push them through the toolkit.
+
+    Runs synchronously (off the event loop via ``asyncio.to_thread``). Acquires
+    the process-wide memory-write lock so concurrent chat requests cannot
+    interleave ``add_local`` / ``push_to_cosmos`` / ``local_memory.clear()`` on
+    the shared singleton buffer — that race can lose ``_unflushed_turn_counts``
+    bumps and break the cadence-driven summarizer. The buffer is cleared in a
+    ``finally`` block so a failing push never poisons later requests.
+    """
+    # The user turn comes straight from the request body (more robust than
+    # walking the extracted message list — see extract_relevant_messages).
+    user_text = (user_message or "").strip()
+
+    agent_text = ""
+    for msg_model, _ in messages or []:
+        if getattr(msg_model, "senderRole", None) == "Assistant":
+            candidate = (getattr(msg_model, "text", "") or "").strip()
+            if candidate:
+                agent_text = candidate
+
+    if not user_text and not agent_text:
+        return
+
+    client = get_memory_client()
+    lock = get_memory_write_lock()
+    with lock:
+        try:
+            if user_text:
+                client.add_local(
+                    user_id=user_id,
+                    role="user",
+                    content=user_text,
+                    memory_type="turn",
+                    thread_id=thread_id,
+                    metadata={"role": "user"},
+                )
+            if agent_text:
+                client.add_local(
+                    user_id=user_id,
+                    role="agent",
+                    content=agent_text,
+                    memory_type="turn",
+                    thread_id=thread_id,
+                    metadata={"role": "assistant"},
+                )
+            client.push_to_cosmos()
+        finally:
+            client.local_memory.clear()
+
+
+async def _post_response_background(sessionId: str, tenantId: str, userId: str, response_data, messages, debug_log_id: str, user_message: str):
     """
     Background task: store debug log, persist messages, update agent state.
     Runs after HTTP response is already sent to the client.
     Each step is guarded independently so one failure doesn't block the others.
     """
+    try:
+        await asyncio.to_thread(
+            _write_turns_to_memory,
+            userId,
+            sessionId,
+            user_message,
+            messages,
+        )
+    except Exception as e:
+        logger.error(f"❌ Failed to write turns to long-term memory for session {sessionId}: {e}")
+
     # Step 1: Store debug log
     try:
-        store_debug_log_from_response(sessionId, tenantId, userId, response_data, debug_log_id=debug_log_id)
+        await asyncio.to_thread(
+            store_debug_log_from_response,
+            sessionId,
+            tenantId,
+            userId,
+            response_data,
+            debug_log_id=debug_log_id,
+        )
     except Exception as e:
         logger.error(f"❌ Failed to store debug log for session {sessionId}: {e}")
     
     # Step 2: Persist messages (runs even if debug log failed)
+    messages_persisted = False
     try:
-        process_messages_background(messages, userId, tenantId, sessionId)
+        await asyncio.to_thread(process_messages_background, messages, userId, tenantId, sessionId)
+        messages_persisted = True
     except Exception as e:
         logger.error(f"❌ Failed to persist messages for session {sessionId}: {e}")
     
@@ -901,7 +957,7 @@ def _post_response_background(sessionId: str, tenantId: str, userId: str, respon
         if last_agent_name == "unknown" and response_data:
             last_agent_name = list(response_data[-1].keys())[0] if response_data[-1] else "unknown"
         
-        patch_active_agent(tenantId, userId, sessionId, last_agent_name)
+        await asyncio.to_thread(patch_active_agent, tenantId, userId, sessionId, last_agent_name)
     except Exception as e:
         logger.error(f"❌ Failed to patch active agent for session {sessionId}: {e}")
     
@@ -958,8 +1014,8 @@ async def get_chat_completion(
             }
         }
         
-        # Retrieve last checkpoint
-        checkpoints = list(_checkpointer.list(config))
+        # Retrieve last checkpoint (async iterator)
+        checkpoints = [c async for c in _checkpointer.alist(config)]
         last_active_agent = "orchestrator"
         
         if not checkpoints:
@@ -996,11 +1052,10 @@ async def get_chat_completion(
         
         # Build response immediately from extracted messages
         response_models = [msg_model for msg_model, _ in messages]
-        
-        # Offload ALL storage to background (debug log, messages, agent patch)
+
         background_tasks.add_task(
             _post_response_background,
-            sessionId, tenantId, userId, response_data, messages, debug_log_id
+            sessionId, tenantId, userId, response_data, messages, debug_log_id, request_body
         )
         
         return response_models
@@ -1215,76 +1270,96 @@ def delete_trip_endpoint(tenantId: str, userId: str, tripId: str):
 # ============================================================================
 
 @app.get(
-    "/tenant/{tenantId}/user/{userId}/memories",
+    "/users/{user_id}/memories",
     tags=[MEMORY_TAG],
     summary="Get User Memories",
-    description="Retrieve user preferences and stored memories",
-    response_model=List[Memory]
+    description="Retrieve toolkit memories for a user; searches when q is supplied, otherwise lists recent memories",
+    response_model=List[Dict[str, Any]]
 )
 def get_user_memories(
-    tenantId: str, 
-    userId: str, 
-    memoryType: Optional[str] = None,
-    minSalience: float = 0.0,
+    user_id: str,
+    q: Optional[str] = None,
+    thread_id: Optional[str] = None,
+    top_k: int = 10,
 ):
-    """
-    Get stored memories for a user.
-    
-    Args:
-        tenantId: Tenant identifier
-        userId: User identifier
-        memoryType: Optional filter by type (declarative, episodic, procedural)
-        minSalience: Minimum importance score (0.0-1.0)
-    
-    Returns:
-        List of Memory objects
-    """
+    """Get toolkit-backed memories for a user."""
     try:
-        memories = get_all_user_memories(
-            user_id=userId,
-            tenant_id=tenantId
+        client = get_memory_client()
+        if q and q.strip():
+            return client.search_cosmos(
+                search_terms=q,
+                user_id=user_id,
+                thread_id=thread_id,
+                top_k=top_k,
+            )
+
+        return client.get_memories(
+            user_id=user_id,
+            thread_id=thread_id,
+            recent_k=top_k,
         )
-        
-        return [Memory(**mem) for mem in memories]
     except Exception as e:
         logger.error(f"Error fetching memories: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to fetch memories: {str(e)}")
 
 
 @app.delete(
-    "/tenant/{tenantId}/user/{userId}/memories/{memoryId}",
+    "/users/{user_id}/memories/{memory_id}",
     tags=[MEMORY_TAG],
     summary="Delete Memory",
-    description="Delete a specific user memory/preference",
-    status_code=200
+    description="Delete a toolkit memory for a user and thread",
+    status_code=204
 )
-def delete_memory(tenantId: str, userId: str, memoryId: str):
-    """
-    Delete a stored memory.
-    
-    Args:
-        tenantId: Tenant identifier
-        userId: User identifier
-        memoryId: Memory identifier
-    
-    Returns:
-        Success message
-    """
+def delete_memory(user_id: str, memory_id: str, thread_id: Optional[str] = None):
+    """Delete a toolkit-backed memory."""
+    if not thread_id:
+        raise HTTPException(status_code=400, detail="thread_id is required")
+
     try:
-        if not memories_container:
-            raise HTTPException(status_code=503, detail="Cosmos DB not available")
-        
-        partition_key = [tenantId, userId]
-        memories_container.delete_item(item=memoryId, partition_key=partition_key)
-        
-        return {"message": "Memory deleted successfully", "memoryId": memoryId}
-    except CosmosHttpResponseError as e:
-        if e.status_code == 404:
+        client = get_memory_client()
+        matches = client.get_memories(
+            memory_id=memory_id,
+            user_id=user_id,
+            thread_id=thread_id,
+        )
+        if not matches:
             raise HTTPException(status_code=404, detail="Memory not found")
+
+        memory_type = matches[0].get("type") or matches[0].get("memory_type")
+        if not memory_type:
+            raise HTTPException(
+                status_code=500,
+                detail="Memory record is missing a 'type' field; cannot route delete.",
+            )
+
+        client.delete_cosmos(
+            memory_id=memory_id,
+            user_id=user_id,
+            thread_id=thread_id,
+            memory_type=memory_type,
+        )
+        return Response(status_code=204)
+    except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Error deleting memory: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to delete memory: {str(e)}")
+
+
+@app.get(
+    "/users/{user_id}/summary",
+    tags=[MEMORY_TAG],
+    summary="Get User Summary",
+    description="Retrieve the latest toolkit-generated cross-thread user summary",
+    response_model=Optional[Dict[str, Any]]
+)
+def get_user_summary_endpoint(user_id: str):
+    """Get the latest toolkit-backed user summary, or null if absent."""
+    try:
+        return get_memory_client().get_user_summary(user_id)
+    except Exception as e:
+        logger.error(f"Error fetching user summary: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch user summary: {str(e)}")
 
 
 # ============================================================================

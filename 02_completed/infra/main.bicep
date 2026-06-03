@@ -18,6 +18,12 @@ param servicePrincipalId string = ''
 @description('Owner tag for resource tagging')
 param owner string = 'defaultuser@example.com'
 
+@description('Deploy a provisioned-throughput Cosmos DB account with GSI instead of serverless')
+param deployGsi bool = false
+
+@description('Override the resource group name. Defaults to rg-<environmentName>.')
+param resourceGroupName string = ''
+
 var tags = {
   'azd-env-name': environmentName
   'owner': owner
@@ -27,7 +33,7 @@ var abbrs = loadJsonContent('./abbreviations.json')
 var resourceToken = toLower(uniqueString(subscription().id, environmentName, location))
 
 resource rg 'Microsoft.Resources/resourceGroups@2022-09-01' = {
-  name: 'rg-${environmentName}'
+  name: !empty(resourceGroupName) ? resourceGroupName : 'rg-${environmentName}'
   location: location
   tags: tags
 }
@@ -43,8 +49,8 @@ module managedIdentity './shared/managedidentity.bicep' = {
   scope: rg
 }
 
-// Deploy Azure Cosmos DB
-module cosmos './shared/cosmosdb.bicep' = {
+// Deploy Azure Cosmos DB (serverless — default)
+module cosmos './shared/cosmosdb.bicep' = if (!deployGsi) {
   name: 'cosmos'
   params: {
     name: '${abbrs.documentDBDatabaseAccounts}${resourceToken}'
@@ -53,14 +59,41 @@ module cosmos './shared/cosmosdb.bicep' = {
     databaseName: 'TravelAssistant'
     sessionsContainerName: 'Sessions'
     messagesContainerName: 'Messages'
-    summariesContainerName: 'Summaries'
-    memoriesContainerName: 'Memories'
     apiEventsContainerName: 'ApiEvents'
     placesContainerName: 'Places'
     tripsContainerName: 'Trips'
     usersContainerName: 'Users'
     debugLogsContainerName: 'Debug'
     checkpointsContainerName: 'Checkpoints'
+    memoriesContainerName: 'memories'
+    memoriesTurnsContainerName: 'memories_turns'
+    memoriesSummariesContainerName: 'memories_summaries'
+    memoriesCounterContainerName: 'counter'
+  }
+  scope: rg
+}
+
+// Deploy Azure Cosmos DB (provisioned with GSI — optional)
+module cosmosGsi './shared/cosmosdb-gsi.bicep' = if (deployGsi) {
+  name: 'cosmos-gsi'
+  params: {
+    name: '${abbrs.documentDBDatabaseAccounts}${resourceToken}'
+    location: location
+    tags: tags
+    databaseName: 'TravelAssistant'
+    sessionsContainerName: 'Sessions'
+    messagesContainerName: 'Messages'
+    apiEventsContainerName: 'ApiEvents'
+    placesContainerName: 'Places'
+    tripsContainerName: 'Trips'
+    tripsByDestinationContainerName: 'TripsByDestination'
+    usersContainerName: 'Users'
+    debugLogsContainerName: 'Debug'
+    checkpointsContainerName: 'Checkpoints'
+    memoriesContainerName: 'memories'
+    memoriesTurnsContainerName: 'memories_turns'
+    memoriesSummariesContainerName: 'memories_summaries'
+    memoriesCounterContainerName: 'counter'
   }
   scope: rg
 }
@@ -113,14 +146,26 @@ module openAiModelDeployments './shared/modeldeployment.bicep' = [
 ]
 
 //Assign Roles to Managed Identities
-module AssignRoles './shared/assignroles.bicep' = {
+module AssignRoles './shared/assignroles.bicep' = if (!deployGsi) {
   name: 'AssignRoles'
   params: {
     cosmosDbAccountName: cosmos.outputs.name
     openAIName: openAi.outputs.name
     identityName: managedIdentity.outputs.name
 	  userPrincipalId: !empty(principalId) ? principalId : null
-	servicePrincipalId: !empty(servicePrincipalId) ? servicePrincipalId : ''
+	  servicePrincipalId: !empty(servicePrincipalId) ? servicePrincipalId : ''
+  }
+  scope: rg
+}
+
+module AssignRolesGsi './shared/assignroles.bicep' = if (deployGsi) {
+  name: 'AssignRolesGsi'
+  params: {
+    cosmosDbAccountName: cosmosGsi.outputs.name
+    openAIName: openAi.outputs.name
+    identityName: managedIdentity.outputs.name
+	  userPrincipalId: !empty(principalId) ? principalId : null
+	  servicePrincipalId: !empty(servicePrincipalId) ? servicePrincipalId : ''
   }
   scope: rg
 }
@@ -128,7 +173,8 @@ module AssignRoles './shared/assignroles.bicep' = {
 
 // Outputs
 output RG_NAME string = 'rg-${environmentName}'
-output COSMOSDB_ENDPOINT string = cosmos.outputs.endpoint
+output COSMOSDB_ENDPOINT string = deployGsi ? cosmosGsi.outputs.endpoint : cosmos.outputs.endpoint
 output AZURE_OPENAI_ENDPOINT string = openAi.outputs.endpoint
 output AZURE_OPENAI_COMPLETIONSDEPLOYMENTID string = openAiModelDeployments[0].outputs.name
 output AZURE_OPENAI_EMBEDDINGDEPLOYMENTID string = openAiModelDeployments[1].outputs.name
+output DEPLOY_GSI string = deployGsi ? 'true' : 'false'

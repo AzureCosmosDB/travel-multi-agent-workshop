@@ -22,14 +22,11 @@ from langgraph.graph import StateGraph, START, MessagesState
 from langgraph.prebuilt import create_react_agent
 from langgraph.types import Command, interrupt
 from langsmith import traceable
-from langgraph_checkpoint_cosmosdb import CosmosDBSaver
 
 from src.app.services.azure_open_ai import model
 from src.app.services.azure_cosmos_db import (
-    DATABASE_NAME, checkpoint_container,
     sessions_container, patch_active_agent,
-    update_session_container, append_message,
-    count_active_messages
+    update_session_container, aget_checkpoint_saver
 )
 
 # Setup logging - reduce clutter by setting specific loggers to WARNING
@@ -67,36 +64,6 @@ def filter_tools_by_prefix(tools, prefixes):
     return [tool for tool in tools if any(tool.name.startswith(prefix) for prefix in prefixes)]
 
 
-def format_conflict_message(conflicts: list) -> str:
-    """
-    Format conflict information for user confirmation.
-    
-    Args:
-        conflicts: List of conflict dictionaries with preference, conflict, and strategy
-        
-    Returns:
-        Formatted message string asking user to clarify
-    """
-    if not conflicts:
-        return ""
-    
-    msg = "I noticed something about your preferences that I'd like to clarify:\n\n"
-    
-    for i, conflict in enumerate(conflicts, 1):
-        pref = conflict.get("preference", {})
-        existing = conflict.get("conflict", "")
-        strategy = conflict.get("strategy", "")
-        
-        msg += f"{i}. You previously mentioned: \"{existing}\"\n"
-        msg += f"   But now you said: \"{pref.get('text', '')}\"\n"
-        if strategy:
-            msg += f"   ({strategy})\n"
-        msg += "\n"
-    
-    msg += "Have your preferences changed, or is this specific to a particular trip? Let me know so I can update your profile correctly!"
-    
-    return msg
-
 
 # Global variables for MCP session management
 _mcp_client = None
@@ -109,7 +76,6 @@ hotel_agent = None
 activity_agent = None
 dining_agent = None
 itinerary_generator_agent = None
-summarizer_agent = None
 
 
 async def setup_agents():
@@ -123,10 +89,9 @@ async def setup_agents():
     - Activity Agent: Searches attractions, stores activity preferences  
     - Dining Agent: Searches restaurants, stores dining preferences
     - Itinerary Generator: Synthesizes all results into day-by-day plan
-    - Summarizer: Compresses conversation history (auto-triggered every 10 turns)
     """
     global orchestrator_agent, hotel_agent, activity_agent, dining_agent
-    global itinerary_generator_agent, summarizer_agent
+    global itinerary_generator_agent
     global _mcp_client, _session_context, _persistent_session
     
     logger.info("🚀 Starting Travel Assistant MCP client...")
@@ -201,46 +166,40 @@ async def setup_agents():
     # Orchestrator: Session management + memory tools + all transfer tools
     orchestrator_tools = filter_tools_by_prefix(all_tools, [
         "create_session", "get_session_context", "append_turn",
-        "extract_preferences_from_message", "resolve_memory_conflicts", "store_resolved_preferences",
+        "add_turn", "recall_memories", "get_user_summary",
         "transfer_to_"  # All transfer tools
     ])
 
     hotel_tools = filter_tools_by_prefix(all_tools, [
         "discover_places",  # Search hotels
-        "recall_memories",
+        "add_turn", "recall_memories", "get_user_summary",
         "transfer_to_orchestrator", "transfer_to_itinerary_generator"
     ])
 
     activity_tools = filter_tools_by_prefix(all_tools, [
         "discover_places",  # Search attractions
-        "recall_memories",
+        "add_turn", "recall_memories", "get_user_summary",
         "transfer_to_orchestrator", "transfer_to_itinerary_generator"
     ])
 
     dining_tools = filter_tools_by_prefix(all_tools, [
         "discover_places",  # Search restaurants
-        "recall_memories",
+        "add_turn", "recall_memories", "get_user_summary",
         "transfer_to_orchestrator", "transfer_to_itinerary_generator"
     ])
 
     itinerary_generator_tools = filter_tools_by_prefix(all_tools, [
         "create_new_trip", "update_trip", "get_trip_details",
-        "transfer_to_orchestrator"
-    ])
-
-    summarizer_tools = filter_tools_by_prefix(all_tools, [
-        "get_summarizable_span", "mark_span_summarized", "get_session_context",
-        "get_all_user_summaries",  # Query all summaries for the user
+        "add_turn", "recall_memories", "get_user_summary",
         "transfer_to_orchestrator"
     ])
     
-    logger.info(f"\n📊 Tool Distribution (5 Specialized Agents):")
+    logger.info(f"\n📊 Tool Distribution (4 Specialized Agents):")
     logger.info(f"   Orchestrator: {len(orchestrator_tools)} tools")
     logger.info(f"   Hotel Agent: {len(hotel_tools)} tools")
     logger.info(f"   Activity Agent: {len(activity_tools)} tools")
     logger.info(f"   Dining Agent: {len(dining_tools)} tools")
     logger.info(f"   Itinerary Generator: {len(itinerary_generator_tools)} tools")
-    logger.info(f"   Summarizer: {len(summarizer_tools)} tools")
     
     # Create agents with their tools
     orchestrator_agent = create_react_agent(
@@ -273,12 +232,6 @@ async def setup_agents():
         state_modifier=load_prompt("itinerary_generator")
     )
     
-    summarizer_agent = create_react_agent(
-        model,
-        summarizer_tools,
-        state_modifier=load_prompt("summarizer")
-    )
-    
     logger.info("✅ All agents created successfully\n")
 
 
@@ -303,7 +256,7 @@ async def cleanup_persistent_session():
 # ============================================================================
 
 @traceable(run_type="llm")
-async def call_orchestrator_agent(state: MessagesState, config) -> Command[Literal["orchestrator", "hotel", "activity", "dining", "itinerary_generator", "summarizer", "human"]]:
+async def call_orchestrator_agent(state: MessagesState, config) -> Command[Literal["orchestrator", "hotel", "activity", "dining", "itinerary_generator", "human"]]:
     """
     Orchestrator agent: Routes requests using transfer_to_ tools.
     Checks for active agent and routes directly if found.
@@ -317,7 +270,7 @@ async def call_orchestrator_agent(state: MessagesState, config) -> Command[Liter
     
     # Add context about available parameters
     state["messages"].append(SystemMessage(
-        content=f"If tool to be called requires tenantId='{tenant_id}', userId='{user_id}', session_id='{thread_id}', include these in the JSON parameters when invoking the tool. Do not ask the user for them."
+        content=f"If tool to be called requires tenantId='{tenant_id}', userId='{user_id}', session_id='{thread_id}', thread_id='{thread_id}', include these in the JSON parameters when invoking the tool. Do not ask the user for them."
     ))
     
     # Check for active agent in database
@@ -368,11 +321,11 @@ async def call_hotel_agent(state: MessagesState, config) -> Command[Literal["hot
     
     # Patch active agent in database
     if local_interactive_mode:
-        patch_active_agent(tenant_id or "cli-test", user_id or "cli-test", thread_id, "hotel_agent")
+        patch_active_agent(tenant_id or "cli-test", user_id or "cli-test", thread_id, "hotel")
 
     # Add context about available parameters
     state["messages"].append(SystemMessage(
-        content=f"If tool to be called requires tenantId='{tenant_id}', userId='{user_id}', session_id='{thread_id}', include these in the JSON parameters when invoking the tool. Do not ask the user for them."
+        content=f"If tool to be called requires tenantId='{tenant_id}', userId='{user_id}', session_id='{thread_id}', thread_id='{thread_id}', include these in the JSON parameters when invoking the tool. Do not ask the user for them."
     ))
     
     logger.info(f"🏨 Invoking hotel_agent...")
@@ -416,11 +369,11 @@ async def call_activity_agent(state: MessagesState, config) -> Command[Literal["
     
     # Patch active agent in database
     if local_interactive_mode:
-        patch_active_agent(tenant_id or "cli-test", user_id or "cli-test", thread_id, "activity_agent")
+        patch_active_agent(tenant_id or "cli-test", user_id or "cli-test", thread_id, "activity")
     
     # Add context about available parameters
     state["messages"].append(SystemMessage(
-        content=f"If tool to be called requires tenantId='{tenant_id}', userId='{user_id}', session_id='{thread_id}', include these in the JSON parameters when invoking the tool. Do not ask the user for them."
+        content=f"If tool to be called requires tenantId='{tenant_id}', userId='{user_id}', session_id='{thread_id}', thread_id='{thread_id}', include these in the JSON parameters when invoking the tool. Do not ask the user for them."
     ))
     
     response = await activity_agent.ainvoke(state, config)
@@ -448,11 +401,11 @@ async def call_dining_agent(state: MessagesState, config) -> Command[Literal["di
     
     # Patch active agent in database
     if local_interactive_mode:
-        patch_active_agent(tenant_id or "cli-test", user_id or "cli-test", thread_id, "dining_agent")
+        patch_active_agent(tenant_id or "cli-test", user_id or "cli-test", thread_id, "dining")
     
     # Add context about available parameters
     state["messages"].append(SystemMessage(
-        content=f"If tool to be called requires tenantId='{tenant_id}', userId='{user_id}', session_id='{thread_id}', include these in the JSON parameters when invoking the tool. Do not ask the user for them."
+        content=f"If tool to be called requires tenantId='{tenant_id}', userId='{user_id}', session_id='{thread_id}', thread_id='{thread_id}', include these in the JSON parameters when invoking the tool. Do not ask the user for them."
     ))
     
     response = await dining_agent.ainvoke(state, config)
@@ -480,11 +433,11 @@ async def call_itinerary_generator_agent(state: MessagesState, config) -> Comman
     
     # Patch active agent in database
     if local_interactive_mode:
-        patch_active_agent(tenant_id or "cli-test", user_id or "cli-test", thread_id, "itinerary_generator_agent")
+        patch_active_agent(tenant_id or "cli-test", user_id or "cli-test", thread_id, "itinerary_generator")
     
     # Add context about available parameters
     state["messages"].append(SystemMessage(
-        content=f"If tool to be called requires tenantId='{tenant_id}', userId='{user_id}', session_id='{thread_id}', include these in the JSON parameters when invoking the tool. Do not ask the user for them."
+        content=f"If tool to be called requires tenantId='{tenant_id}', userId='{user_id}', session_id='{thread_id}', thread_id='{thread_id}', include these in the JSON parameters when invoking the tool. Do not ask the user for them."
     ))
     
     response = await itinerary_generator_agent.ainvoke(state, config)
@@ -499,38 +452,6 @@ async def call_itinerary_generator_agent(state: MessagesState, config) -> Comman
     return Command(update=response, goto="human")
 
 
-@traceable(run_type="llm")
-async def call_summarizer_agent(state: MessagesState, config) -> Command[Literal["summarizer", "orchestrator", "human"]]:
-    """
-    Summarizer agent: Compresses conversation history.
-    Auto-triggered every 10 turns.
-    """
-    thread_id = config["configurable"].get("thread_id", "UNKNOWN_THREAD_ID")
-    user_id = config["configurable"].get("userId", "UNKNOWN_USER_ID")
-    tenant_id = config["configurable"].get("tenantId", "UNKNOWN_TENANT_ID")
-    
-    logger.info("📝 Summarizer compressing conversation...")
-    
-    # Patch active agent in database
-    if local_interactive_mode:
-        patch_active_agent(tenant_id or "cli-test", user_id or "cli-test", thread_id, "summarizer_agent")
-    
-    # Add context about available parameters
-    state["messages"].append(SystemMessage(
-        content=f"If tool to be called requires tenantId='{tenant_id}', userId='{user_id}', thread_id='{thread_id}', include these in the JSON parameters when invoking the tool. Do not ask the user for them."
-    ))
-    
-    response = await summarizer_agent.ainvoke(state, config)
-    
-    # Remove system message
-    if isinstance(response, dict) and "messages" in response:
-        response["messages"] = [
-            msg for msg in response["messages"]
-            if not isinstance(msg, SystemMessage)
-        ]
-    
-    return Command(update=response, goto="human")
-
 
 @traceable
 def human_node(state: MessagesState, config) -> None:
@@ -541,54 +462,16 @@ def human_node(state: MessagesState, config) -> None:
     return None
 
 
-def should_summarize(state: MessagesState, config) -> bool:
-    """
-    Check if conversation should be summarized based on message count.
-    Returns True if there are 10+ messages and no recent summarization.
-    """
-    thread_id = config["configurable"].get("thread_id", "UNKNOWN_THREAD_ID")
-    user_id = config["configurable"].get("userId", "UNKNOWN_USER_ID") 
-    tenant_id = config["configurable"].get("tenantId", "UNKNOWN_TENANT_ID")
-    
-    # Count messages in current state (approximate)
-    message_count = len(state.get("messages", []))
-    
-    # If we have 10+ messages, check if we need summarization
-    if message_count >= 10:
-        try:
-            # Get actual count from DB (non-superseded, non-summary messages only)
-            actual_count = count_active_messages(
-                session_id=thread_id,
-                tenant_id=tenant_id,
-                user_id=user_id
-            )
-            
-            # Trigger summarization every 10 messages
-            if actual_count >= 10 and actual_count % 10 == 0:
-                logger.info(f"🎯 Auto-triggering summarization at {actual_count} messages")
-                return True
-                        
-        except Exception as e:
-            logger.error(f"Error checking message count for summarization: {e}")
-    
-    return False
-
 
 def get_active_agent(state: MessagesState, config) -> str:
     """
     Extract active agent from ToolMessage or fallback to Cosmos DB.
     This is used by the router to determine which specialized agent to call.
-    Also checks if auto-summarization should be triggered.
     """
     thread_id = config["configurable"].get("thread_id", "UNKNOWN_THREAD_ID")
     user_id = config["configurable"].get("userId", "UNKNOWN_USER_ID")
     tenant_id = config["configurable"].get("tenantId", "UNKNOWN_TENANT_ID")
-    
-    # **CHECK FOR AUTO-SUMMARIZATION FIRST**
-    if should_summarize(state, config):
-        logger.info("🤖 Auto-routing to summarizer (10+ messages)")
-        return "summarizer"
-    
+
     activeAgent = None
     
     # Search for last ToolMessage and try to extract `goto`
@@ -616,10 +499,10 @@ def get_active_agent(state: MessagesState, config) -> str:
             logger.error(f"Error retrieving active agent from DB: {e}")
             activeAgent = "unknown"
     
-    # If activeAgent is unknown or None, default to orchestrator
-    if activeAgent in [None, "unknown"]:
-        logger.info(f"� activeAgent is '{activeAgent}', defaulting to Orchestrator")
-        activeAgent = "Orchestrator"
+    valid_agents = {"orchestrator", "hotel", "activity", "dining", "itinerary_generator", "human"}
+    if activeAgent in [None, "unknown"] or activeAgent not in valid_agents:
+        logger.info(f"activeAgent is '{activeAgent}', defaulting to orchestrator")
+        activeAgent = "orchestrator"
     
     return activeAgent
 
@@ -628,7 +511,7 @@ def get_active_agent(state: MessagesState, config) -> str:
 # Build Agent Graph
 # ============================================================================
 
-def build_agent_graph():
+def build_agent_graph(checkpointer):
     """
     Build the multi-agent graph using LangGraph.
     
@@ -637,20 +520,18 @@ def build_agent_graph():
     - Orchestrator routes via transfer_to_ tools
     - Specialized agents (Hotel, Activity, Dining) → Itinerary Generator or Orchestrator
     - Itinerary Generator → Orchestrator only
-    - Summarizer → Orchestrator only (auto-triggered every 10 turns)
     - All agents → Human node (for user interrupts)
     """
     logger.info("🏗️  Building multi-agent graph...")
     
     builder = StateGraph(MessagesState)
     
-    # Add all agent nodes (6 agents total)
+    # Add all agent nodes (5 agents total)
     builder.add_node("orchestrator", call_orchestrator_agent)
     builder.add_node("hotel", call_hotel_agent)
     builder.add_node("activity", call_activity_agent)
     builder.add_node("dining", call_dining_agent)
     builder.add_node("itinerary_generator", call_itinerary_generator_agent)
-    builder.add_node("summarizer", call_summarizer_agent)
     builder.add_node("human", human_node)
     
     # Set entry point - always start with orchestrator
@@ -665,7 +546,6 @@ def build_agent_graph():
             "activity": "activity",
             "dining": "dining",
             "itinerary_generator": "itinerary_generator",
-            "summarizer": "summarizer",
             "human": "human",  # Wait for user input
             "orchestrator": "orchestrator",  # fallback
         }
@@ -714,32 +594,16 @@ def build_agent_graph():
         }
     )
     
-    # Summarizer routing - can only return to orchestrator
-    builder.add_conditional_edges(
-        "summarizer",
-        get_active_agent,
-        {
-            "orchestrator": "orchestrator",
-            "summarizer": "summarizer",  # Can stay in summarizer
-        }
-    )
-    
-    # Compile with checkpointer
-    checkpointer = CosmosDBSaver(
-        database_name=DATABASE_NAME,
-        container_name=checkpoint_container
-    )
-
+    # Compile with the caller-provided checkpointer
     graph = builder.compile(checkpointer=checkpointer)
     
     logger.info("✅ Multi-agent graph built successfully")
     logger.info("📊 Graph structure:")
     logger.info("   Entry: User → Orchestrator")
-    logger.info("   Orchestrator → Hotel/Activity/Dining/Itinerary/Summarizer")
+    logger.info("   Orchestrator → Hotel/Activity/Dining/Itinerary")
     logger.info("   Hotel/Activity/Dining → Itinerary Generator or Orchestrator")
     logger.info("   Itinerary Generator → Orchestrator only")
-    logger.info("   Summarizer → Orchestrator only (auto-triggered every 10 messages)")
-    logger.info("   Agents: 6 total (Orchestrator, Hotel, Activity, Dining, Itinerary Generator, Summarizer)")
+    logger.info("   Agents: 5 total (Orchestrator, Hotel, Activity, Dining, Itinerary Generator)")
     
     return graph
 
@@ -772,8 +636,9 @@ async def interactive_chat():
     print("Type 'exit' to end the conversation")
     print("="*70 + "\n")
     
-    # Build graph
-    graph = build_agent_graph()
+    # Build graph (await the async checkpointer first)
+    checkpointer = await aget_checkpoint_saver()
+    graph = build_agent_graph(checkpointer)
     
     user_input = input("You: ")
     

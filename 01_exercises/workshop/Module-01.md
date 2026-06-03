@@ -55,10 +55,8 @@ code .
       - **dining_agent.prompty**
       - **activity_agent.prompty**
       - **itinerary_generator.prompty**
-      - **summarizer.prompty**
-      - **memory_conflict_resolution.prompty**
-      - **preference_extraction.prompty**
     - **/services** Service layer wrappers for Azure services
+      - **agent_memory.py** Toolkit-backed memory client wrapper
       - **azure_cosmos_db.py** Cosmos DB operations and vector search
       - **azure_open_ai.py** Azure OpenAI integration
 - **/mcp_server** Model Context Protocol server implementation
@@ -467,9 +465,6 @@ logging.getLogger("langsmith.client").setLevel(logging.WARNING)
 # Suppress service initialization logs
 logging.getLogger("src.app.services.azure_open_ai").setLevel(logging.WARNING)
 logging.getLogger("src.app.services.azure_cosmos_db").setLevel(logging.WARNING)
-
-# Prompt directory
-PROMPT_DIR = os.path.join(os.path.dirname(__file__), '..', 'python', 'src', 'app', 'prompts')
 
 # Load environment variables
 try:
@@ -1254,7 +1249,7 @@ import logging
 import os
 import uuid
 from typing import Literal
-from langchain_core.messages import AIMessage, SystemMessage, ToolMessage
+from langchain_core.messages import AIMessage
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langchain_mcp_adapters.tools import load_mcp_tools
 from langgraph.graph import StateGraph, START, MessagesState
@@ -1303,11 +1298,7 @@ _persistent_session = None
 
 # Global agent variables
 orchestrator_agent = None
-hotel_agent = None
-activity_agent = None
-dining_agent = None
 itinerary_generator_agent = None
-summarizer_agent = None
 
 
 async def setup_agents():
@@ -1523,8 +1514,11 @@ sys.path.insert(0, python_dir)
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Prompt directory
-PROMPT_DIR = os.path.join(os.path.dirname(__file__), '..', 'python', 'src', 'app', 'prompts')
+# Suppress SSE, OpenAI, urllib3, and LangSmith debug logs
+logging.getLogger("sse_starlette.sse").setLevel(logging.WARNING)
+logging.getLogger("openai._base_client").setLevel(logging.WARNING)
+logging.getLogger("urllib3.connectionpool").setLevel(logging.WARNING)
+logging.getLogger("langsmith.client").setLevel(logging.WARNING)
 
 # Load environment variables
 try:
@@ -1633,14 +1627,14 @@ def transfer_to_itinerary_generator(
 
 
 if __name__ == "__main__":
-    print("Starting Banking Tools MCP server...")
+    print("Starting Travel Assistant MCP server...")
 
     # Configure server options
     server_options = {
         "transport": "streamable-http"
     }
 
-    print("� Starting server without built-in authentication...")
+    print("🔓 Starting server without built-in authentication...")
     print("💡 For OAuth, use a reverse proxy like nginx or API gateway")
 
     try:
