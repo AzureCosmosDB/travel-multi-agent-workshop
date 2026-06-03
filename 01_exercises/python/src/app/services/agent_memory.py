@@ -1,6 +1,8 @@
-"""Singleton wrapper around agent_memory_toolkit.CosmosMemoryClient.
+"""Singleton wrapper around azure.cosmos.agent_memory.CosmosMemoryClient.
 
 All workshop memory access (MCP, REST, agents) flows through `get_memory_client()`.
+The toolkit writes to three Cosmos containers (turns, memories, summaries) that the
+seed script also provisions.
 """
 
 from __future__ import annotations
@@ -11,12 +13,14 @@ from typing import Optional
 
 from dotenv import load_dotenv
 
-from agent_memory_toolkit import CosmosMemoryClient
+from azure.cosmos.agent_memory import CosmosMemoryClient
 
 load_dotenv(override=False)
 
 _client: Optional[CosmosMemoryClient] = None
 _client_lock = threading.Lock()
+
+_memory_write_lock = threading.Lock()
 
 
 def _get_required_env(name: str) -> str:
@@ -28,11 +32,7 @@ def _get_required_env(name: str) -> str:
 
 def _create_memory_client() -> CosmosMemoryClient:
     cosmos_endpoint = _get_required_env("COSMOSDB_ENDPOINT")
-    cosmos_database = (
-        os.environ.get("COSMOSDB_DATABASE_NAME")
-        or os.environ.get("COSMOS_DB_DATABASE_NAME")
-        or "TravelAssistant"
-    )
+    cosmos_database = os.environ.get("COSMOSDB_DATABASE_NAME", "TravelAssistant")
     ai_foundry_endpoint = _get_required_env("AZURE_OPENAI_ENDPOINT")
     chat_deployment = (
         os.environ.get("AZURE_OPENAI_CHAT_DEPLOYMENT")
@@ -72,6 +72,11 @@ def get_memory_client() -> CosmosMemoryClient:
                     _client = _create_memory_client()
                 except Exception as exc:  # noqa: BLE001
                     raise RuntimeError(
-                        f"agent_memory_toolkit failed to connect: {exc}"
+                        f"azure-cosmos-agent-memory failed to connect: {exc}"
                     ) from exc
     return _client
+
+
+def get_memory_write_lock() -> threading.Lock:
+    """Return the lock guarding the toolkit's shared in-process buffer."""
+    return _memory_write_lock

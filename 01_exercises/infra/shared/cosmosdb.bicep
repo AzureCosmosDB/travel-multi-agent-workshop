@@ -8,6 +8,10 @@ param tripsContainerName string
 param usersContainerName string
 param debugLogsContainerName string
 param checkpointsContainerName string
+param memoriesContainerName string = 'memories'
+param memoriesTurnsContainerName string = 'memories_turns'
+param memoriesSummariesContainerName string = 'memories_summaries'
+param memoriesCounterContainerName string = 'counter'
 param location string = resourceGroup().location
 param name string
 param tags object = {}
@@ -398,7 +402,7 @@ resource cosmosContainerDebugLogs 'Microsoft.DocumentDB/databaseAccounts/sqlData
 }
 
 // Container 8: Checkpoints (LangGraph)
-// Partition Key: /session_id (simple)
+// Partition Key: /partition_key (required by langchain-azure-cosmosdb)
 // No vector search, no full-text search
 resource cosmosContainerCheckpoints 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2024-12-01-preview' = {
   parent: database
@@ -408,7 +412,7 @@ resource cosmosContainerCheckpoints 'Microsoft.DocumentDB/databaseAccounts/sqlDa
       id: checkpointsContainerName
       partitionKey: {
         paths: [
-          '/session_id'
+          '/partition_key'
         ]
         kind: 'Hash'
         version: 2
@@ -426,6 +430,244 @@ resource cosmosContainerCheckpoints 'Microsoft.DocumentDB/databaseAccounts/sqlDa
             path: '/"_etag"/?'
           }
         ]
+      }
+    }
+  }
+  tags: tags
+}
+
+// Container 9: memories_turns
+// Partition Key: [/user_id, /thread_id] (hierarchical)
+// Default TTL: 30 days (DEFAULT_TTL_BY_TYPE['turn'] in the SDK)
+// No vector, no full-text — raw turn log used to feed extraction.
+resource cosmosContainerMemoriesTurns 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2024-12-01-preview' = {
+  parent: database
+  name: memoriesTurnsContainerName
+  properties: {
+    resource: {
+      id: memoriesTurnsContainerName
+      partitionKey: {
+        paths: [
+          '/user_id'
+          '/thread_id'
+        ]
+        kind: 'MultiHash'
+        version: 2
+      }
+      defaultTtl: 2592000
+      indexingPolicy: {
+        indexingMode: 'consistent'
+        automatic: true
+        includedPaths: [
+          {
+            path: '/*'
+          }
+        ]
+        excludedPaths: [
+          {
+            path: '/embedding/?'
+          }
+          {
+            path: '/source_memory_ids/*'
+          }
+          {
+            path: '/supersedes_ids/*'
+          }
+          {
+            path: '/"_etag"/?'
+          }
+        ]
+      }
+    }
+  }
+  tags: tags
+}
+
+// Container 10: memories (facts, episodics, procedurals)
+// Partition Key: [/user_id, /thread_id] (hierarchical)
+// Vector: /embedding (1536-dim cosine diskANN float32 — text-embedding-3-small)
+// Full-text: /content (en-US)
+// Composite index (salience DESC, created_at ASC, id ASC) — required for the
+//   SDK's procedural-synthesis ORDER BY.
+resource cosmosContainerMemories 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2024-12-01-preview' = {
+  parent: database
+  name: memoriesContainerName
+  properties: {
+    resource: {
+      id: memoriesContainerName
+      partitionKey: {
+        paths: [
+          '/user_id'
+          '/thread_id'
+        ]
+        kind: 'MultiHash'
+        version: 2
+      }
+      defaultTtl: -1
+      indexingPolicy: {
+        indexingMode: 'consistent'
+        automatic: true
+        includedPaths: [
+          {
+            path: '/*'
+          }
+        ]
+        excludedPaths: [
+          {
+            path: '/embedding/*'
+          }
+          {
+            path: '/source_memory_ids/*'
+          }
+          {
+            path: '/supersedes_ids/*'
+          }
+          {
+            path: '/"_etag"/?'
+          }
+        ]
+        vectorIndexes: [
+          {
+            path: '/embedding'
+            type: 'diskANN'
+          }
+        ]
+        fullTextIndexes: [
+          {
+            path: '/content'
+          }
+        ]
+        compositeIndexes: [
+          [
+            {
+              path: '/salience'
+              order: 'descending'
+            }
+            {
+              path: '/created_at'
+              order: 'ascending'
+            }
+            {
+              path: '/id'
+              order: 'ascending'
+            }
+          ]
+        ]
+      }
+      vectorEmbeddingPolicy: {
+        vectorEmbeddings: [
+          {
+            path: '/embedding'
+            dataType: 'float32'
+            distanceFunction: 'cosine'
+            dimensions: 1536
+          }
+        ]
+      }
+      fullTextPolicy: {
+        defaultLanguage: 'en-US'
+        fullTextPaths: [
+          {
+            path: '/content'
+            language: 'en-US'
+          }
+        ]
+      }
+    }
+  }
+  tags: tags
+}
+
+// Container 11: memories_summaries
+// Partition Key: [/user_id, /thread_id] (hierarchical)
+// No vector, no full-text — the SDK doesn't index summaries that way.
+// Composite index (user_id ASC, thread_id ASC, version DESC) for "latest summary" lookups.
+resource cosmosContainerMemoriesSummaries 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2024-12-01-preview' = {
+  parent: database
+  name: memoriesSummariesContainerName
+  properties: {
+    resource: {
+      id: memoriesSummariesContainerName
+      partitionKey: {
+        paths: [
+          '/user_id'
+          '/thread_id'
+        ]
+        kind: 'MultiHash'
+        version: 2
+      }
+      defaultTtl: -1
+      indexingPolicy: {
+        indexingMode: 'consistent'
+        automatic: true
+        includedPaths: [
+          {
+            path: '/*'
+          }
+        ]
+        excludedPaths: [
+          {
+            path: '/embedding/?'
+          }
+          {
+            path: '/source_memory_ids/*'
+          }
+          {
+            path: '/supersedes_ids/*'
+          }
+          {
+            path: '/"_etag"/?'
+          }
+        ]
+        compositeIndexes: [
+          [
+            {
+              path: '/user_id'
+              order: 'ascending'
+            }
+            {
+              path: '/thread_id'
+              order: 'ascending'
+            }
+            {
+              path: '/version'
+              order: 'descending'
+            }
+          ]
+        ]
+      }
+    }
+  }
+  tags: tags
+}
+
+
+// Container 12: counter (SDK auto-trigger state)
+// Partition Key: [/user_id, /thread_id] (hierarchical — matches SDK counter doc shape)
+// No TTL, no special indexing. The SDK reads/writes counters per
+// (user_id, thread_id) so it can fire FACT_EXTRACTION_EVERY_N,
+// THREAD_SUMMARY_EVERY_N, USER_SUMMARY_EVERY_N, and DEDUP_EVERY_N at the
+// right turn boundaries. User-scoped counters use thread_id="__counters__".
+resource cosmosContainerMemoriesCounter 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2024-12-01-preview' = {
+  parent: database
+  name: memoriesCounterContainerName
+  properties: {
+    resource: {
+      id: memoriesCounterContainerName
+      partitionKey: {
+        paths: [
+          '/user_id'
+          '/thread_id'
+        ]
+        kind: 'MultiHash'
+        version: 2
+      }
+      defaultTtl: -1
+      indexingPolicy: {
+        indexingMode: 'consistent'
+        automatic: true
+        includedPaths: [ { path: '/*' } ]
+        excludedPaths: [ { path: '/"_etag"/?' } ]
       }
     }
   }

@@ -65,6 +65,10 @@ module cosmos './shared/cosmosdb.bicep' = if (!deployGsi) {
     usersContainerName: 'Users'
     debugLogsContainerName: 'Debug'
     checkpointsContainerName: 'Checkpoints'
+    memoriesContainerName: 'memories'
+    memoriesTurnsContainerName: 'memories_turns'
+    memoriesSummariesContainerName: 'memories_summaries'
+    memoriesCounterContainerName: 'counter'
   }
   scope: rg
 }
@@ -86,6 +90,10 @@ module cosmosGsi './shared/cosmosdb-gsi.bicep' = if (deployGsi) {
     usersContainerName: 'Users'
     debugLogsContainerName: 'Debug'
     checkpointsContainerName: 'Checkpoints'
+    memoriesContainerName: 'memories'
+    memoriesTurnsContainerName: 'memories_turns'
+    memoriesSummariesContainerName: 'memories_summaries'
+    memoriesCounterContainerName: 'counter'
   }
   scope: rg
 }

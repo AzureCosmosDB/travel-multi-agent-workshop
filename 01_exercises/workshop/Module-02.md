@@ -2170,7 +2170,6 @@ from src.app.services.azure_cosmos_db import (
     create_session_record,
     get_session_by_id,
     get_session_messages,
-    get_session_summaries,
     query_places_hybrid,
     create_trip,
     get_trip,

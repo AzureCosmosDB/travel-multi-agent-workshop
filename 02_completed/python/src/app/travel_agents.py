@@ -22,13 +22,11 @@ from langgraph.graph import StateGraph, START, MessagesState
 from langgraph.prebuilt import create_react_agent
 from langgraph.types import Command, interrupt
 from langsmith import traceable
-from langgraph_checkpoint_cosmosdb import CosmosDBSaver
 
 from src.app.services.azure_open_ai import model
 from src.app.services.azure_cosmos_db import (
-    DATABASE_NAME, checkpoint_container,
     sessions_container, patch_active_agent,
-    update_session_container
+    update_session_container, aget_checkpoint_saver
 )
 
 # Setup logging - reduce clutter by setting specific loggers to WARNING
@@ -513,7 +511,7 @@ def get_active_agent(state: MessagesState, config) -> str:
 # Build Agent Graph
 # ============================================================================
 
-def build_agent_graph():
+def build_agent_graph(checkpointer):
     """
     Build the multi-agent graph using LangGraph.
     
@@ -596,12 +594,7 @@ def build_agent_graph():
         }
     )
     
-    # Compile with checkpointer
-    checkpointer = CosmosDBSaver(
-        database_name=DATABASE_NAME,
-        container_name=checkpoint_container
-    )
-
+    # Compile with the caller-provided checkpointer
     graph = builder.compile(checkpointer=checkpointer)
     
     logger.info("✅ Multi-agent graph built successfully")
@@ -643,8 +636,9 @@ async def interactive_chat():
     print("Type 'exit' to end the conversation")
     print("="*70 + "\n")
     
-    # Build graph
-    graph = build_agent_graph()
+    # Build graph (await the async checkpointer first)
+    checkpointer = await aget_checkpoint_saver()
+    graph = build_agent_graph(checkpointer)
     
     user_input = input("You: ")
     
