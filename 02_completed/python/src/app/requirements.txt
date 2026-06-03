@@ -126,6 +126,4 @@ zstandard==0.25.0
 # Azure Cosmos DB Agent Memory — PyPI package
 # https://pypi.org/project/azure-cosmos-agent-memory/
 prompty>=2.0.0a9
-# !!! TEMPORARY LOCAL WHEEL — REVERT BEFORE COMMIT (restore line below) !!!
-# azure-cosmos-agent-memory>=0.1.0b1
-../../wheels/azure_cosmos_agent_memory-0.1.0b2-py3-none-any.whl
+azure-cosmos-agent-memory>=0.1.0b2

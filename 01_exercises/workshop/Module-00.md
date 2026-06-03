@@ -656,7 +656,7 @@ The script is idempotent — re-running it is safe and will simply upsert the sa
 **Solution**: Verify your `.env` file configuration:
 
 - Check `python/.env` exists and contains `COSMOSDB_ENDPOINT`
-- On Windows, verify `COSMOS_KEY` is present
+- On Windows, verify `COSMOSDB_KEY` is present
 - Ensure the values match your Azure Cosmos DB account
 - Try logging in to Azure again: `azd auth login`
 
