@@ -254,24 +254,13 @@ def recall_memories(
     Returns up to top_k records ranked by relevance."""
     client = get_memory_client()
 
-    import inspect
-
-    params = inspect.signature(client.search_cosmos).parameters
-    if "query" in params:
-        hits = client.search_cosmos(
-            query=query,
-            user_id=user_id,
-            thread_id=thread_id,
-            top_k=top_k,
-        )
-    else:
-        hits = client.search_cosmos(
-            search_terms=query,
-            user_id=user_id,
-            thread_id=thread_id,
-            top_k=top_k,
-            hybrid_search=True,
-        )
+    hits = client.search_cosmos(
+        search_terms=query,
+        user_id=user_id,
+        thread_id=thread_id,
+        top_k=top_k,
+        hybrid_search=True,
+    )
     return [_memory_to_dict(hit) for hit in hits]
 
 

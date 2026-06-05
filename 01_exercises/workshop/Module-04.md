@@ -30,7 +30,8 @@ Importantly: you **won't write any extraction prompts**. They ship inside the to
 1. [Activity 1: From Manual Memory to Intelligent Memory](#activity-1-from-manual-memory-to-intelligent-memory)
 2. [Activity 2: The Auto-Trigger Pipeline](#activity-2-the-auto-trigger-pipeline)
 3. [Activity 3: Tuning the Cadence](#activity-3-tuning-the-cadence)
-4. [Activity 4: Test Your Work](#activity-4-test-your-work)
+4. [Activity 4: Wire Memory apis](#activity-4-wire-memory-apis)
+5. [Activity 5: Test Your Work](#activity-5-test-your-work)
 
 ---
 
@@ -144,7 +145,93 @@ THREAD_SUMMARY_EVERY_N=5
 USER_SUMMARY_EVERY_N=5
 ```
 
-## Activity 4: Test Your Work
+## Activity 4: Wire Memory apis
+
+Open python/src/app/travel_agents_api.py. Find `from src.app.travel_agents import setup_agents, build_agent_graph, cleanup_persistent_session` add the following import:
+
+```python
+from src.app.services.agent_memory import get_memory_client, get_memory_write_lock
+```
+
+Open python/src/app/travel_agents_api.py. Find `Memory Management Endpoints` and uncomment all the memory apis below this. The meemory apis should now look like this:
+
+```python
+@app.get(
+    "/users/{user_id}/memories",
+    tags=[MEMORY_TAG],
+    summary="Get User Memories",
+    description="Retrieve toolkit memories for a user; searches when q is supplied, otherwise lists recent memories",
+    response_model=List[Dict[str, Any]]
+)
+def get_user_memories(
+    user_id: str,
+    q: Optional[str] = None,
+    thread_id: Optional[str] = None,
+    top_k: int = 10,
+):
+    """Get toolkit-backed memories for a user."""
+    try:
+        client = get_memory_client()
+        if q and q.strip():
+            return client.search_cosmos(
+                search_terms=q,
+                user_id=user_id,
+                thread_id=thread_id,
+                top_k=top_k,
+            )
+
+        return client.get_memories(
+            user_id=user_id,
+            thread_id=thread_id,
+            recent_k=top_k,
+        )
+    except Exception as e:
+        logger.error(f"Error fetching memories: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch memories: {str(e)}")
+
+
+@app.delete(
+    "/users/{user_id}/memories/{memory_id}",
+    tags=[MEMORY_TAG],
+    summary="Delete Memory",
+    description="Delete a toolkit memory for a user and thread",
+    status_code=204
+)
+def delete_memory(user_id: str, memory_id: str, thread_id: Optional[str] = None):
+    """Delete a toolkit-backed memory."""
+    if not thread_id:
+        raise HTTPException(status_code=400, detail="thread_id is required")
+
+    try:
+        get_memory_client().delete_cosmos(
+            memory_id=memory_id,
+            thread_id=thread_id,
+            user_id=user_id,
+        )
+        return Response(status_code=204)
+    except Exception as e:
+        logger.error(f"Error deleting memory: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to delete memory: {str(e)}")
+
+
+@app.get(
+    "/users/{user_id}/summary",
+    tags=[MEMORY_TAG],
+    summary="Get User Summary",
+    description="Retrieve the latest toolkit-generated cross-thread user summary",
+    response_model=Optional[Dict[str, Any]]
+)
+def get_user_summary(user_id: str):
+    """Get the latest toolkit-backed user summary, or null if absent."""
+    try:
+        summaries = get_memory_client().get_user_summary(user_id)
+        return summaries[0] if summaries else None
+    except Exception as e:
+        logger.error(f"Error fetching user summary: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch user summary: {str(e)}")
+```
+
+## Activity 5: Test Your Work
 
 With all intelligent memory features connected, it's time to test the system end-to-end! This activity will verify automatic preference extraction, conflict detection, and auto-summarization.
 
@@ -201,7 +288,7 @@ cd multi-agent-workshop/01_exercises/frontend
 npm start
 ```
 
-#### Test 1: Automatic Preference Extraction (Implicit Statements)
+### Test 1: Automatic Preference Extraction (Implicit Statements)
 
 1. Sign in as **Peter** (no seed memories).
 2. Send: `Hi, I don't eat meat and I need wheelchair-accessible restaurants`

@@ -5,9 +5,7 @@
         },
         "outputs": {
             "required_tools": [
-                "extract_preferences_from_message",
-                "resolve_memory_conflicts",
-                "store_resolved_preferences",
+                "add_turn",
                 "transfer_to_hotel"
             ]
         }

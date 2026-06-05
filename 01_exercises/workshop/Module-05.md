@@ -227,7 +227,7 @@ async def call_summarizer(state: MessagesState):
 
 ## Activity 4: Adding Tracing to MCP Tools
 
-MCP tools are the actions your agents can perform—transferring between agents, discovering places, managing trips, handling sessions, extracting preferences, and managing summarization. By tracing tools, you'll see exactly which tools each agent calls and with what parameters.
+MCP tools are the actions your agents can perform—transferring between agents, discovering places, managing trips, handling sessions, and recalling memories. By tracing tools, you'll see exactly which tools each agent calls and with what parameters.
 
 ### Step 1: Import the traceable Decorator
 
@@ -272,13 +272,6 @@ def transfer_to_activity(reason: str) -> str:
 @traceable
 def transfer_to_dining(reason: str) -> str:
     """Transfer conversation to the Dining Agent."""
-    # Existing code...
-
-@mcp.tool()
-@traceable
-def transfer_to_summarizer(reason: str) -> str:
-    """
-    Transfer conversation to the Summarizer agent.
     # Existing code...
 ```
 
@@ -371,94 +364,46 @@ def get_session_context(
     # Existing code...
 ```
 
-### Step 6: Add @traceable to Memory Lifecycle Tools
+### Step 6: Add @traceable to the Memory Tools 
 
-These tools handle preference extraction, conflict resolution, and memory storage:
+These tools handle memory recall and user summaries:
 
 ```python
 @mcp.tool()
 @traceable
 def recall_memories(
     user_id: str,
-    tenant_id: str,
     query: str,
-    min_salience: float = 0.0
+    thread_id: Optional[str] = None,
+    top_k: int = 5,
 ) -> List[Dict[str, Any]]:
-    """Smart hybrid retrieval of relevant memories."""
-    # Existing code...
+    """Hybrid vector+keyword recall over the user's memories.
+    Returns up to top_k records ranked by relevance."""
+    client = get_memory_client()
+
+    hits = client.search_cosmos(
+        search_terms=query,
+        user_id=user_id,
+        thread_id=thread_id,
+        top_k=top_k,
+        hybrid_search=True,
+    )
+    return [_memory_to_dict(hit) for hit in hits]
+
 
 @mcp.tool()
 @traceable
-def extract_preferences_from_message(
-    message: str,
-    role: str,
-    user_id: str,
-    tenant_id: str
-) -> Dict[str, Any]:
-    """Extract travel preferences from a user or assistant message using LLM."""
-    # Existing code...
-
-@mcp.tool()
-@traceable
-def resolve_memory_conflicts(
-    new_preferences: List[Dict[str, Any]],
-    user_id: str,
-    tenant_id: str
-) -> Dict[str, Any]:
-    """Resolve conflicts between new preferences and existing memories using LLM."""
-    # Existing code...
-
-@mcp.tool()
-@traceable
-def store_resolved_preferences(
-    resolutions: List[Dict[str, Any]],
-    user_id: str,
-    tenant_id: str,
-    justification: str
-) -> Dict[str, Any]:
-    """Store preferences that have been auto-resolved."""
-    # Existing code...
-```
-
-### Step 7: Add @traceable to Summarization Tools
-
-These tools manage automatic conversation summarization:
-
-```python
-@mcp.tool()
-@traceable
-def mark_span_summarized(
-    session_id: str,
-    tenant_id: str,
-    user_id: str,
-    summary_text: str,
-    span: Dict[str, str],
-    supersedes: List[str],
-    generate_embedding_flag: bool = True
-) -> Dict[str, Any]:
-    """Atomically create summary and set TTL on source messages."""
-    # Existing code...
-
-@mcp.tool()
-@traceable
-def get_summarizable_span(
-    session_id: str,
-    tenant_id: str,
-    user_id: str,
-    min_messages: int = 20,
-    retention_window: int = 10
-) -> Dict[str, Any]:
-    """Return message range suitable for summarization."""
-    # Existing code...
-
-@mcp.tool()
-@traceable
-def get_all_user_summaries(
-    user_id: str,
-    tenant_id: str
-) -> List[Dict[str, Any]]:
-    """Retrieve all conversation summaries for a user across all sessions."""
-    # Existing code...
+def get_user_summary(user_id: str) -> Optional[Dict[str, Any]]:
+    """Return the latest rolling user summary for a user, or None if not yet generated."""
+    client = get_memory_client()
+    summary = client.get_user_summary(user_id)
+    if summary is None:
+        return None
+    if isinstance(summary, list):
+        if not summary:
+            return None
+        summary = summary[0]
+    return _memory_to_dict(summary)
 ```
 
 ## Activity 5: Adding Tracing to Database Calls

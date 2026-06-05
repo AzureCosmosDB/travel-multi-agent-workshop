@@ -726,16 +726,19 @@ def extract_relevant_messages(
     sessionId: str
 ) -> List[tuple]:
     """Extract user and assistant messages from response data. Returns tuples of (MessageModel, original_message)"""
-    
-    # Find the last agent node that responded
+
+    AGENT_NODE_NAMES = {"orchestrator", "hotel", "activity", "dining", "itinerary_generator"}
     last_agent_node = None
     last_agent_name = "unknown"
     
-    for i in range(len(response_data) - 1, -1, -1):
-        if "__interrupt__" in response_data[i]:
-            if i > 0:
-                last_agent_node = response_data[i - 1]
-                last_agent_name = list(last_agent_node.keys())[0]
+    for entry in reversed(response_data):
+        keys = list(entry.keys())
+        if not keys:
+            continue
+        key = keys[0]
+        if key in AGENT_NODE_NAMES:
+            last_agent_node = entry
+            last_agent_name = key
             break
     
     if last_agent_name == "unknown" and response_data:
@@ -1353,7 +1356,7 @@ def delete_memory(user_id: str, memory_id: str, thread_id: Optional[str] = None)
     description="Retrieve the latest toolkit-generated cross-thread user summary",
     response_model=Optional[Dict[str, Any]]
 )
-def get_user_summary_endpoint(user_id: str):
+def get_user_summary(user_id: str):
     """Get the latest toolkit-backed user summary, or null if absent."""
     try:
         return get_memory_client().get_user_summary(user_id)

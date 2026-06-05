@@ -82,19 +82,19 @@ Locate the line that defines the **itinerary_generator_agent**, and paste the fo
 hotel_agent = create_react_agent(
         model,
         hotel_tools,
-        state_modifier=load_prompt("hotel_agent")
+        prompt=load_prompt("hotel_agent")
     )
 
 activity_agent = create_react_agent(
     model,
     activity_tools,
-    state_modifier=load_prompt("activity_agent")
+    prompt=load_prompt("activity_agent")
 )
 
 dining_agent = create_react_agent(
     model,
     dining_tools,
-    state_modifier=load_prompt("dining_agent")
+    prompt=load_prompt("dining_agent")
 )
 ```
 
@@ -112,7 +112,8 @@ from datetime import datetime, UTC
 Now, find this line **PROMPT_DIR = os.path.join(os.path.dirname(__file__), 'prompts')** and add this import below it.
 
 ```python
-from src.app.services.azure_cosmos_db import patch_active_agent, sessions_container, update_session_container
+from src.app.services.azure_cosmos_db import patch_active_agent, sessions_container, update_session_container, \
+    aget_checkpoint_saver
 ```
 
 1. Locate the function, **async def call_itinerary_generator_agent**.
@@ -284,6 +285,42 @@ Next, we need to add conditional edges between nodes to enable dynamic agent rou
 Above the **def build_agent_graph** function, add the below funcion:
 
 ```python
+def _extract_goto_from_tool_message(message: ToolMessage) -> str | None:
+    """
+    Extract the `goto` field from a transfer_* ToolMessage.
+
+    Handles both shapes returned by langchain_mcp_adapters:
+      - Legacy: content is a JSON string  ->  '{"goto": "hotel", ...}'
+      - Current: content is a list of MCP content blocks  ->
+            [{"type": "text", "text": '{"goto": "hotel", ...}'}]
+    """
+    content = message.content
+    text_payload = None
+
+    if isinstance(content, str):
+        text_payload = content
+    elif isinstance(content, list):
+        for block in content:
+            if isinstance(block, dict) and block.get("type") == "text":
+                text_payload = block.get("text")
+                break
+            if isinstance(block, str):
+                text_payload = block
+                break
+
+    if not text_payload:
+        return None
+
+    try:
+        parsed = json.loads(text_payload)
+    except (TypeError, ValueError):
+        return None
+
+    if isinstance(parsed, dict):
+        return parsed.get("goto")
+    return None
+
+
 def get_active_agent(state: MessagesState, config) -> str:
     """
     Extract active agent from ToolMessage or fallback to Cosmos DB.
@@ -295,17 +332,14 @@ def get_active_agent(state: MessagesState, config) -> str:
 
     activeAgent = None
 
-    # Search for last ToolMessage and try to extract `goto`
+    # Search for last transfer_* ToolMessage and extract `goto`
     for message in reversed(state['messages']):
         if isinstance(message, ToolMessage):
-            try:
-                content_json = json.loads(message.content)
-                activeAgent = content_json.get("goto")
-                if activeAgent:
-                    logger.info(f"🎯 Extracted activeAgent from ToolMessage: {activeAgent}")
-                    break
-            except Exception as e:
-                logger.debug(f"Failed to parse ToolMessage content: {e}")
+            goto = _extract_goto_from_tool_message(message)
+            if goto:
+                activeAgent = goto
+                logger.info(f"🎯 Extracted activeAgent from ToolMessage: {activeAgent}")
+                break
 
     # Fallback: Cosmos DB lookup if needed
     if not activeAgent:
@@ -412,14 +446,13 @@ Navigate to the file **mcp_server/mcp_http_server.py**.
 
 ### Adding **transfer_to** Tools
 
-Locate this line of code **PROMPT_DIR = os.path.join(os.path.dirname(__file__), '..', 'python', 'src', 'app', 'prompts')**, and add the imports below this line.
+Locate this line of code **sys.path.insert(0, python_dir)**, and add the imports below this line.
 
 ```python
 from src.app.services.azure_cosmos_db import (
     create_session_record,
     get_session_by_id,
     get_session_messages,
-    get_session_summaries,
     query_places_hybrid,
     create_trip,
     get_trip,
@@ -629,7 +662,6 @@ def discover_places(
         logger.error(f"{traceback.format_exc()}")
         return []
 
-    logger.info(f"✅ Returning {len(places)} places with memory alignment")
     return places
 ```
 
@@ -813,11 +845,6 @@ def get_session_context(
         "sessionInfo": session_info,
         "messageCount": len(messages)
     }
-
-    if include_summaries:
-        summaries = get_session_summaries(session_id, tenant_id, user_id)
-        result["summaries"] = summaries
-        result["summaryCount"] = len(summaries)
 
     return result
 ```
@@ -1623,8 +1650,9 @@ logging.getLogger("mcp").setLevel(logging.WARNING)
 logging.getLogger("azure.cosmos").setLevel(logging.WARNING)
 
 PROMPT_DIR = os.path.join(os.path.dirname(__file__), 'prompts')
+from src.app.services.azure_cosmos_db import patch_active_agent, sessions_container, update_session_container, \
+    aget_checkpoint_saver
 
-from src.app.services.azure_cosmos_db import patch_active_agent, sessions_container, update_session_container
 
 
 def load_prompt(agent_name: str) -> str:
@@ -1637,7 +1665,6 @@ def load_prompt(agent_name: str) -> str:
     except FileNotFoundError:
         logger.error(f"Prompt file not found for {agent_name}")
         return f"You are a {agent_name} agent in a travel planning system."
-
 
 def filter_tools_by_prefix(tools, prefixes):
     """Filter tools by name prefix"""
@@ -1658,8 +1685,9 @@ itinerary_generator_agent = None
 
 
 async def setup_agents():
-    global orchestrator_agent, hotel_agent, activity_agent, dining_agent
+    global orchestrator_agent
     global itinerary_generator_agent
+    global orchestrator_agent, hotel_agent, activity_agent, dining_agent
     global _mcp_client, _session_context, _persistent_session
 
     logger.info("🚀 Starting Travel Assistant MCP client...")
@@ -1680,7 +1708,6 @@ async def setup_agents():
             logger.info("   Mode: No Authentication")
 
     except ImportError:
-        auth_mode = "none"
         simple_token = None
         logger.info("🔐 Client Authentication: Dependencies unavailable - no auth")
 
@@ -1721,16 +1748,15 @@ async def setup_agents():
     # Tool Distribution for Agents
     # ========================================================================
 
+    # Orchestrator: Session management + all transfer tools
     orchestrator_tools = filter_tools_by_prefix(all_tools, [
         "create_session", "get_session_context", "append_turn",
         "transfer_to_"  # All transfer tools
     ])
-
     itinerary_generator_tools = filter_tools_by_prefix(all_tools, [
         "create_new_trip", "update_trip", "get_trip_details",
         "transfer_to_orchestrator"
     ])
-
     hotel_tools = filter_tools_by_prefix(all_tools, [
         "discover_places",  # Search hotels
         "transfer_to_orchestrator", "transfer_to_itinerary_generator"
@@ -1750,31 +1776,31 @@ async def setup_agents():
     orchestrator_agent = create_react_agent(
         model,
         orchestrator_tools,
-        state_modifier=load_prompt("orchestrator")
+        prompt=load_prompt("orchestrator")
     )
 
     itinerary_generator_agent = create_react_agent(
         model,
         itinerary_generator_tools,
-        state_modifier=load_prompt("itinerary_generator")
+        prompt=load_prompt("itinerary_generator")
     )
 
     hotel_agent = create_react_agent(
         model,
         hotel_tools,
-        state_modifier=load_prompt("hotel_agent")
+        prompt=load_prompt("hotel_agent")
     )
 
     activity_agent = create_react_agent(
         model,
         activity_tools,
-        state_modifier=load_prompt("activity_agent")
+        prompt=load_prompt("activity_agent")
     )
 
     dining_agent = create_react_agent(
         model,
         dining_tools,
-        state_modifier=load_prompt("dining_agent")
+        prompt=load_prompt("dining_agent")
     )
 
 
@@ -1937,15 +1963,93 @@ async def cleanup_persistent_session():
             logger.error(f"Error cleaning up MCP session: {e}")
 
 
+def _extract_goto_from_tool_message(message: ToolMessage) -> str | None:
+    """
+    Extract the `goto` field from a transfer_* ToolMessage.
+
+    Handles both shapes returned by langchain_mcp_adapters:
+      - Legacy: content is a JSON string  ->  '{"goto": "hotel", ...}'
+      - Current: content is a list of MCP content blocks  ->
+            [{"type": "text", "text": '{"goto": "hotel", ...}'}]
+    """
+    content = message.content
+    text_payload = None
+
+    if isinstance(content, str):
+        text_payload = content
+    elif isinstance(content, list):
+        for block in content:
+            if isinstance(block, dict) and block.get("type") == "text":
+                text_payload = block.get("text")
+                break
+            if isinstance(block, str):
+                text_payload = block
+                break
+
+    if not text_payload:
+        return None
+
+    try:
+        parsed = json.loads(text_payload)
+    except (TypeError, ValueError):
+        return None
+
+    if isinstance(parsed, dict):
+        return parsed.get("goto")
+    return None
+
+
+def get_active_agent(state: MessagesState, config) -> str:
+    """
+    Extract active agent from ToolMessage or fallback to Cosmos DB.
+    This is used by the router to determine which specialized agent to call.
+    """
+    thread_id = config["configurable"].get("thread_id", "UNKNOWN_THREAD_ID")
+    user_id = config["configurable"].get("userId", "UNKNOWN_USER_ID")
+    tenant_id = config["configurable"].get("tenantId", "UNKNOWN_TENANT_ID")
+
+    activeAgent = None
+
+    # Search for last transfer_* ToolMessage and extract `goto`
+    for message in reversed(state['messages']):
+        if isinstance(message, ToolMessage):
+            goto = _extract_goto_from_tool_message(message)
+            if goto:
+                activeAgent = goto
+                logger.info(f"🎯 Extracted activeAgent from ToolMessage: {activeAgent}")
+                break
+
+    # Fallback: Cosmos DB lookup if needed
+    if not activeAgent:
+        try:
+            session_doc = sessions_container.read_item(
+                item=thread_id,
+                partition_key=[tenant_id, user_id, thread_id]
+            )
+            activeAgent = session_doc.get('activeAgent', 'unknown')
+            logger.info(f"Active agent from DB: {activeAgent}")
+        except Exception as e:
+            logger.error(f"Error retrieving active agent from DB: {e}")
+            activeAgent = "unknown"
+
+    # If activeAgent is unknown or None, default to orchestrator
+    if activeAgent in [None, "unknown"]:
+        logger.info(f"🔀 activeAgent is '{activeAgent}', defaulting to Orchestrator")
+        activeAgent = "orchestrator"
+
+    return activeAgent
+
+
 def build_agent_graph():
     logger.info("🏗️  Building multi-agent graph...")
 
     builder = StateGraph(MessagesState)
     builder.add_node("orchestrator", call_orchestrator_agent)
+    builder.add_node("itinerary_generator", call_itinerary_generator_agent)
     builder.add_node("hotel", call_hotel_agent)
     builder.add_node("activity", call_activity_agent)
     builder.add_node("dining", call_dining_agent)
-    builder.add_node("itinerary_generator", call_itinerary_generator_agent)
+
     builder.add_node("human", human_node)
 
     builder.add_edge(START, "orchestrator")
@@ -2060,58 +2164,13 @@ async def interactive_chat():
     print("\n👋 Goodbye!")
 
 
-def get_active_agent(state: MessagesState, config) -> str:
-    """
-    Extract active agent from ToolMessage or fallback to Cosmos DB.
-    This is used by the router to determine which specialized agent to call.
-    """
-    thread_id = config["configurable"].get("thread_id", "UNKNOWN_THREAD_ID")
-    user_id = config["configurable"].get("userId", "UNKNOWN_USER_ID")
-    tenant_id = config["configurable"].get("tenantId", "UNKNOWN_TENANT_ID")
-
-    activeAgent = None
-
-    # Search for last ToolMessage and try to extract `goto`
-    for message in reversed(state['messages']):
-        if isinstance(message, ToolMessage):
-            try:
-                content_json = json.loads(message.content)
-                activeAgent = content_json.get("goto")
-                if activeAgent:
-                    logger.info(f"🎯 Extracted activeAgent from ToolMessage: {activeAgent}")
-                    break
-            except Exception as e:
-                logger.debug(f"Failed to parse ToolMessage content: {e}")
-
-    # Fallback: Cosmos DB lookup if needed
-    if not activeAgent:
-        try:
-            session_doc = sessions_container.read_item(
-                item=thread_id,
-                partition_key=[tenant_id, user_id, thread_id]
-            )
-            activeAgent = session_doc.get('activeAgent', 'unknown')
-            logger.info(f"Active agent from DB: {activeAgent}")
-        except Exception as e:
-            logger.error(f"Error retrieving active agent from DB: {e}")
-            activeAgent = "unknown"
-
-    valid_agents = {"orchestrator", "hotel", "activity", "dining", "itinerary_generator", "human"}
-    if activeAgent in [None, "unknown"] or activeAgent not in valid_agents:
-        logger.info(f"activeAgent is '{activeAgent}', defaulting to orchestrator")
-        activeAgent = "orchestrator"
-
-    return activeAgent
-
-
 if __name__ == "__main__":
     # Setup agents and run interactive chat
     async def main():
         await setup_agents()
         await interactive_chat()
-
-
     asyncio.run(main())
+
 ```
 
 </details>
@@ -2127,7 +2186,6 @@ import os
 import logging
 import json
 from typing import Any, Dict, List, Optional
-
 from dotenv import load_dotenv
 from mcp.server.fastmcp import FastMCP
 
@@ -2135,6 +2193,16 @@ from mcp.server.fastmcp import FastMCP
 current_dir = os.path.dirname(os.path.abspath(__file__))
 python_dir = os.path.join(current_dir, '..', 'python')
 sys.path.insert(0, python_dir)
+
+from src.app.services.azure_cosmos_db import (
+    create_session_record,
+    get_session_by_id,
+    get_session_messages,
+    query_places_hybrid,
+    create_trip,
+    get_trip,
+    trips_container
+)
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -2162,19 +2230,6 @@ logging.getLogger("langsmith.client").setLevel(logging.WARNING)
 # Suppress service initialization logs
 logging.getLogger("src.app.services.azure_open_ai").setLevel(logging.WARNING)
 logging.getLogger("src.app.services.azure_cosmos_db").setLevel(logging.WARNING)
-
-# Prompt directory
-PROMPT_DIR = os.path.join(os.path.dirname(__file__), '..', 'python', 'src', 'app', 'prompts')
-
-from src.app.services.azure_cosmos_db import (
-    create_session_record,
-    get_session_by_id,
-    get_session_messages,
-    query_places_hybrid,
-    create_trip,
-    get_trip,
-    trips_container
-)
 
 # Load environment variables
 try:
@@ -2215,9 +2270,10 @@ print(f"📋 Authentication mode: {auth_mode.upper()}\n")
 # ============================================================================
 # 1. Agent Transfer Tools (for Orchestrator Routing)
 # ============================================================================
+
 @mcp.tool()
 def transfer_to_orchestrator(
-        reason: str
+    reason: str
 ) -> str:
     """
     Transfer conversation back to the Orchestrator agent.
@@ -2247,10 +2303,9 @@ def transfer_to_orchestrator(
         "message": "Transferring back to Orchestrator for general assistance."
     })
 
-
 @mcp.tool()
 def transfer_to_itinerary_generator(
-        reason: str
+    reason: str
 ) -> str:
     """
     Transfer conversation to the Itinerary Generator agent.
@@ -2439,12 +2494,11 @@ def discover_places(
         logger.error(f"{traceback.format_exc()}")
         return []
 
-    logger.info(f"✅ Returning {len(places)} places with memory alignment")
     return places
 
 
 # ============================================================================
-# 5. Trip Management Tools
+# 3. Trip Management Tools
 # ============================================================================
 
 @mcp.tool()
@@ -2552,7 +2606,7 @@ def update_trip(
 
 
 # ============================================================================
-# 1. Session Management Tools
+# 4. Session Management Tools
 # ============================================================================
 
 @mcp.tool()
@@ -2614,13 +2668,7 @@ def get_session_context(
         "messageCount": len(messages)
     }
 
-    if include_summaries:
-        summaries = get_session_summaries(session_id, tenant_id, user_id)
-        result["summaries"] = summaries
-        result["summaryCount"] = len(summaries)
-
     return result
-
 
 # ============================================================================
 # Server Startup
@@ -2643,6 +2691,7 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"❌ Failed to start server: {e}")
         sys.exit(1)
+
 ```
 
 </details>

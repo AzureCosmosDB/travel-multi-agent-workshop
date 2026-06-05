@@ -12,7 +12,7 @@ azure-identity==1.25.3
 azure-monitor-opentelemetry==1.6.10
 azure-monitor-opentelemetry-exporter==1.0.0b38
 certifi==2026.5.20
-cffi==1.17.1
+cffi==2.0.0
 charset-normalizer==3.4.7
 click==8.4.1
 colorama==0.4.6
