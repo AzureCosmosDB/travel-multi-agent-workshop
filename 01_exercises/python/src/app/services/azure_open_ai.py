@@ -8,7 +8,7 @@ from langchain_openai import AzureChatOpenAI, AzureOpenAIEmbeddings
 from openai import AzureOpenAI
 from dotenv import load_dotenv
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 load_dotenv(override=False)
@@ -39,7 +39,7 @@ model = AzureChatOpenAI(
     azure_ad_token_provider=token_provider,
     temperature=0.7,
     streaming=True,
-    max_retries=1,
+    max_retries=1
 )
 
 # Initialize LangChain embeddings model
@@ -61,7 +61,7 @@ openai_client = AzureOpenAI(
     azure_ad_token_provider=token_provider,
 )
 
-logger.info(f"✅ Azure OpenAI initialized")
+logger.info(f"Azure OpenAI initialized")
 logger.info(f"   Endpoint: {AZURE_OPENAI_ENDPOINT}")
 logger.info(f"   Chat Model: {AZURE_OPENAI_DEPLOYMENT}")
 logger.info(f"   Embedding Model: {AZURE_OPENAI_EMBEDDING_DEPLOYMENT}")
@@ -104,13 +104,6 @@ def extract_keywords(text: str, max_keywords: int = 5) -> List[str]:
     """
     Extract keywords from text using simple NLP (no LLM call).
     Filters stopwords and returns the most meaningful terms.
-    
-    Args:
-        text: Text to extract keywords from
-        max_keywords: Maximum number of keywords to extract
-        
-    Returns:
-        List of keyword strings
     """
     try:
         words = re.findall(r"[a-zA-Z\-]{3,}", text.lower())

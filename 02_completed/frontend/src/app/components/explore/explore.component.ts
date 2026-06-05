@@ -172,10 +172,8 @@ export class ExploreComponent implements OnInit, OnDestroy, AfterViewChecked {
     this.newMessage = '';
     this.isLoading = true;
 
-    // Optimistically append user message to the shared stream so it shows instantly.
-    // The service will replace it with the server's authoritative copy when the
-    // completion call returns.
-    this.travelApi.appendOptimisticMessage({ role: 'user', content: userMessage });
+    // Optimistically add user message to UI
+    this.messages = [...this.messages, { role: 'user', content: userMessage }];
     this.shouldScrollToBottom = true;
 
     // Use sessionId (fallback to threadId for backward compatibility)
@@ -192,8 +190,41 @@ export class ExploreComponent implements OnInit, OnDestroy, AfterViewChecked {
     this.travelApi.sendMessage(threadId, userMessage).subscribe({
       next: (response) => {
         console.log('📥 Received response:', response);
-        // Messages are appended via the service's tap → messages$ subscription
-        // updates this.messages automatically. Nothing to do here besides UI state.
+        
+        // Backend returns only NEW messages (user + assistant) — append to existing
+        if (Array.isArray(response)) {
+          // Remove the optimistic user message only if server returned a user message
+          const hasServerUserMsg = response.some(msg => msg.senderRole === 'User');
+          if (hasServerUserMsg) {
+            this.messages = this.messages.filter(m => !(m.role === 'user' && m.content === userMessage && !m.timestamp));
+          }
+          
+          const newMessages = response.map(msg => ({
+            role: (msg.senderRole === 'User' ? 'user' : 'assistant') as 'user' | 'assistant',
+            content: msg.text || msg.content || '',
+            timestamp: msg.timeStamp
+          }));
+          
+          this.messages = [...this.messages, ...newMessages].sort((a: any, b: any) => {
+            const timeA = new Date(a.timestamp || 0).getTime();
+            const timeB = new Date(b.timestamp || 0).getTime();
+            return timeA - timeB;
+          });
+          
+          console.log('Appended messages:', newMessages.map(m => ({
+            role: m.role,
+            content: m.content.substring(0, 50)
+          })));
+        } else if (response.messages && Array.isArray(response.messages)) {
+          // Fallback: if backend returns full list, replace
+          this.messages = response.messages.sort((a: any, b: any) => {
+            const timeA = new Date(a.timestamp || 0).getTime();
+            const timeB = new Date(b.timestamp || 0).getTime();
+            return timeA - timeB;
+          });
+        } else {
+          console.warn('Unexpected response format:', response);
+        }
         this.shouldScrollToBottom = true;
         this.isLoading = false;
       },

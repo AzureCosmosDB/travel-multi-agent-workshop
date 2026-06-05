@@ -14,10 +14,6 @@ By the end of this workshop, you'll have created a complete travel planning appl
 - **Modern web interface**: An Angular frontend that provides an intuitive chat interface
 - **API layer**: A FastAPI backend that orchestrates all agent interactions
 
-### Memory layer
-
-Memory is provided by the **`azure-cosmos-agent-memory`** PyPI package (import path `azure.cosmos.agent_memory`). The SDK writes to `memories_turns`, `memories`, `memories_summaries`, and `counter` containers that are provisioned by Bicep; every N chat turns (configurable via env vars) a background flush extracts facts/episodics/procedurals and updates thread + user summaries. Memory records are partitioned by `(user_id, thread_id)`; `tenantId` remains for sessions, messages, and trips but is not part of memory records. Memory prompts ship inside the SDK, so `preference_extraction.prompty`, `memory_conflict_resolution.prompty`, and `summarizer.prompty` have been removed from this repo.
-
 ### Learning Objectives
 
 - Understand multi-agent architecture patterns and design principles
