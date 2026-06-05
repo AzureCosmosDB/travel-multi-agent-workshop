@@ -205,31 +205,31 @@ async def setup_agents():
     orchestrator_agent = create_react_agent(
         model, 
         orchestrator_tools, 
-        state_modifier=load_prompt("orchestrator")
+        prompt=load_prompt("orchestrator")
     )
     
     hotel_agent = create_react_agent(
         model,
         hotel_tools,
-        state_modifier=load_prompt("hotel_agent")
+        prompt=load_prompt("hotel_agent")
     )
     
     activity_agent = create_react_agent(
         model,
         activity_tools,
-        state_modifier=load_prompt("activity_agent")
+        prompt=load_prompt("activity_agent")
     )
     
     dining_agent = create_react_agent(
         model,
         dining_tools,
-        state_modifier=load_prompt("dining_agent")
+        prompt=load_prompt("dining_agent")
     )
     
     itinerary_generator_agent = create_react_agent(
         model,
         itinerary_generator_tools,
-        state_modifier=load_prompt("itinerary_generator")
+        prompt=load_prompt("itinerary_generator")
     )
     
     logger.info("✅ All agents created successfully\n")
@@ -463,6 +463,42 @@ def human_node(state: MessagesState, config) -> None:
 
 
 
+def _extract_goto_from_tool_message(message: ToolMessage) -> str | None:
+    """
+    Extract the `goto` field from a transfer_* ToolMessage.
+
+    Handles both shapes returned by langchain_mcp_adapters:
+      - Legacy: content is a JSON string  ->  '{"goto": "hotel", ...}'
+      - Current: content is a list of MCP content blocks  ->
+            [{"type": "text", "text": '{"goto": "hotel", ...}'}]
+    """
+    content = message.content
+    text_payload = None
+
+    if isinstance(content, str):
+        text_payload = content
+    elif isinstance(content, list):
+        for block in content:
+            if isinstance(block, dict) and block.get("type") == "text":
+                text_payload = block.get("text")
+                break
+            if isinstance(block, str):
+                text_payload = block
+                break
+
+    if not text_payload:
+        return None
+
+    try:
+        parsed = json.loads(text_payload)
+    except (TypeError, ValueError):
+        return None
+
+    if isinstance(parsed, dict):
+        return parsed.get("goto")
+    return None
+
+
 def get_active_agent(state: MessagesState, config) -> str:
     """
     Extract active agent from ToolMessage or fallback to Cosmos DB.
@@ -474,17 +510,14 @@ def get_active_agent(state: MessagesState, config) -> str:
 
     activeAgent = None
     
-    # Search for last ToolMessage and try to extract `goto`
+    # Search for last transfer_* ToolMessage and extract `goto`
     for message in reversed(state['messages']):
         if isinstance(message, ToolMessage):
-            try:
-                content_json = json.loads(message.content)
-                activeAgent = content_json.get("goto")
-                if activeAgent:
-                    logger.info(f"🎯 Extracted activeAgent from ToolMessage: {activeAgent}")
-                    break
-            except Exception as e:
-                logger.debug(f"Failed to parse ToolMessage content: {e}")
+            goto = _extract_goto_from_tool_message(message)
+            if goto:
+                activeAgent = goto
+                logger.info(f"🎯 Extracted activeAgent from ToolMessage: {activeAgent}")
+                break
     
     # Fallback: Cosmos DB lookup if needed
     if not activeAgent:

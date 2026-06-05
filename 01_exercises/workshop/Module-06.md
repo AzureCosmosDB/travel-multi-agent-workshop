@@ -478,8 +478,8 @@ Open `evaluation/datasets/tool_usage_dataset.json` and review the 4 test cases.
 
 Examples:
 
-- "I prefer budget hotels" → Required tools: `extract_preferences_from_message`, `resolve_memory_conflicts`, `store_resolved_preferences`, `transfer_to_hotel`
-- "Find hotels in Barcelona" → Required tools: `extract_preferences_from_message`, `transfer_to_hotel`, `recall_memories`, `discover_places`
+- "I prefer budget hotels" → Required tools: `add_turn`, `transfer_to_hotel`
+- "Find hotels in Barcelona" → Required tools: `transfer_to_hotel`, `recall_memories`, `discover_places`
 
 ### Step 2: Understand the Tool Evaluators
 
@@ -582,9 +582,12 @@ Test if preferences are correctly stored, retrieved, and applied:
 
 **Conflict Resolution**
 
-- "I prefer budget hotels" → "Show me luxury hotels"
-- Verify the system detects and resolves the conflict
-- Check if the user is asked to clarify
+The `azure-cosmos-agent-memory` toolkit runs a `reconcile` step on its background cadence (controlled by `DEDUP_EVERY_N` — see Module 4) that picks the freshest / highest-salience fact when two contradict. It does **not** prompt the user to clarify - it just stores the winning fact and supersedes the older one. To test this:
+
+- Turn 1: "I prefer budget hotels"
+- (wait for the `DEDUP_EVERY_N`-th turn to land so the reconcile pass fires)
+- Turn 2: "Actually I want luxury hotels"
+- Query the `memories` container for `type = 'fact'` records about hotel-tier preference — you should see exactly one current row (with the latest value) and any older ones marked as superseded.
 
 Example test case for conflict resolution:
 
@@ -595,12 +598,12 @@ Example test case for conflict resolution:
     "previous_preferences": ["budget hotels"]
   },
   "outputs": {
-    "answer": "I notice you previously preferred budget hotels, but now you're asking for luxury hotels. Would you like me to update your preference?",
+    "answer": "Got it — I'll look for luxury hotels going forward.",
     "expected_tools": [
       "recall_memories",
-      "detect_conflict",
-      "resolve_memory_conflicts"
-    ]
+      "add_turn"
+    ],
+    "expected_memory_state": "luxury supersedes budget"
   }
 }
 ```
@@ -617,10 +620,11 @@ Test multi-turn conversations and context retention:
 
 **Auto-Summarization**
 
-- Create a conversation with 20+ messages
-- Verify summarization is triggered
-- Check that key preferences are retained in the summary
-- Ensure conversation context isn't lost after summarization
+- Have a conversation that crosses `THREAD_SUMMARY_EVERY_N` turns (default `5`, set in `mcp_server/.env`)
+- Verify a `thread_summary` record appears in the `memories_summaries` container
+- Once a few thread summaries exist, verify the toolkit also writes a rolling `user_summary` (cadence: `USER_SUMMARY_EVERY_N`, default `5`)
+- Check that key preferences are retained in the summary text
+- Both summary writes happen on the background pipeline — they don't show up as MCP tool calls in your LangSmith trace
 
 Example multi-turn test:
 

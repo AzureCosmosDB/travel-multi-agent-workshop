@@ -31,7 +31,11 @@ logging.getLogger("azure.cosmos").setLevel(logging.WARNING)
 sys.path.insert(0, str(Path(__file__).parent.parent / "python"))
 
 from src.app.travel_agents import setup_agents, build_agent_graph
-from src.app.services.azure_cosmos_db import initialize_cosmos_client
+from src.app.services.azure_cosmos_db import (
+    initialize_cosmos_client,
+    aget_checkpoint_saver,
+    close_async_cosmos_client,
+)
 from evaluators.llm_judges import answer_quality, correctness, humanness
 
 
@@ -104,10 +108,11 @@ async def main():
     await setup_agents()
     print("✅ Agents initialized")
     
-    # Build graph
+    # Build graph (now requires an async Cosmos checkpointer)
     print("🔄 Building agent graph...")
     global graph
-    graph = build_agent_graph()
+    checkpointer = await aget_checkpoint_saver()
+    graph = build_agent_graph(checkpointer)
     print("✅ Agent graph ready")
     
     # Load dataset
@@ -167,6 +172,7 @@ async def main():
     print("\n🔄 Cleaning up resources...")
     from src.app.travel_agents import cleanup_persistent_session
     await cleanup_persistent_session()
+    await close_async_cosmos_client()
     print("✅ Cleanup complete")
 
 

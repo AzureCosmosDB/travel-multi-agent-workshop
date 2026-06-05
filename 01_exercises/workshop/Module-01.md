@@ -320,7 +320,7 @@ async def setup_agents():
     orchestrator_agent = create_react_agent(
         model,
         orchestrator_tools,
-        state_modifier=load_prompt("orchestrator")
+        prompt=load_prompt("orchestrator")
     )
 ```
 
@@ -357,7 +357,7 @@ Before we go any further we should cover a few new things you may have seen. Lan
 
 | Function                    | Purpose                                                        |
 |-----------------------------|----------------------------------------------------------------|
-| create_react_agent()        | Create an agent that reasons and acts using tools dynamically. |
+| create_react_agent()              | Create an agent that reasons and acts using tools dynamically. |
 | interrupt(value)            | Pauses execution and waits for external input.                 |
 | Command(update, goto)       | Updates the state and moves execution to the next node.        |
 | create_openai_tools_agent() | Create an agent that calls predefined tools when needed.       |
@@ -621,7 +621,7 @@ Below the **orchestrator_agent**, copy the following:
 itinerary_generator_agent = create_react_agent(
         model,
         itinerary_generator_tools,
-        state_modifier=load_prompt("itinerary_generator")
+        prompt=load_prompt("itinerary_generator")
     )
 ```
 
@@ -1285,7 +1285,6 @@ def load_prompt(agent_name: str) -> str:
         logger.error(f"Prompt file not found for {agent_name}")
         return f"You are a {agent_name} agent in a travel planning system."
 
-
 def filter_tools_by_prefix(tools, prefixes):
     """Filter tools by name prefix"""
     return [tool for tool in tools if any(tool.name.startswith(prefix) for prefix in prefixes)]
@@ -1296,9 +1295,9 @@ _mcp_client = None
 _session_context = None
 _persistent_session = None
 
-# Global agent variables
-orchestrator_agent = None
-itinerary_generator_agent = None
+# # Global agent variables
+# orchestrator_agent = None
+# itinerary_generator_agent = None
 
 
 async def setup_agents():
@@ -1324,7 +1323,6 @@ async def setup_agents():
             logger.info("   Mode: No Authentication")
 
     except ImportError:
-        auth_mode = "none"
         simple_token = None
         logger.info("🔐 Client Authentication: Dependencies unavailable - no auth")
 
@@ -1365,18 +1363,21 @@ async def setup_agents():
     # Tool Distribution for Agents
     # ========================================================================
 
+    # Orchestrator: Session management + all transfer tools
     orchestrator_tools = filter_tools_by_prefix(all_tools, "transfer_to_itinerary_generator")
+    itinerary_generator_tools = []
+
+    # Create agents with their tools
     orchestrator_agent = create_react_agent(
         model,
         orchestrator_tools,
-        state_modifier=load_prompt("orchestrator")
+        prompt=load_prompt("orchestrator")
     )
 
-    itinerary_generator_tools = []
     itinerary_generator_agent = create_react_agent(
         model,
         itinerary_generator_tools,
-        state_modifier=load_prompt("itinerary_generator")
+        prompt=load_prompt("itinerary_generator")
     )
 
 
@@ -1390,7 +1391,7 @@ async def call_orchestrator_agent(state: MessagesState, config) -> Command[Liter
     return Command(update=response, goto="human")
 
 
-async def call_itinerary_generator_agent(state: MessagesState, config) -> Command[Literal["itinerary_generator", "orchestrator", "human"]]:
+async def call_itinerary_generator_agent(state: MessagesState, config) -> Command[Literal["itinerary_generator", "human"]]:
     """
     Itinerary Generator: Synthesizes all gathered info into day-by-day plan.
     """
@@ -1416,7 +1417,6 @@ async def cleanup_persistent_session():
             logger.info("✅ MCP persistent session cleaned up successfully")
         except Exception as e:
             logger.error(f"Error cleaning up MCP session: {e}")
-
 
 def build_agent_graph():
     logger.info("🏗️  Building multi-agent graph...")
@@ -1502,6 +1502,7 @@ import sys
 import os
 import logging
 import json
+from typing import Any, Dict, List, Optional
 from dotenv import load_dotenv
 from mcp.server.fastmcp import FastMCP
 
@@ -1514,11 +1515,28 @@ sys.path.insert(0, python_dir)
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Reduce noise from verbose libraries
+logging.getLogger("azure.core.pipeline.policies.http_logging_policy").setLevel(logging.WARNING)
+logging.getLogger("azure.identity").setLevel(logging.WARNING)
+logging.getLogger("azure.identity._credentials.environment").setLevel(logging.WARNING)
+logging.getLogger("azure.identity._credentials.managed_identity").setLevel(logging.WARNING)
+logging.getLogger("azure.identity._credentials.chained").setLevel(logging.WARNING)
+logging.getLogger("azure.cosmos").setLevel(logging.WARNING)
+logging.getLogger("azure.cosmos._cosmos_http_logging_policy").setLevel(logging.WARNING)
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
+logging.getLogger("mcp").setLevel(logging.WARNING)
+logging.getLogger("mcp.client.streamable_http").setLevel(logging.WARNING)
+
 # Suppress SSE, OpenAI, urllib3, and LangSmith debug logs
 logging.getLogger("sse_starlette.sse").setLevel(logging.WARNING)
 logging.getLogger("openai._base_client").setLevel(logging.WARNING)
 logging.getLogger("urllib3.connectionpool").setLevel(logging.WARNING)
 logging.getLogger("langsmith.client").setLevel(logging.WARNING)
+
+# Suppress service initialization logs
+logging.getLogger("src.app.services.azure_open_ai").setLevel(logging.WARNING)
+logging.getLogger("src.app.services.azure_cosmos_db").setLevel(logging.WARNING)
 
 # Load environment variables
 try:
@@ -1556,9 +1574,13 @@ print(f"🌐 Server will be available at: http://0.0.0.0:{port}")
 print(f"📋 Authentication mode: {auth_mode.upper()}\n")
 
 
+# ============================================================================
+# 1. Agent Transfer Tools (for Orchestrator Routing)
+# ============================================================================
+
 @mcp.tool()
 def transfer_to_orchestrator(
-        reason: str
+    reason: str
 ) -> str:
     """
     Transfer conversation back to the Orchestrator agent.
@@ -1588,10 +1610,9 @@ def transfer_to_orchestrator(
         "message": "Transferring back to Orchestrator for general assistance."
     })
 
-
 @mcp.tool()
 def transfer_to_itinerary_generator(
-        reason: str
+    reason: str
 ) -> str:
     """
     Transfer conversation to the Itinerary Generator agent.
@@ -1620,7 +1641,6 @@ def transfer_to_itinerary_generator(
         "reason": reason,
         "message": "Transferring to Itinerary Generator to create your day-by-day plan."
     })
-
 # ============================================================================
 # Server Startup
 # ============================================================================

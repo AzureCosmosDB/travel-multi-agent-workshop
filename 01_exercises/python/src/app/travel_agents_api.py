@@ -1,5 +1,6 @@
 import os
 import sys
+import traceback
 import uuid
 import asyncio
 from pathlib import Path
@@ -7,7 +8,7 @@ from pathlib import Path
 import fastapi
 from dotenv import load_dotenv
 from datetime import datetime
-from fastapi import BackgroundTasks, HTTPException, Body, Response
+from fastapi import BackgroundTasks, HTTPException, Body, Response, Depends
 from langchain_core.messages import HumanMessage, ToolMessage, AIMessage
 from pydantic import BaseModel
 from typing import List, Dict, Optional, Any
@@ -63,7 +64,7 @@ from src.app.services.azure_cosmos_db import (
     get_trip, query_places_with_theme, query_places_filtered,
     patch_active_agent, update_session_activity,
     create_user, get_all_users, get_user_by_id,
-    store_debug_log, get_debug_log, query_debug_logs
+    store_debug_log, get_debug_log, query_debug_logs, close_async_cosmos_client, aget_checkpoint_saver
 )
 #from src.app.travel_agents import setup_agents, build_agent_graph, cleanup_persistent_session
 from src.app.services.agent_memory import get_memory_client, get_memory_write_lock
@@ -284,7 +285,7 @@ agent_mapping = {
 #             logger.info(f"Attempt {attempt + 1}/{max_retries}: Initializing agents...")
 #             await setup_agents()
 #             _checkpointer = await aget_checkpoint_saver()
-#             _graph = build_agent_graph(_checkpointer)
+#             _graph = build_agent_graph()
 #             _agents_initialized = True
 #             logger.info("Agents initialized successfully!")
 #             return
@@ -338,7 +339,7 @@ agent_mapping = {
 #             await setup_agents()
 #             global _graph, _checkpointer
 #             _checkpointer = await aget_checkpoint_saver()
-#             _graph = build_agent_graph(_checkpointer)
+#             _graph = build_agent_graph()
 #             _agents_initialized = True
 #             logger.info("Agents initialized successfully!")
 #         except Exception as e:
@@ -638,7 +639,8 @@ def delete_session(tenantId: str, userId: str, sessionId: str, background_tasks:
 # Chat Completion Endpoint
 # ============================================================================
 
-def store_debug_log_from_response(sessionId: str, tenantId: str, userId: str, response_data: List[Dict]) -> str:
+def store_debug_log_from_response(sessionId: str, tenantId: str, userId: str, response_data: List[Dict],
+                                  debug_log_id: Optional[str] = None) -> str:
     """
     Extract debug information from LangGraph response and store in Cosmos DB.
 
@@ -647,6 +649,10 @@ def store_debug_log_from_response(sessionId: str, tenantId: str, userId: str, re
         tenantId: Tenant identifier
         userId: User identifier
         response_data: LangGraph response data containing agent messages
+        debug_log_id: Optional pre-allocated debug log ID (passed back to the client
+            in the HTTP response before this background task runs). When supplied,
+            the underlying ``store_debug_log`` uses it as the Cosmos document id so
+            the client's reference stays valid; when ``None`` a fresh id is minted.
 
     Returns:
         Debug log ID
@@ -716,7 +722,8 @@ def store_debug_log_from_response(sessionId: str, tenantId: str, userId: str, re
             transfer_success=transfer_success,
             tool_calls=tool_calls,
             logprobs=logprobs,
-            content_filter_results=content_filter_results
+            content_filter_results=content_filter_results,
+            debug_log_id=debug_log_id
         )
 
         logger.info(
@@ -738,18 +745,22 @@ def extract_relevant_messages(
 ) -> List[tuple]:
     """Extract user and assistant messages from response data. Returns tuples of (MessageModel, original_message)"""
 
-    # Find the last agent node that responded
+    AGENT_NODE_NAMES = {"orchestrator", "hotel", "activity", "dining", "itinerary_generator"}
     last_agent_node = None
     last_agent_name = "unknown"
 
-    for i in range(len(response_data) - 1, -1, -1):
-        if "__interrupt__" in response_data[i]:
-            if i > 0:
-                last_agent_node = response_data[i - 1]
-                last_agent_name = list(last_agent_node.keys())[0]
+    for entry in reversed(response_data):
+        keys = list(entry.keys())
+        if not keys:
+            continue
+        key = keys[0]
+        if key in AGENT_NODE_NAMES:
+            last_agent_node = entry
+            last_agent_name = key
             break
 
     if last_agent_name == "unknown" and response_data:
+        # Fallback to whatever the last entry was (shouldn't normally hit this)
         last_agent_node = response_data[-1]
         last_agent_name = list(last_agent_node.keys())[0] if last_agent_node else "unknown"
 
@@ -928,16 +939,16 @@ async def _post_response_background(sessionId: str, tenantId: str, userId: str, 
     # Step 0: Canonical turn write (one user + one assistant turn per request).
     # This is the safety net — it runs even if an agent skipped its add_turn
     # tool call, so memories_turns always reflects the conversation.
-    try:
-        await asyncio.to_thread(
-            _write_turns_to_memory,
-            userId,
-            sessionId,
-            user_message,
-            messages,
-        )
-    except Exception as e:
-        logger.error(f"❌ Failed to write turns to long-term memory for session {sessionId}: {e}")
+    # try:
+    #     await asyncio.to_thread(
+    #         _write_turns_to_memory,
+    #         userId,
+    #         sessionId,
+    #         user_message,
+    #         messages,
+    #     )
+    # except Exception as e:
+    #     logger.error(f"❌ Failed to write turns to long-term memory for session {sessionId}: {e}")
 
     # Step 1: Store debug log
     try:
@@ -1391,7 +1402,7 @@ def delete_memory(user_id: str, memory_id: str, thread_id: Optional[str] = None)
     description="Retrieve the latest toolkit-generated cross-thread user summary",
     response_model=Optional[Dict[str, Any]]
 )
-def get_user_summary_endpoint(user_id: str):
+def get_user_summary(user_id: str):
     """Get the latest toolkit-backed user summary, or null if absent."""
     try:
         summaries = get_memory_client().get_user_summary(user_id)
