@@ -7,14 +7,13 @@ from pathlib import Path
 import fastapi
 from dotenv import load_dotenv
 from datetime import datetime
-from fastapi import BackgroundTasks, Depends, HTTPException, Body, Response
+from fastapi import BackgroundTasks, HTTPException, Body, Response
 from langchain_core.messages import HumanMessage, ToolMessage, AIMessage
 from pydantic import BaseModel
 from typing import List, Dict, Optional, Any
 from enum import Enum
 from starlette.middleware.cors import CORSMiddleware
 from azure.cosmos.exceptions import CosmosHttpResponseError
-import traceback
 
 import logging
 
@@ -56,11 +55,10 @@ else:
     print(f".env file not found at: {env_file}, trying default locations")
     load_dotenv(override=False)
 
-from src.app.services.azure_open_ai import model, generate_embedding
+from src.app.services.azure_open_ai import model
 from src.app.services.azure_cosmos_db import (
     sessions_container, messages_container, trips_container,
-    places_container, debug_logs_container, get_checkpoint_saver,
-    create_session_record, get_session_by_id,
+    places_container, adelete_checkpoints_for_thread, create_session_record, get_session_by_id,
     append_message, get_session_messages, query_places_hybrid,
     get_trip, query_places_with_theme, query_places_filtered,
     patch_active_agent, update_session_activity,
@@ -68,7 +66,7 @@ from src.app.services.azure_cosmos_db import (
     store_debug_log, get_debug_log, query_debug_logs
 )
 #from src.app.travel_agents import setup_agents, build_agent_graph, cleanup_persistent_session
-from src.app.services.agent_memory import get_memory_client
+from src.app.services.agent_memory import get_memory_client, get_memory_write_lock
 
 # Load environment variables
 load_dotenv(override=False)
@@ -285,8 +283,8 @@ agent_mapping = {
 #         try:
 #             logger.info(f"Attempt {attempt + 1}/{max_retries}: Initializing agents...")
 #             await setup_agents()
-#             _graph = build_agent_graph()
-#             _checkpointer = get_checkpoint_saver()
+#             _checkpointer = await aget_checkpoint_saver()
+#             _graph = build_agent_graph(_checkpointer)
 #             _agents_initialized = True
 #             logger.info("Agents initialized successfully!")
 #             return
@@ -326,6 +324,7 @@ agent_mapping = {
 #     """Cleanup resources on shutdown"""
 #     logger.info("Shutting down Travel Assistant API...")
 #     await cleanup_persistent_session()
+#     await close_async_cosmos_client()
 #     logger.info("Cleanup complete")
 
 
@@ -338,8 +337,8 @@ agent_mapping = {
 #         try:
 #             await setup_agents()
 #             global _graph, _checkpointer
-#             _graph = build_agent_graph()
-#             _checkpointer = get_checkpoint_saver()
+#             _checkpointer = await aget_checkpoint_saver()
+#             _graph = build_agent_graph(_checkpointer)
 #             _agents_initialized = True
 #             logger.info("Agents initialized successfully!")
 #         except Exception as e:
@@ -620,27 +619,14 @@ def delete_session(tenantId: str, userId: str, sessionId: str, background_tasks:
                     logger.warning(f"Failed to delete message {item['id']}: {e}")
 
         # Schedule checkpoint cleanup as background task
-        def delete_checkpoints():
+        async def delete_checkpoints_background():
             try:
-                if _checkpointer and hasattr(_checkpointer, 'container'):
-                    query = "SELECT c.id, c.partition_key FROM c WHERE CONTAINS(c.partition_key, @sessionId)"
-                    partitions = list(_checkpointer.container.query_items(
-                        query=query,
-                        parameters=[{"name": "@sessionId", "value": sessionId}],
-                        enable_cross_partition_query=True
-                    ))
-                    for partition in partitions:
-                        try:
-                            _checkpointer.container.delete_item(
-                                item=partition["id"],
-                                partition_key=partition["partition_key"]
-                            )
-                        except Exception as e:
-                            logger.warning(f"Failed to delete checkpoint: {e}")
+                deleted = await adelete_checkpoints_for_thread(sessionId)
+                logger.info(f"🧹 Deleted {deleted} checkpoint(s) for session {sessionId}")
             except Exception as e:
-                logger.error(f"Error cleaning up checkpoints: {e}")
+                logger.error(f"Error cleaning up checkpoints for {sessionId}: {e}")
 
-        background_tasks.add_task(delete_checkpoints)
+        background_tasks.add_task(delete_checkpoints_background)
 
         return {"message": "Session deleted successfully", "sessionId": sessionId}
     except Exception as e:
@@ -878,13 +864,81 @@ def process_messages_background(message_tuples: List[tuple], userId: str, tenant
         logger.error(f"Error storing messages: {e}")
 
 
+def _write_turns_to_memory(
+    user_id: str,
+    thread_id: str,
+    user_message: str,
+    messages: List[tuple],
+) -> None:
+    """Buffer the user + assistant turns and push them through the toolkit.
+
+    Runs synchronously (off the event loop via ``asyncio.to_thread``). Acquires
+    the process-wide memory-write lock so concurrent chat requests cannot
+    interleave ``add_local`` / ``push_to_cosmos`` / ``local_memory.clear()`` on
+    the shared singleton buffer — that race can lose ``_unflushed_turn_counts``
+    bumps and break the cadence-driven summarizer. The buffer is cleared in a
+    ``finally`` block so a failing push never poisons later requests.
+    """
+    user_text = (user_message or "").strip()
+
+    agent_text = ""
+    for msg_model, _ in messages or []:
+        if getattr(msg_model, "senderRole", None) == "Assistant":
+            candidate = (getattr(msg_model, "text", "") or "").strip()
+            if candidate:
+                agent_text = candidate
+
+    if not user_text and not agent_text:
+        return
+
+    client = get_memory_client()
+    lock = get_memory_write_lock()
+    with lock:
+        try:
+            if user_text:
+                client.add_local(
+                    user_id=user_id,
+                    role="user",
+                    content=user_text,
+                    memory_type="turn",
+                    thread_id=thread_id,
+                    metadata={"role": "user"},
+                )
+            if agent_text:
+                client.add_local(
+                    user_id=user_id,
+                    role="agent",
+                    content=agent_text,
+                    memory_type="turn",
+                    thread_id=thread_id,
+                    metadata={"role": "assistant"},
+                )
+            client.push_to_cosmos()
+        finally:
+            client.local_memory.clear()
+
+
 async def _post_response_background(sessionId: str, tenantId: str, userId: str, response_data, messages,
-                                    debug_log_id: str):
+                                    debug_log_id: str, user_message: str):
     """
     Background task: store debug log, persist messages, update agent state.
     Runs after HTTP response is already sent to the client.
     Each step is guarded independently so one failure doesn't block the others.
     """
+    # Step 0: Canonical turn write (one user + one assistant turn per request).
+    # This is the safety net — it runs even if an agent skipped its add_turn
+    # tool call, so memories_turns always reflects the conversation.
+    try:
+        await asyncio.to_thread(
+            _write_turns_to_memory,
+            userId,
+            sessionId,
+            user_message,
+            messages,
+        )
+    except Exception as e:
+        logger.error(f"❌ Failed to write turns to long-term memory for session {sessionId}: {e}")
+
     # Step 1: Store debug log
     try:
         await asyncio.to_thread(
@@ -1014,8 +1068,8 @@ async def get_chat_completion(
 #             }
 #         }
 #
-#         # Retrieve last checkpoint
-#         checkpoints = list(_checkpointer.list(config))
+#         # Retrieve last checkpoint (async iterator)
+#         checkpoints = [c async for c in _checkpointer.alist(config)]
 #         last_active_agent = "orchestrator"
 #
 #         if not checkpoints:
@@ -1053,10 +1107,10 @@ async def get_chat_completion(
 #         # Build response immediately from extracted messages
 #         response_models = [msg_model for msg_model, _ in messages]
 #
-#         # Offload ALL storage to background (debug log, messages, agent patch)
+#         # Offload ALL storage to background (canonical turn write, debug log, messages, agent patch)
 #         background_tasks.add_task(
 #             _post_response_background,
-#             sessionId, tenantId, userId, response_data, messages, debug_log_id
+#             sessionId, tenantId, userId, response_data, messages, debug_log_id, request_body
 #         )
 #
 #         return response_models

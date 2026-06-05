@@ -214,22 +214,24 @@ Agents can hand off to each other. For example, after discovering hotels the Hot
 
 ## Memory & Personalization
 
-The Travel Assistant uses the `agent_memory_toolkit` SDK for memory. During workshop development it is installed as an editable dependency pointing at `../AgentMemoryToolkit` (TODO: switch to the published PyPI package). The toolkit owns memory storage, extraction, summaries, user summaries, conflict handling, and the memory prompts.
+The Travel Assistant uses the **`azure-cosmos-agent-memory`** PyPI package for memory (import path `azure.cosmos.agent_memory`). The SDK owns memory storage, extraction, summaries, user summaries, conflict handling, and the memory prompts.
 
-On first run, the toolkit auto-creates the Cosmos DB `memories`, `counter`, and `leases` containers; there are no Bicep resources to create for memory. Memory records are partitioned by `(user_id, thread_id)`, where `thread_id` is the chat session ID. `tenantId` still scopes sessions, messages, trips, and places, but it is no longer part of memory records.
+All three Cosmos DB containers used by the SDK — `memories_turns` (raw turn log, TTL 30 days), `memories` (facts, episodics, procedurals — vector + full-text indexed at 1536 dims), and `memories_summaries` (thread and user summaries, composite-indexed by `(user_id, thread_id, version)`) — are provisioned ahead of time by Bicep (`infra/shared/cosmosdb.bicep`). The workshop's `seed_data.py` populates `memories_turns` and `memories` from the shipped JSON files; `memories_summaries` is left empty and filled by the runtime SDK as users chat. Memory records are partitioned by `(user_id, thread_id)`, where `thread_id` is the chat session ID. `tenantId` still scopes sessions, messages, trips, and places, but it is no longer part of memory records.
 
 ### Memory Types
 
-| Type | What it stores | How it is created |
-|---|---|---|
-| **turn** | Raw chat turns in a thread | Added as you chat |
-| **fact** | Durable preferences and trip facts | Produced by toolkit flush |
-| **summary** | Thread-level conversation summaries | Produced by toolkit flush |
-| **user_summary** | Cross-thread profile used for personalization | Produced/updated by toolkit flush |
+| Type | Container | What it stores | How it is created |
+|---|---|---|---|
+| **turn** | `memories_turns` | Raw chat turns in a thread | Added as you chat |
+| **fact** | `memories` | Durable preferences and trip facts | Produced by SDK flush |
+| **episodic** | `memories` | Specific past experiences worth recalling | Produced by SDK flush |
+| **procedural** | `memories` | Standing rules / how-to-handle-X guidance | Produced by SDK flush |
+| **thread_summary** | `memories_summaries` | Thread-level conversation summaries | Produced by SDK flush |
+| **user_summary** | `memories_summaries` | Cross-thread profile used for personalization | Produced/updated by SDK flush |
 
 ### How Preferences Are Captured
 
-You do **not** need to say "remember that…". Chat turns are recorded as you talk, and every 10 chat turns a background auto-flush runs through `agent_memory_toolkit` to extract facts, update summaries, and refresh the `user_summary`. For example:
+You do **not** need to say "remember that…". Chat turns are recorded as you talk, and every 10 chat turns a background auto-flush runs through `azure.cosmos.agent_memory` to extract facts, update summaries, and refresh the `user_summary`. For example:
 
 - "I'm vegan" → can become a durable dietary fact
 - "I usually prefer boutique hotels" → can become a lodging preference fact
@@ -238,7 +240,7 @@ You do **not** need to say "remember that…". Chat turns are recorded as you ta
 
 ### Conflict Detection
 
-If new information conflicts with existing memory, the toolkit's built-in conflict-resolution prompts handle the update path. Those prompts ship inside `agent_memory_toolkit`; `preference_extraction.prompty`, `memory_conflict_resolution.prompty`, and `summarizer.prompty` have been removed from this repo.
+If new information conflicts with existing memory, the SDK's built-in conflict-resolution prompts handle the update path. Those prompts ship inside `azure.cosmos.agent_memory`; `preference_extraction.prompty`, `memory_conflict_resolution.prompty`, and `summarizer.prompty` have been removed from this repo.
 
 ### Viewing Your Memories
 
@@ -441,4 +443,4 @@ The response is a list of messages representing the full conversation history fo
 
 ### Multi-Tenancy
 
-Application data such as sessions, messages, trips, and places is scoped by `tenantId` and `userId`. Memory is the exception: `agent_memory_toolkit` APIs use `/users/{userId}/...` paths, and memory records are partitioned by `(user_id, thread_id)` without `tenantId`.
+Application data such as sessions, messages, trips, and places is scoped by `tenantId` and `userId`. Memory is the exception: `azure.cosmos.agent_memory` APIs use `/users/{userId}/...` paths, and memory records are partitioned by `(user_id, thread_id)` without `tenantId`.

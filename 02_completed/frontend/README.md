@@ -79,7 +79,7 @@ The frontend communicates with the FastAPI backend via the `TravelApiService`:
 
 ### Memory layer
 
-Memory is provided by the `agent_memory_toolkit` SDK in the backend. During workshop development it is installed as an editable dependency pointing at `../AgentMemoryToolkit` (TODO: switch to the published PyPI package). The toolkit auto-creates the Cosmos DB `memories`, `counter`, and `leases` containers on first run; every 10 chat turns a background auto-flush produces summaries, facts, and `user_summary`. Memory records are partitioned by `(user_id, thread_id)`, not `tenantId`, and the memory prompts now ship inside the toolkit instead of this repo.
+Memory is provided by the **`azure-cosmos-agent-memory`** PyPI package (import path `azure.cosmos.agent_memory`) in the backend. The SDK uses three Cosmos DB containers — `memories_turns` (raw turns), `memories` (facts, episodics, procedurals), and `memories_summaries` (thread and user summaries) — all provisioned by Bicep at deploy time. Every 10 chat turns a background auto-flush produces a thread summary, extracted facts/episodics, and refreshes the `user_summary`. Memory records are partitioned by `(user_id, thread_id)`, not `tenantId`, and the memory prompts ship inside the SDK instead of this repo.
 
 ### State Management
 

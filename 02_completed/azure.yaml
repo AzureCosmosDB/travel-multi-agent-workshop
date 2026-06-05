@@ -1,3 +1,5 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/Azure/azure-dev/main/schemas/v1.0/azure.yaml.json
+
 name: TravelAssistant
 metadata:
   template: azd-init@1.5.1
@@ -44,7 +46,7 @@ hooks:
       run: |
         echo "
         COSMOSDB_ENDPOINT=\"$COSMOSDB_ENDPOINT\"
-        COSMOS_DB_DATABASE_NAME=\"TravelAssistant\"
+        COSMOSDB_DATABASE_NAME=\"TravelAssistant\"
         AZURE_OPENAI_ENDPOINT=\"$AZURE_OPENAI_ENDPOINT\"
         AZURE_OPENAI_EMBEDDING_DEPLOYMENT=\"$AZURE_OPENAI_EMBEDDINGDEPLOYMENTID\"
         AZURE_OPENAI_DEPLOYMENT=\"$AZURE_OPENAI_COMPLETIONSDEPLOYMENTID\"
@@ -52,6 +54,10 @@ hooks:
         MCP_AUTH_SECRET_KEY=\"travel-mcp-server-jwt-secret-for-local-development\"
         MCP_AUTH_TOKEN=\"travel-server-dev-token-2024\"
         MCP_SERVER_BASE_URL=\"http://localhost:8080\"
+        FACT_EXTRACTION_EVERY_N=1
+        DEDUP_EVERY_N=1
+        THREAD_SUMMARY_EVERY_N=5
+        USER_SUMMARY_EVERY_N=5
         " > ./python/.env
 
         echo "✅ Environment file created at ./python/.env"
@@ -59,7 +65,7 @@ hooks:
         # Create environment file for MCP server
         echo "
         COSMOSDB_ENDPOINT=\"$COSMOSDB_ENDPOINT\"
-        COSMOS_DB_DATABASE_NAME=\"TravelAssistant\"
+        COSMOSDB_DATABASE_NAME=\"TravelAssistant\"
         AZURE_OPENAI_ENDPOINT=\"$AZURE_OPENAI_ENDPOINT\"
         AZURE_OPENAI_EMBEDDING_DEPLOYMENT=\"$AZURE_OPENAI_EMBEDDINGDEPLOYMENTID\"
         AZURE_OPENAI_DEPLOYMENT=\"$AZURE_OPENAI_COMPLETIONSDEPLOYMENTID\"
@@ -67,6 +73,10 @@ hooks:
         MCP_AUTH_SECRET_KEY=\"travel-mcp-server-jwt-secret-for-local-development\"
         MCP_AUTH_TOKEN=\"travel-server-dev-token-2024\"
         MCP_SERVER_BASE_URL=\"http://localhost:8080\"
+        FACT_EXTRACTION_EVERY_N=1
+        DEDUP_EVERY_N=1
+        THREAD_SUMMARY_EVERY_N=5
+        USER_SUMMARY_EVERY_N=5
         " > ./mcp_server/.env
 
         echo "✅ Environment file created at ./mcp_server/.env"
@@ -139,7 +149,7 @@ hooks:
         echo "
         COSMOSDB_ENDPOINT=""$env:COSMOSDB_ENDPOINT""
         COSMOSDB_KEY=""$env:COSMOSDB_KEY""
-        COSMOS_DB_DATABASE_NAME=""TravelAssistant""
+        COSMOSDB_DATABASE_NAME=""TravelAssistant""
         AZURE_OPENAI_ENDPOINT=""$env:AZURE_OPENAI_ENDPOINT""
         AZURE_OPENAI_EMBEDDING_DEPLOYMENT=""$env:AZURE_OPENAI_EMBEDDINGDEPLOYMENTID""
         AZURE_OPENAI_DEPLOYMENT=""$env:AZURE_OPENAI_COMPLETIONSDEPLOYMENTID""
@@ -147,6 +157,10 @@ hooks:
         MCP_AUTH_SECRET_KEY=""travel-mcp-server-jwt-secret-for-local-development""
         MCP_AUTH_TOKEN=""travel-server-dev-token-2024""
         MCP_SERVER_BASE_URL=""http://localhost:8080""
+        FACT_EXTRACTION_EVERY_N=1
+        DEDUP_EVERY_N=1
+        THREAD_SUMMARY_EVERY_N=5
+        USER_SUMMARY_EVERY_N=5
         " > ./python/.env
 
         Write-Host "✅ Environment file created at ./python/.env"
@@ -155,7 +169,7 @@ hooks:
         echo "
         COSMOSDB_ENDPOINT=""$env:COSMOSDB_ENDPOINT""
         COSMOSDB_KEY=""$env:COSMOSDB_KEY""
-        COSMOS_DB_DATABASE_NAME=""TravelAssistant""
+        COSMOSDB_DATABASE_NAME=""TravelAssistant""
         AZURE_OPENAI_ENDPOINT=""$env:AZURE_OPENAI_ENDPOINT""
         AZURE_OPENAI_EMBEDDING_DEPLOYMENT=""$env:AZURE_OPENAI_EMBEDDINGDEPLOYMENTID""
         AZURE_OPENAI_DEPLOYMENT=""$env:AZURE_OPENAI_COMPLETIONSDEPLOYMENTID""
@@ -163,6 +177,10 @@ hooks:
         MCP_AUTH_SECRET_KEY=""travel-mcp-server-jwt-secret-for-local-development""
         MCP_AUTH_TOKEN=""travel-server-dev-token-2024""
         MCP_SERVER_BASE_URL=""http://localhost:8080""
+        FACT_EXTRACTION_EVERY_N=1
+        DEDUP_EVERY_N=1
+        THREAD_SUMMARY_EVERY_N=5
+        USER_SUMMARY_EVERY_N=5
         " > ./mcp_server/.env
 
         Write-Host "✅ Environment file created at ./mcp_server/.env"
