@@ -122,7 +122,6 @@ celerybeat.pid
 # Environments
 .env
 .venv
-.venv-travel
 env/
 venv/
 ENV/
@@ -327,7 +326,9 @@ yarn-error.log*
 !**/abbreviations.json
 !**/*template*.json
 !**/package*.json
-!python/data/*.json
+!**/angular.json
+!**/tsconfig*.json
+!**/proxy.conf.json
 
 # MacOS
 .DS_Store

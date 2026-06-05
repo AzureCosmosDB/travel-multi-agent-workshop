@@ -16,25 +16,25 @@ Let's take a moment to appreciate the complexity of your travel assistant:
 
 **Multi-Agent Orchestration:**
 
-- **Orchestrator Agent**: Routes user requests and coordinates responses
+- **Orchestrator Agent**: Routes user requests, extracts preferences, coordinates responses
 - **Specialist Agents**: Hotel, Dining, Activity agents with domain expertise
 - **Itinerary Generator**: Creates day-by-day travel plans
+- **Summarizer Agent**: Automatically condenses conversation history
 
-**Intelligent Memory System (via the `azure-cosmos-agent-memory` toolkit):**
+**Intelligent Memory System:**
 
-- **Automatic Fact Extraction**: The toolkit's pipeline extracts semantic facts from raw turns — you tune the cadence (`FACT_EXTRACTION_EVERY_N`), not the prompts.
-- **Dedup & Contradiction Handling**: Newer facts supersede older contradicting ones, gated by `DEDUP_EVERY_N`.
-- **Memory Types**: Semantic (facts), procedural (behavioural preferences), episodic (experiences), plus raw turns and rolled thread/user summaries.
-- **Salience Scoring & Superseding**: The toolkit ranks memories and marks outdated ones `superseded: true` automatically.
-- **Three Containers**: `memories` (facts/episodic/procedural), `memories_turns` (raw turns), `memories_summaries` (thread + user summaries), with a `counter` container for cadence bookkeeping.
+- **Automatic Preference Extraction**: LLM-powered extraction from natural language
+- **Conflict Resolution**: Detects and resolves contradictory preferences
+- **Memory Types**: Declarative (facts), procedural (preferences), episodic (experiences)
+- **Salience Scoring**: Prioritizes important memories over trivial ones
+- **Memory Superseding**: Old preferences are gracefully replaced by new ones
 
 **Data Architecture:**
 
 - **Cosmos DB**: Scalable NoSQL database with vector search capabilities
-- **Application Containers**: Sessions, Checkpoints, Messages, Places, Trips, Users, DebugLogs
-- **Memory Containers**: `memories`, `memories_turns`, `memories_summaries`, `counter`
+- **Containers**: Sessions, Messages, Summaries, Memories, Places, Trips, Users
 - **Hybrid Search**: Combines semantic search (vectors) + keyword search (RRF)
-- **Partitioning**: Efficient multi-tenant architecture with hierarchical partition keys (`/user_id`, `/thread_id`)
+- **Partitioning**: Efficient multi-tenant architecture with hierarchical partition keys
 
 **Observability:**
 
@@ -143,20 +143,7 @@ LangSmith traces show:
 
 **Key Insight**: Add observability **before** things go wrong.
 
-### 5. Use a Memory Toolkit, Don't Hand-Roll Your Own
-
-**What We Learned:**
-Earlier iterations of this workshop had attendees write - by hand - the extraction prompt, the dedup prompt, the summarisation prompt, the salience scorer, and the per-`(user, thread)` cadence bookkeeping. It was educational, but it was also brittle: every workshop release had to re-tune those prompts against the latest model, and small prompt regressions broke memory in non-obvious ways.
-
-**What We Use Now:**
-The [`azure-cosmos-agent-memory`](https://pypi.org/project/azure-cosmos-agent-memory/) toolkit owns all of that - the prompts ship inside the package, the pipeline is auditable through log lines, and the cadence is tunable through four env vars (`FACT_EXTRACTION_EVERY_N`, `DEDUP_EVERY_N`, `THREAD_SUMMARY_EVERY_N`, `USER_SUMMARY_EVERY_N`). Your app code is a thin wrapper that:
-
-1. Creates a singleton `CosmosMemoryClient` at startup.
-2. Exposes three small MCP tools (`recall_memories`, `delete_memory`, `get_user_summary`) so agents can read what the pipeline wrote.
-
-**Key Insight**: Treat agentic memory as **infrastructure** — pick a toolkit, configure it for your workload, and put your engineering effort into integration and observability, not into rewriting extraction prompts.
-
-### 6. Hybrid Search > Vector-Only Search
+### 5. Hybrid Search > Vector-Only Search
 
 **What We Learned:**
 Pure vector search misses exact keyword matches. Hybrid retrieval (RRF) combines:

@@ -116,7 +116,7 @@ Shows all itineraries that have been generated for your user. Each trip record s
 - Day-by-day itinerary with places
 
 ### Profile
-Displays your user account details, the Profile **User Summary** panel, and stored memories. From here you can review — and delete — memories the system has learned about you.
+Displays your user account details and stored memories. From here you can review — and delete — any preferences the system has learned about you.
 
 ---
 
@@ -159,7 +159,7 @@ Some requests are handled by the Orchestrator without routing to a specialist:
 
 ## How the Agent System Works
 
-The application has specialized agents that collaborate to plan your trip.
+The application has six specialized agents that collaborate to plan your trip.
 
 ```
 User message
@@ -167,7 +167,7 @@ User message
      ▼
 ┌─────────────┐
 │ Orchestrator│  ◄── Entry point for all messages
-│             │       Recalls memory, routes requests
+│             │       Extracts preferences, routes requests
 └──────┬──────┘
        │
    routes to
@@ -180,19 +180,22 @@ Agent     Agent       Agent         Generator
   └──────────┴──────────┴───► synthesizes ─┘
                                            │
                                     Day-by-day plan
-
-Memory auto-flush runs in the background every ~10 chat turns.
+                                    
+                    ┌─────────────┐
+                    │ Summarizer  │  ◄── Auto-triggered every ~10 turns
+                    └─────────────┘
 ```
 
 ### Agent Responsibilities
 
 | Agent | What it does | When it's invoked |
 |---|---|---|
-| **Orchestrator** | Receives all messages, recalls memory, routes to specialists | Always first |
-| **Hotel Agent** | Searches accommodations and applies lodging preferences | "Find hotels", "Where should I stay?" |
-| **Activity Agent** | Searches attractions and experiences and applies activity preferences | "Things to do", "Museums", "Tours" |
-| **Dining Agent** | Searches restaurants and applies dining preferences | "Restaurants", "Where to eat", "Food" |
+| **Orchestrator** | Receives all messages, extracts preferences, routes to specialists | Always first |
+| **Hotel Agent** | Searches accommodations, stores lodging preferences | "Find hotels", "Where should I stay?" |
+| **Activity Agent** | Searches attractions and experiences, stores activity preferences | "Things to do", "Museums", "Tours" |
+| **Dining Agent** | Searches restaurants, stores dining preferences | "Restaurants", "Where to eat", "Food" |
 | **Itinerary Generator** | Creates day-by-day travel plans from gathered results | "Build an itinerary", "Plan my days" |
+| **Summarizer** | Compresses conversation history to prevent context window overflow | Auto-triggered every ~10 conversation turns |
 
 ### Agent Routing Examples
 
@@ -214,47 +217,43 @@ Agents can hand off to each other. For example, after discovering hotels the Hot
 
 ## Memory & Personalization
 
-The Travel Assistant uses the **`azure-cosmos-agent-memory`** PyPI package for memory (import path `azure.cosmos.agent_memory`). The SDK owns memory storage, extraction, summaries, user summaries, conflict handling, and the memory prompts.
-
-All three Cosmos DB containers used by the SDK — `memories_turns` (raw turn log, TTL 30 days), `memories` (facts, episodics, procedurals — vector + full-text indexed at 1536 dims), and `memories_summaries` (thread and user summaries, composite-indexed by `(user_id, thread_id, version)`) — are provisioned ahead of time by Bicep (`infra/shared/cosmosdb.bicep`). The workshop's `seed_data.py` populates `memories_turns` and `memories` from the shipped JSON files; `memories_summaries` is left empty and filled by the runtime SDK as users chat. Memory records are partitioned by `(user_id, thread_id)`, where `thread_id` is the chat session ID. `tenantId` still scopes sessions, messages, trips, and places, but it is no longer part of memory records.
+The Travel Assistant maintains three types of memory for each user. These persist across sessions — the system remembers you the next time you return.
 
 ### Memory Types
 
-| Type | Container | What it stores | How it is created |
-|---|---|---|---|
-| **turn** | `memories_turns` | Raw chat turns in a thread | Added as you chat |
-| **fact** | `memories` | Durable preferences and trip facts | Produced by SDK flush |
-| **episodic** | `memories` | Specific past experiences worth recalling | Produced by SDK flush |
-| **procedural** | `memories` | Standing rules / how-to-handle-X guidance | Produced by SDK flush |
-| **thread_summary** | `memories_summaries` | Thread-level conversation summaries | Produced by SDK flush |
-| **user_summary** | `memories_summaries` | Cross-thread profile used for personalization | Produced/updated by SDK flush |
+| Type | What it stores | Typical lifespan |
+|---|---|---|
+| **Declarative** | Hard facts: dietary restrictions, accessibility needs, languages spoken, travel companions | Permanent (never expires) |
+| **Procedural** | Behavioral patterns: budget preference, hotel style, activity types you enjoy | 90–180 days |
+| **Episodic** | Trip-specific history: places visited, hotels stayed, restaurants tried | 30–90 days |
 
 ### How Preferences Are Captured
 
-You do **not** need to say "remember that…". Chat turns are recorded as you talk, and every 10 chat turns a background auto-flush runs through `azure.cosmos.agent_memory` to extract facts, update summaries, and refresh the `user_summary`. For example:
+You do **not** need to say "remember that…". The Orchestrator automatically extracts preferences from natural speech on every message. The following all result in stored memories:
 
-- "I'm vegan" → can become a durable dietary fact
-- "I usually prefer boutique hotels" → can become a lodging preference fact
-- "We stayed at the Hotel Arts in Barcelona last year" → can become a trip history fact
-- "I need a quiet room away from the street" → can become an accommodation requirement fact
+- "I'm vegan" → stores a declarative dietary restriction
+- "I usually prefer boutique hotels" → stores a procedural lodging preference
+- "We stayed at the Hotel Arts in Barcelona last year" → stores an episodic memory
+- "I need a quiet room away from the street" → stores a declarative accommodation requirement
 
 ### Conflict Detection
 
-If new information conflicts with existing memory, the SDK's built-in conflict-resolution prompts handle the update path. Those prompts ship inside `azure.cosmos.agent_memory`; `preference_extraction.prompty`, `memory_conflict_resolution.prompty`, and `summarizer.prompty` have been removed from this repo.
+If you provide information that contradicts something already stored (e.g. you previously said you're vegetarian but now mention you love steak), the system detects the conflict and asks you to clarify before updating your profile:
+
+> "I noticed you previously mentioned you're vegetarian, but now you said you love steak. Has your preference changed, or is this specific to a particular occasion?"
 
 ### Viewing Your Memories
 
-Your stored memories and Profile **User Summary** panel are visible in the **Profile** section of the frontend. Memories can be deleted individually if you want to reset a preference.
+Your stored memories are visible in the **Profile** section of the frontend and can be deleted individually if you want to reset a preference.
 
 You can also query them via the API:
 ```
-GET /users/{userId}/memories
-GET /users/{userId}/summary
+GET /tenant/{tenantId}/user/{userId}/memories
 ```
 
 ### Conversation Summarization
 
-After every 10 chat turns, the API starts a background auto-flush task. This produces thread summaries, facts, and the cross-thread `user_summary` without interrupting the chat response.
+After approximately every 10 conversation turns, the Summarizer agent automatically compresses older messages into a summary. This happens silently in the background and keeps the conversation context manageable without losing important details. You will not notice any interruption.
 
 ---
 
@@ -353,7 +352,7 @@ The richer the description, the better the semantic search results:
 > ❌ "Find a hotel"
 
 ### Share restrictions early
-State dietary restrictions, accessibility needs, or budget limits at the start of a conversation. The toolkit flush turns these into reusable memory facts and the specialist agents can apply them in later recommendations:
+State dietary restrictions, accessibility needs, or budget limits at the start of a conversation. The Orchestrator extracts and stores these so every subsequent specialist agent automatically filters for them:
 
 > "Before we start, I should mention I'm celiac and need gluten-free dining options, and I travel with a wheelchair user."
 
@@ -412,9 +411,8 @@ The full interactive API documentation is available at **http://localhost:8000/d
 #### Memory Management
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/users/{userId}/memories` | Get stored memories (filterable by type/query) |
-| `GET` | `/users/{userId}/summary` | Get the Profile User Summary |
-| `DELETE` | `/users/{userId}/memories/{memoryId}` | Delete a specific memory (`session_id` identifies its thread) |
+| `GET` | `/tenant/{tenantId}/user/{userId}/memories` | Get stored memories (filterable by type and salience) |
+| `DELETE` | `/tenant/{tenantId}/user/{userId}/memories/{memoryId}` | Delete a specific memory |
 
 #### Places Discovery
 | Method | Path | Description |
@@ -443,4 +441,4 @@ The response is a list of messages representing the full conversation history fo
 
 ### Multi-Tenancy
 
-Application data such as sessions, messages, trips, and places is scoped by `tenantId` and `userId`. Memory is the exception: `azure.cosmos.agent_memory` APIs use `/users/{userId}/...` paths, and memory records are partitioned by `(user_id, thread_id)` without `tenantId`.
+All data is scoped by `tenantId` and `userId`. The `tenantId` is an organizational grouper (e.g. `marvel`), and `userId` is the individual user within that tenant. All API paths follow the pattern `/tenant/{tenantId}/user/{userId}/...`.

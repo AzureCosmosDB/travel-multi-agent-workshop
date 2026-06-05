@@ -288,6 +288,7 @@ def get_active_agent(state: MessagesState, config) -> str:
     """
     Extract active agent from ToolMessage or fallback to Cosmos DB.
     This is used by the router to determine which specialized agent to call.
+    Also checks if auto-summarization should be triggered.
     """
     thread_id = config["configurable"].get("thread_id", "UNKNOWN_THREAD_ID")
     user_id = config["configurable"].get("userId", "UNKNOWN_USER_ID")
@@ -2064,6 +2065,7 @@ def get_active_agent(state: MessagesState, config) -> str:
     """
     Extract active agent from ToolMessage or fallback to Cosmos DB.
     This is used by the router to determine which specialized agent to call.
+    Also checks if auto-summarization should be triggered.
     """
     thread_id = config["configurable"].get("thread_id", "UNKNOWN_THREAD_ID")
     user_id = config["configurable"].get("userId", "UNKNOWN_USER_ID")
@@ -2096,9 +2098,9 @@ def get_active_agent(state: MessagesState, config) -> str:
             logger.error(f"Error retrieving active agent from DB: {e}")
             activeAgent = "unknown"
 
-    valid_agents = {"orchestrator", "hotel", "activity", "dining", "itinerary_generator", "human"}
-    if activeAgent in [None, "unknown"] or activeAgent not in valid_agents:
-        logger.info(f"activeAgent is '{activeAgent}', defaulting to orchestrator")
+    # If activeAgent is unknown or None, default to orchestrator
+    if activeAgent in [None, "unknown"]:
+        logger.info(f"� activeAgent is '{activeAgent}', defaulting to Orchestrator")
         activeAgent = "orchestrator"
 
     return activeAgent
@@ -2170,6 +2172,7 @@ from src.app.services.azure_cosmos_db import (
     create_session_record,
     get_session_by_id,
     get_session_messages,
+    get_session_summaries,
     query_places_hybrid,
     create_trip,
     get_trip,
@@ -2628,14 +2631,14 @@ def get_session_context(
 
 
 if __name__ == "__main__":
-    print("Starting Travel Assistant MCP server...")
+    print("Starting Banking Tools MCP server...")
 
     # Configure server options
     server_options = {
         "transport": "streamable-http"
     }
 
-    print("🔓 Starting server without built-in authentication...")
+    print("� Starting server without built-in authentication...")
     print("💡 For OAuth, use a reverse proxy like nginx or API gateway")
 
     try:
@@ -2652,6 +2655,7 @@ if __name__ == "__main__":
 
 <br>
 
+```text
 ```text
 ---
 name: Orchestrator Agent

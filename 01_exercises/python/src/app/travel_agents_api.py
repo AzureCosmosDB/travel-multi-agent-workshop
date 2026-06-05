@@ -7,13 +7,14 @@ from pathlib import Path
 import fastapi
 from dotenv import load_dotenv
 from datetime import datetime
-from fastapi import BackgroundTasks, HTTPException, Body, Response
+from fastapi import BackgroundTasks, Depends, HTTPException, Body
 from langchain_core.messages import HumanMessage, ToolMessage, AIMessage
 from pydantic import BaseModel
 from typing import List, Dict, Optional, Any
 from enum import Enum
 from starlette.middleware.cors import CORSMiddleware
 from azure.cosmos.exceptions import CosmosHttpResponseError
+import traceback
 
 import logging
 
@@ -55,18 +56,18 @@ else:
     print(f".env file not found at: {env_file}, trying default locations")
     load_dotenv(override=False)
 
-from src.app.services.azure_open_ai import model
+from src.app.services.azure_open_ai import model, generate_embedding
 from src.app.services.azure_cosmos_db import (
     sessions_container, messages_container, trips_container,
-    places_container, adelete_checkpoints_for_thread, create_session_record, get_session_by_id,
+    memories_container, places_container, debug_logs_container, get_checkpoint_saver,
+    create_session_record, get_session_by_id,
     append_message, get_session_messages, query_places_hybrid,
-    get_trip, query_places_with_theme, query_places_filtered,
+    get_trip, query_memories, get_all_user_memories, query_places_with_theme, query_places_filtered,
     patch_active_agent, update_session_activity,
     create_user, get_all_users, get_user_by_id,
     store_debug_log, get_debug_log, query_debug_logs
 )
 #from src.app.travel_agents import setup_agents, build_agent_graph, cleanup_persistent_session
-from src.app.services.agent_memory import get_memory_client, get_memory_write_lock
 
 # Load environment variables
 load_dotenv(override=False)
@@ -132,16 +133,25 @@ class Trip(BaseModel):
     createdAt: Optional[str] = None
 
 
+class MemoryType(str, Enum):
+    DECLARATIVE = "declarative"
+    EPISODIC = "episodic"
+    PROCEDURAL = "procedural"
+
+
 class Memory(BaseModel):
-    user_id: str
-    thread_id: Optional[str] = None
-    role: Optional[str] = None
-    type: str
-    content: str
-    metadata: Dict[str, Any] = {}
-    created_at: Optional[str] = None
-    tags: List[str] = []
-    salience: Optional[float] = None
+    id: str
+    memoryId: str
+    userId: str
+    tenantId: str
+    memoryType: str  # "declarative" | "episodic" | "procedural"
+    text: str
+    facets: Dict[str, Any]  # {"category": "dining", "preference": "vegetarian"}
+    salience: float
+    justification: str
+    extractedAt: str
+    lastUsedAt: str
+    ttl: Optional[int] = None
 
 
 class PlaceType(str, Enum):
@@ -265,7 +275,8 @@ agent_mapping = {
     "hotel": "Hotel",
     "activity": "Activity",
     "dining": "Dining",
-    "itinerary_generator": "Itinerary"
+    "itinerary_generator": "Itinerary",
+    "summarizer": "Summarizer"
 }
 
 
@@ -283,8 +294,8 @@ agent_mapping = {
 #         try:
 #             logger.info(f"Attempt {attempt + 1}/{max_retries}: Initializing agents...")
 #             await setup_agents()
-#             _checkpointer = await aget_checkpoint_saver()
-#             _graph = build_agent_graph(_checkpointer)
+#             _graph = build_agent_graph()
+#             _checkpointer = get_checkpoint_saver()
 #             _agents_initialized = True
 #             logger.info("Agents initialized successfully!")
 #             return
@@ -324,7 +335,6 @@ agent_mapping = {
 #     """Cleanup resources on shutdown"""
 #     logger.info("Shutting down Travel Assistant API...")
 #     await cleanup_persistent_session()
-#     await close_async_cosmos_client()
 #     logger.info("Cleanup complete")
 
 
@@ -337,8 +347,8 @@ agent_mapping = {
 #         try:
 #             await setup_agents()
 #             global _graph, _checkpointer
-#             _checkpointer = await aget_checkpoint_saver()
-#             _graph = build_agent_graph(_checkpointer)
+#             _graph = build_agent_graph()
+#             _checkpointer = get_checkpoint_saver()
 #             _agents_initialized = True
 #             logger.info("Agents initialized successfully!")
 #         except Exception as e:
@@ -619,14 +629,27 @@ def delete_session(tenantId: str, userId: str, sessionId: str, background_tasks:
                     logger.warning(f"Failed to delete message {item['id']}: {e}")
 
         # Schedule checkpoint cleanup as background task
-        async def delete_checkpoints_background():
+        def delete_checkpoints():
             try:
-                deleted = await adelete_checkpoints_for_thread(sessionId)
-                logger.info(f"🧹 Deleted {deleted} checkpoint(s) for session {sessionId}")
+                if _checkpointer and hasattr(_checkpointer, 'container'):
+                    query = "SELECT c.id, c.partition_key FROM c WHERE CONTAINS(c.partition_key, @sessionId)"
+                    partitions = list(_checkpointer.container.query_items(
+                        query=query,
+                        parameters=[{"name": "@sessionId", "value": sessionId}],
+                        enable_cross_partition_query=True
+                    ))
+                    for partition in partitions:
+                        try:
+                            _checkpointer.container.delete_item(
+                                item=partition["id"],
+                                partition_key=partition["partition_key"]
+                            )
+                        except Exception as e:
+                            logger.warning(f"Failed to delete checkpoint: {e}")
             except Exception as e:
-                logger.error(f"Error cleaning up checkpoints for {sessionId}: {e}")
+                logger.error(f"Error cleaning up checkpoints: {e}")
 
-        background_tasks.add_task(delete_checkpoints_background)
+        background_tasks.add_task(delete_checkpoints)
 
         return {"message": "Session deleted successfully", "sessionId": sessionId}
     except Exception as e:
@@ -864,125 +887,6 @@ def process_messages_background(message_tuples: List[tuple], userId: str, tenant
         logger.error(f"Error storing messages: {e}")
 
 
-def _write_turns_to_memory(
-    user_id: str,
-    thread_id: str,
-    user_message: str,
-    messages: List[tuple],
-) -> None:
-    """Buffer the user + assistant turns and push them through the toolkit.
-
-    Runs synchronously (off the event loop via ``asyncio.to_thread``). Acquires
-    the process-wide memory-write lock so concurrent chat requests cannot
-    interleave ``add_local`` / ``push_to_cosmos`` / ``local_memory.clear()`` on
-    the shared singleton buffer — that race can lose ``_unflushed_turn_counts``
-    bumps and break the cadence-driven summarizer. The buffer is cleared in a
-    ``finally`` block so a failing push never poisons later requests.
-    """
-    user_text = (user_message or "").strip()
-
-    agent_text = ""
-    for msg_model, _ in messages or []:
-        if getattr(msg_model, "senderRole", None) == "Assistant":
-            candidate = (getattr(msg_model, "text", "") or "").strip()
-            if candidate:
-                agent_text = candidate
-
-    if not user_text and not agent_text:
-        return
-
-    client = get_memory_client()
-    lock = get_memory_write_lock()
-    with lock:
-        try:
-            if user_text:
-                client.add_local(
-                    user_id=user_id,
-                    role="user",
-                    content=user_text,
-                    memory_type="turn",
-                    thread_id=thread_id,
-                    metadata={"role": "user"},
-                )
-            if agent_text:
-                client.add_local(
-                    user_id=user_id,
-                    role="agent",
-                    content=agent_text,
-                    memory_type="turn",
-                    thread_id=thread_id,
-                    metadata={"role": "assistant"},
-                )
-            client.push_to_cosmos()
-        finally:
-            client.local_memory.clear()
-
-
-async def _post_response_background(sessionId: str, tenantId: str, userId: str, response_data, messages,
-                                    debug_log_id: str, user_message: str):
-    """
-    Background task: store debug log, persist messages, update agent state.
-    Runs after HTTP response is already sent to the client.
-    Each step is guarded independently so one failure doesn't block the others.
-    """
-    # Step 0: Canonical turn write (one user + one assistant turn per request).
-    # This is the safety net — it runs even if an agent skipped its add_turn
-    # tool call, so memories_turns always reflects the conversation.
-    try:
-        await asyncio.to_thread(
-            _write_turns_to_memory,
-            userId,
-            sessionId,
-            user_message,
-            messages,
-        )
-    except Exception as e:
-        logger.error(f"❌ Failed to write turns to long-term memory for session {sessionId}: {e}")
-
-    # Step 1: Store debug log
-    try:
-        await asyncio.to_thread(
-            store_debug_log_from_response,
-            sessionId,
-            tenantId,
-            userId,
-            response_data,
-            debug_log_id=debug_log_id,
-        )
-    except Exception as e:
-        logger.error(f"❌ Failed to store debug log for session {sessionId}: {e}")
-
-    # Step 2: Persist messages (runs even if debug log failed)
-    messages_persisted = False
-    try:
-        await asyncio.to_thread(process_messages_background, messages, userId, tenantId, sessionId)
-        messages_persisted = True
-    except Exception as e:
-        logger.error(f"❌ Failed to persist messages for session {sessionId}: {e}")
-
-    # Step 3: Toolkit auto-summarization is now driven by the MCP add_turn
-    # tool (which calls add_local + push_to_cosmos) and consults the
-    # FACT_EXTRACTION_EVERY_N / THREAD_SUMMARY_EVERY_N / USER_SUMMARY_EVERY_N
-    # / DEDUP_EVERY_N env vars. No hand-rolled cadence needed here.
-
-    # Step 4: Patch active agent
-    try:
-        last_agent_name = "unknown"
-        for i in range(len(response_data) - 1, -1, -1):
-            if "__interrupt__" in response_data[i]:
-                if i > 0:
-                    last_agent_name = list(response_data[i - 1].keys())[0]
-                break
-        if last_agent_name == "unknown" and response_data:
-            last_agent_name = list(response_data[-1].keys())[0] if response_data[-1] else "unknown"
-
-        await asyncio.to_thread(patch_active_agent, tenantId, userId, sessionId, last_agent_name)
-    except Exception as e:
-        logger.error(f"❌ Failed to patch active agent for session {sessionId}: {e}")
-
-    logger.info(f"✅ Background processing complete for session {sessionId}")
-
-
 @app.post(
     "/tenant/{tenantId}/user/{userId}/sessions/{sessionId}/completion",
     tags=[CHAT_TAG],
@@ -1068,8 +972,8 @@ async def get_chat_completion(
 #             }
 #         }
 #
-#         # Retrieve last checkpoint (async iterator)
-#         checkpoints = [c async for c in _checkpointer.alist(config)]
+#         # Retrieve last checkpoint
+#         checkpoints = list(_checkpointer.list(config))
 #         last_active_agent = "orchestrator"
 #
 #         if not checkpoints:
@@ -1095,25 +999,40 @@ async def get_chat_completion(
 #
 #             response_data = await workflow.ainvoke(last_state, config, stream_mode="updates")
 #
-#         # Generate debug log ID upfront so it's available in the response
-#         debug_log_id = str(uuid.uuid4())
+#         # Store debug log in Cosmos DB
+#         debug_log_id = store_debug_log_from_response(sessionId, tenantId, userId, response_data)
 #
-#         # Extract messages (lightweight — just parses response_data)
+#         # Extract messages
 #         messages = extract_relevant_messages(
 #             debug_log_id, last_active_agent, response_data,
 #             tenantId, userId, sessionId
 #         )
 #
-#         # Build response immediately from extracted messages
-#         response_models = [msg_model for msg_model, _ in messages]
+#         # Store messages SYNCHRONOUSLY before returning (not in background)
+#         # This ensures they're in the database when we retrieve all messages
+#         process_messages_background(messages, userId, tenantId, sessionId)
 #
-#         # Offload ALL storage to background (canonical turn write, debug log, messages, agent patch)
-#         background_tasks.add_task(
-#             _post_response_background,
-#             sessionId, tenantId, userId, response_data, messages, debug_log_id, request_body
-#         )
-#
-#         return response_models
+#         # Now retrieve ALL messages from the database (including the ones we just stored)
+#         all_messages = get_session_messages(sessionId, tenantId, userId)
+#         
+#         # Convert to MessageModel format for API response
+#         return [
+#             MessageModel(
+#                 id=msg.get("id", str(uuid.uuid4())),
+#                 type="message",
+#                 sessionId=sessionId,
+#                 tenantId=tenantId,
+#                 userId=userId,
+#                 timeStamp=msg.get("ts") or msg.get("timeStamp", datetime.utcnow().isoformat()),
+#                 sender=msg.get("sender", "Assistant"),
+#                 senderRole="User" if msg.get("role") == "user" else "Assistant",
+#                 text=msg.get("content", ""),
+#                 debugLogId=msg.get("debugLogId", ""),
+#                 tokensUsed=msg.get("tokensUsed", 0),
+#                 rating=msg.get("rating")
+#             )
+#             for msg in all_messages
+#         ]
 #
 #     except Exception as e:
 #         logger.error(f"Error in chat completion: {e}")
@@ -1327,78 +1246,76 @@ def delete_trip_endpoint(tenantId: str, userId: str, tripId: str):
 # ============================================================================
 
 @app.get(
-    "/users/{user_id}/memories",
+    "/tenant/{tenantId}/user/{userId}/memories",
     tags=[MEMORY_TAG],
     summary="Get User Memories",
-    description="Retrieve toolkit memories for a user; searches when q is supplied, otherwise lists recent memories",
-    response_model=List[Dict[str, Any]]
+    description="Retrieve user preferences and stored memories",
+    response_model=List[Memory]
 )
 def get_user_memories(
-    user_id: str,
-    q: Optional[str] = None,
-    thread_id: Optional[str] = None,
-    top_k: int = 10,
+        tenantId: str,
+        userId: str,
+        memoryType: Optional[str] = None,
+        minSalience: float = 0.0,
 ):
-    """Get toolkit-backed memories for a user."""
-    try:
-        client = get_memory_client()
-        if q and q.strip():
-            return client.search_cosmos(
-                search_terms=q,
-                user_id=user_id,
-                thread_id=thread_id,
-                top_k=top_k,
-            )
+    """
+    Get stored memories for a user.
 
-        return client.get_memories(
-            user_id=user_id,
-            thread_id=thread_id,
-            recent_k=top_k,
+    Args:
+        tenantId: Tenant identifier
+        userId: User identifier
+        memoryType: Optional filter by type (declarative, episodic, procedural)
+        minSalience: Minimum importance score (0.0-1.0)
+
+    Returns:
+        List of Memory objects
+    """
+    try:
+        memories = get_all_user_memories(
+            user_id=userId,
+            tenant_id=tenantId
         )
+
+        return [Memory(**mem) for mem in memories]
     except Exception as e:
         logger.error(f"Error fetching memories: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to fetch memories: {str(e)}")
 
 
 @app.delete(
-    "/users/{user_id}/memories/{memory_id}",
+    "/tenant/{tenantId}/user/{userId}/memories/{memoryId}",
     tags=[MEMORY_TAG],
     summary="Delete Memory",
-    description="Delete a toolkit memory for a user and thread",
-    status_code=204
+    description="Delete a specific user memory/preference",
+    status_code=200
 )
-def delete_memory(user_id: str, memory_id: str, thread_id: Optional[str] = None):
-    """Delete a toolkit-backed memory."""
-    if not thread_id:
-        raise HTTPException(status_code=400, detail="thread_id is required")
+def delete_memory(tenantId: str, userId: str, memoryId: str):
+    """
+    Delete a stored memory.
 
+    Args:
+        tenantId: Tenant identifier
+        userId: User identifier
+        memoryId: Memory identifier
+
+    Returns:
+        Success message
+    """
     try:
-        get_memory_client().delete_cosmos(
-            memory_id=memory_id,
-            thread_id=thread_id,
-            user_id=user_id,
-        )
-        return Response(status_code=204)
+        if not memories_container:
+            raise HTTPException(status_code=503, detail="Cosmos DB not available")
+
+        partition_key = [tenantId, userId]
+        memories_container.delete_item(item=memoryId, partition_key=partition_key)
+
+        return {"message": "Memory deleted successfully", "memoryId": memoryId}
+    except CosmosHttpResponseError as e:
+        if e.status_code == 404:
+            raise HTTPException(status_code=404, detail="Memory not found")
+        raise
     except Exception as e:
         logger.error(f"Error deleting memory: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to delete memory: {str(e)}")
-
-
-@app.get(
-    "/users/{user_id}/summary",
-    tags=[MEMORY_TAG],
-    summary="Get User Summary",
-    description="Retrieve the latest toolkit-generated cross-thread user summary",
-    response_model=Optional[Dict[str, Any]]
-)
-def get_user_summary_endpoint(user_id: str):
-    """Get the latest toolkit-backed user summary, or null if absent."""
-    try:
-        summaries = get_memory_client().get_user_summary(user_id)
-        return summaries[0] if summaries else None
-    except Exception as e:
-        logger.error(f"Error fetching user summary: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to fetch user summary: {str(e)}")
 
 
 # ============================================================================

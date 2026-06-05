@@ -2,7 +2,7 @@ import { Component, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { TravelApiService } from '../../services/travel-api.service';
-import { Memory, UserSummary } from '../../models/travel.models';
+import { Memory } from '../../models/travel.models';
 
 @Component({
     selector: 'app-profile',
@@ -12,7 +12,6 @@ import { Memory, UserSummary } from '../../models/travel.models';
 })
 export class ProfileComponent implements OnInit {
   memories: Memory[] = [];
-  userSummary: UserSummary | null = null;
   
   preferences = {
     budget: 'moderate',
@@ -24,24 +23,11 @@ export class ProfileComponent implements OnInit {
   constructor(private travelApi: TravelApiService) {}
 
   ngOnInit(): void {
-    this.loadUserSummary();
     this.loadMemories();
   }
 
-  loadUserSummary(): void {
-    this.travelApi.getUserSummary(this.travelApi.getUserId()).subscribe({
-      next: (summary) => {
-        this.userSummary = summary;
-      },
-      error: (error) => {
-        console.error('Error loading user summary:', error);
-        this.userSummary = null;
-      }
-    });
-  }
-
   loadMemories(): void {
-    this.travelApi.getMemories(this.travelApi.getUserId()).subscribe({
+    this.travelApi.getMemories().subscribe({
       next: (memories) => {
         console.log('📝 Memories received:', memories);
         console.log('📝 Number of memories:', memories?.length);
@@ -59,15 +45,10 @@ export class ProfileComponent implements OnInit {
   }
 
   deleteMemory(memory: Memory): void {
-    if (!memory.thread_id) {
-      alert('Cannot delete this memory because it is missing a thread id.');
-      return;
-    }
-
-    if (confirm(`Delete memory: ${memory.content}?`)) {
-      this.travelApi.deleteMemory(this.travelApi.getUserId(), memory.id, memory.thread_id).subscribe({
+    if (confirm(`Delete memory: ${memory.text}?`)) {
+      this.travelApi.deleteMemory(memory.memoryId).subscribe({
         next: () => {
-          this.memories = this.memories.filter(m => m.id !== memory.id);
+          this.memories = this.memories.filter(m => m.memoryId !== memory.memoryId);
           alert('Memory deleted successfully');
         },
         error: (error) => {
