@@ -32,7 +32,7 @@ Three processes run together; the frontend proxies `/api` and MCP calls:
 
 ## Build / run / test
 
-**Deploy everything (provisions Azure + seeds data):** from `02_completed/`, `azd auth login` then `azd up`. Post-provision writes `python/.env` and `mcp_server/.env` and seeds Cosmos via `python data/seed_data.py`.
+**Deploy everything (provisions Azure + seeds data):** from `02_completed/`, `azd auth login` then `azd up`. Post-provision writes `python/.env` and `mcp_server/.env` and seeds Cosmos via `cd python; python data/seed_data.py`.
 
 **Local dev — three terminals from `02_completed/`** (venv created by `azd up`):
 
