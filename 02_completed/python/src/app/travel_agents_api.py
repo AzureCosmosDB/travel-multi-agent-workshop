@@ -692,7 +692,20 @@ def store_debug_log_from_response(sessionId: str, tenantId: str, userId: str, re
                         # Get cached tokens from prompt_tokens_details
                         prompt_details = token_usage.get("prompt_tokens_details", {})
                         cached_tokens = prompt_details.get("cached_tokens", cached_tokens)
-                        
+
+                        # The model runs with streaming=True, under which
+                        # response_metadata["token_usage"] is empty. The aggregated usage
+                        # is surfaced on msg.usage_metadata instead, so read it here to
+                        # capture real token counts (prompt/completion/total + cached).
+                        usage_metadata = getattr(msg, "usage_metadata", None)
+                        if usage_metadata:
+                            input_tokens = usage_metadata.get("input_tokens", input_tokens)
+                            output_tokens = usage_metadata.get("output_tokens", output_tokens)
+                            total_tokens = usage_metadata.get("total_tokens", total_tokens)
+                            cached_tokens = usage_metadata.get("input_token_details", {}).get(
+                                "cache_read", cached_tokens
+                            )
+
                         logprobs = metadata.get("logprobs", logprobs)
                         content_filter_results = metadata.get("content_filter_results", content_filter_results)
                         

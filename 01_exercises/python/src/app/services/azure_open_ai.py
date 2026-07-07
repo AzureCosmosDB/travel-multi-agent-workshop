@@ -39,6 +39,9 @@ model = AzureChatOpenAI(
     azure_ad_token_provider=token_provider,
     temperature=0.7,
     streaming=True,
+    # Emit a final usage chunk while streaming so LangChain aggregates real token
+    # counts into AIMessage.usage_metadata (otherwise usage is lost under streaming).
+    model_kwargs={"stream_options": {"include_usage": True}},
     max_retries=1
 )
 
