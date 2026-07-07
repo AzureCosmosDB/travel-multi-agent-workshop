@@ -277,7 +277,7 @@ export class ExploreComponent implements OnInit, OnDestroy, AfterViewChecked {
       console.log('🔍 Using filtered search (no theme)');
     }
     
-    console.log('� Filter request:', filterRequest);
+    console.log('Filter request:', filterRequest);
 
     this.travelApi.filterPlaces(filterRequest).subscribe({
       next: (places) => {

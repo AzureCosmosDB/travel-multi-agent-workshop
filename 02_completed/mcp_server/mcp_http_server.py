@@ -7,6 +7,14 @@ from langsmith import traceable
 from dotenv import load_dotenv
 from mcp.server.fastmcp import FastMCP
 
+# Ensure stdout/stderr use UTF-8 so emoji in logs/prints don't crash on Windows,
+# where the console defaults to cp1252 and raises UnicodeEncodeError on emoji.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8")
+    except (AttributeError, ValueError):
+        pass
+
 from src.app.services.azure_open_ai import generate_embedding, get_openai_client
 from src.app.services.azure_cosmos_db import (
     create_session_record,
@@ -1395,14 +1403,14 @@ def transfer_to_orchestrator(
 # ============================================================================
 
 if __name__ == "__main__":
-    print("Starting Banking Tools MCP server...")
+    print("Starting Travel Assistant MCP server...")
 
     # Configure server options
     server_options = {
         "transport": "streamable-http"
     }
 
-    print("� Starting server without built-in authentication...")
+    print("🔓 Starting server without built-in authentication...")
     print("💡 For OAuth, use a reverse proxy like nginx or API gateway")
 
     try:

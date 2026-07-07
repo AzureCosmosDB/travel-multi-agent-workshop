@@ -635,7 +635,7 @@ def seed_places(container):
     for place_type, count in sorted(type_counts.items()):
         print(f"      • {place_type}: {count}")
 
-    # print(f"\n   � Processing {len(all_places)} places with concurrent embedding generation...")
+    # print(f"\n   Processing {len(all_places)} places with concurrent embedding generation...")
     # print("      💡 Using batch processing and concurrent uploads for optimal performance")
     #
     # # Generate embeddings concurrently using batch processing

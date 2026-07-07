@@ -1990,7 +1990,7 @@ def get_active_agent(state: MessagesState, config) -> str:
 
     # If activeAgent is unknown or None, default to orchestrator
     if activeAgent in [None, "unknown"]:
-        logger.info(f"� activeAgent is '{activeAgent}', defaulting to Orchestrator")
+        logger.info(f"activeAgent is '{activeAgent}', defaulting to Orchestrator")
         activeAgent = "orchestrator"
 
     return activeAgent
@@ -2022,6 +2022,14 @@ from typing import Any, Dict, List, Optional
 
 from dotenv import load_dotenv
 from mcp.server.fastmcp import FastMCP
+
+# Ensure stdout/stderr use UTF-8 so emoji in logs/prints don't crash on Windows,
+# where the console defaults to cp1252 and raises UnicodeEncodeError on emoji.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8")
+    except (AttributeError, ValueError):
+        pass
 
 # Add python directory to path so we can import src modules
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -2592,14 +2600,14 @@ def recall_memories(
 
 
 if __name__ == "__main__":
-    print("Starting Banking Tools MCP server...")
+    print("Starting Travel Assistant MCP server...")
 
     # Configure server options
     server_options = {
         "transport": "streamable-http"
     }
 
-    print("� Starting server without built-in authentication...")
+    print("🔓 Starting server without built-in authentication...")
     print("💡 For OAuth, use a reverse proxy like nginx or API gateway")
 
     try:
