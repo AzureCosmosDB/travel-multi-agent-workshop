@@ -696,16 +696,29 @@ def store_debug_log_from_response(sessionId: str, tenantId: str, userId: str, re
                         logprobs = metadata.get("logprobs", logprobs)
                         content_filter_results = metadata.get("content_filter_results", content_filter_results)
                         
-                        # Check for tool calls (agent transfers)
+                        # Record any tool calls made this turn (for the debug record).
                         if hasattr(msg, 'additional_kwargs') and "tool_calls" in msg.additional_kwargs:
-                            msg_tool_calls = msg.additional_kwargs["tool_calls"]
-                            tool_calls.extend(msg_tool_calls)
-                            transfer_success = any(
-                                call.get("name", "").startswith("transfer_to_") for call in msg_tool_calls
-                            )
-                            if transfer_success and tool_calls:
-                                previous_agent = agent_selected
-                                agent_selected = tool_calls[-1].get("name", "").replace("transfer_to_", "")
+                            tool_calls.extend(msg.additional_kwargs["tool_calls"])
+    
+    # Derive the agent hand-off path from the LangGraph update node keys.
+    # response_data (stream_mode="updates") is a list of {node_name: update}, so the
+    # ordered node keys are exactly which agents ran, and in what order, this turn.
+    # This is the reliable source (the previous tool_calls parsing never fired because
+    # raw tool calls nest the name under call["function"]["name"]).
+    agent_path = [
+        node
+        for entry in response_data
+        for node in entry.keys()
+        if node not in ("human", "__interrupt__")
+    ]
+    handoff_count = sum(
+        1 for i in range(1, len(agent_path)) if agent_path[i] != agent_path[i - 1]
+    )
+    if agent_path:
+        agent_selected = agent_path[-1]
+        earlier = [a for a in agent_path[:-1] if a != agent_selected]
+        previous_agent = earlier[-1] if earlier else "Unknown"
+        transfer_success = handoff_count > 0
     
     # Store in Cosmos DB using the new function
     try:
@@ -726,6 +739,8 @@ def store_debug_log_from_response(sessionId: str, tenantId: str, userId: str, re
             tool_calls=tool_calls,
             logprobs=logprobs,
             content_filter_results=content_filter_results,
+            agent_path=agent_path,
+            handoff_count=handoff_count,
             debug_log_id=debug_log_id
         )
         
