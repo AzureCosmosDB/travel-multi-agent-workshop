@@ -930,9 +930,9 @@ def should_summarize(state: MessagesState, config) -> bool:
         # Trigger summarization once the active (unsummarized) span reaches the
         # threshold. Summarized messages are marked superseded and drop out of
         # count_active_messages, so this naturally resets after each summarization.
-        # (The previous `% 20 == 0` check silently skipped when the count jumped
-        # past a multiple of 20 - e.g. 19 -> 21 - so summaries were often never created.)
-        if actual_count >= 20:
+        # (The previous `% 10 == 0` check silently skipped when the count jumped
+        # past a multiple of 10 - e.g. 9 -> 11 - so summaries were often never created.)
+        if actual_count >= 10:
             logger.info(f"🎯 Auto-triggering summarization at {actual_count} messages")
             return True
 
@@ -1306,7 +1306,7 @@ If `store_resolved_preferences` returns `needsConfirmation` with items:
 
 ### When Summarizer Returns Control to You
 **Context**: The summarizer operates in two modes:
-1. **Mode 1 (Auto)**: Background compression every 20 messages - INVISIBLE to user
+1. **Mode 1 (Auto)**: Background compression every 10 messages - INVISIBLE to user
 2. **Mode 2 (User-Requested)**: User explicitly asked for summary - VISIBLE to user
 
 **Your Response Based on Mode**:
@@ -2811,9 +2811,9 @@ def should_summarize(state: MessagesState, config) -> bool:
         # Trigger summarization once the active (unsummarized) span reaches the
         # threshold. Summarized messages are marked superseded and drop out of
         # count_active_messages, so this naturally resets after each summarization.
-        # (The previous `% 20 == 0` check silently skipped when the count jumped
-        # past a multiple of 20 - e.g. 19 -> 21 - so summaries were often never created.)
-        if actual_count >= 20:
+        # (The previous `% 10 == 0` check silently skipped when the count jumped
+        # past a multiple of 10 - e.g. 9 -> 11 - so summaries were often never created.)
+        if actual_count >= 10:
             logger.info(f"🎯 Auto-triggering summarization at {actual_count} messages")
             return True
 
@@ -4351,7 +4351,7 @@ If `store_resolved_preferences` returns `needsConfirmation` with items:
 
 ### When Summarizer Returns Control to You
 **Context**: The summarizer operates in two modes:
-1. **Mode 1 (Auto)**: Background compression every 20 messages - INVISIBLE to user
+1. **Mode 1 (Auto)**: Background compression every 10 messages - INVISIBLE to user
 2. **Mode 2 (User-Requested)**: User explicitly asked for summary - VISIBLE to user
 
 **Your Response Based on Mode**:
