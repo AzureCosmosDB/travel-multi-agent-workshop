@@ -566,9 +566,6 @@ def should_summarize(state: MessagesState, config) -> bool:
             # Trigger summarization once the active (unsummarized) span reaches the
             # threshold. Summarized messages are marked superseded and drop out of
             # count_active_messages, so this naturally resets after each summarization.
-            # (The previous `actual_count % 10 == 0` check silently skipped whenever the
-            # count jumped past a multiple of 10 — e.g. 9 -> 11 — so summaries were
-            # frequently never created.)
             if actual_count >= 10:
                 logger.info(f"🎯 Auto-triggering summarization at {actual_count} messages")
                 return True
