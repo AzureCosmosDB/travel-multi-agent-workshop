@@ -618,7 +618,7 @@ def get_active_agent(state: MessagesState, config) -> str:
     
     # If activeAgent is unknown or None, default to orchestrator
     if activeAgent in [None, "unknown"]:
-        logger.info(f"� activeAgent is '{activeAgent}', defaulting to Orchestrator")
+        logger.info(f"activeAgent is '{activeAgent}', defaulting to Orchestrator")
         activeAgent = "Orchestrator"
     
     return activeAgent
