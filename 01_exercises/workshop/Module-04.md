@@ -677,7 +677,7 @@ Auto-summarization solves these by compressing older messages into concise summa
 **Trigger Logic:**
 
 - Checks message count after each turn
-- Triggers at 10 messages, then every 10 messages thereafter (10, 20, 30...)
+- Triggers once enough new conversation turns accumulate since the last summary; summarized messages are marked superseded, so the active-message counter resets and the next summary fires after roughly the same number of new turns
 - Router automatically redirects to Summarizer agent when threshold reached
 
 ### Create tools in the MCP server
@@ -927,8 +927,12 @@ def should_summarize(state: MessagesState, config) -> bool:
             user_id=user_id
         )
 
-        # Trigger summarization every 10 messages
-        if actual_count >= 20 and actual_count % 20 == 0:
+        # Trigger summarization once the active (unsummarized) span reaches the
+        # threshold. Summarized messages are marked superseded and drop out of
+        # count_active_messages, so this naturally resets after each summarization.
+        # (The previous `% 20 == 0` check silently skipped when the count jumped
+        # past a multiple of 20 - e.g. 19 -> 21 - so summaries were often never created.)
+        if actual_count >= 20:
             logger.info(f"🎯 Auto-triggering summarization at {actual_count} messages")
             return True
 
@@ -2804,8 +2808,12 @@ def should_summarize(state: MessagesState, config) -> bool:
             user_id=user_id
         )
 
-        # Trigger summarization every 10 messages
-        if actual_count >= 20 and actual_count % 20 == 0:
+        # Trigger summarization once the active (unsummarized) span reaches the
+        # threshold. Summarized messages are marked superseded and drop out of
+        # count_active_messages, so this naturally resets after each summarization.
+        # (The previous `% 20 == 0` check silently skipped when the count jumped
+        # past a multiple of 20 - e.g. 19 -> 21 - so summaries were often never created.)
+        if actual_count >= 20:
             logger.info(f"🎯 Auto-triggering summarization at {actual_count} messages")
             return True
 
