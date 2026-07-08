@@ -719,15 +719,19 @@ def store_debug_log_from_response(sessionId: str, tenantId: str, userId: str, re
     # ordered node keys are exactly which agents ran, and in what order, this turn.
     # This is the reliable source (the previous tool_calls parsing never fired because
     # raw tool calls nest the name under call["function"]["name"]).
-    agent_path = [
+    # Ordered nodes that ran this turn, from the LangGraph update keys.
+    raw_path = [
         node
         for entry in response_data
         for node in entry.keys()
         if node not in ("human", "__interrupt__")
     ]
-    handoff_count = sum(
-        1 for i in range(1, len(agent_path)) if agent_path[i] != agent_path[i - 1]
-    )
+    # Collapse consecutive duplicates so agent_path is a clean hand-off sequence
+    # (a node can appear back-to-back if it self-loops within a turn).
+    agent_path = [
+        node for i, node in enumerate(raw_path) if i == 0 or node != raw_path[i - 1]
+    ]
+    handoff_count = len(agent_path) - 1 if agent_path else 0
     if agent_path:
         agent_selected = agent_path[-1]
         earlier = [a for a in agent_path[:-1] if a != agent_selected]
