@@ -11,6 +11,7 @@ Usage:
 
     python data_generator.py                         # Run all personas
     python data_generator.py --personas 3            # Run first 3 personas only
+    python data_generator.py --start-persona 7       # Resume from persona 7 (1-based)
     python data_generator.py --base-url http://...   # Custom base URL
     python data_generator.py --tenant acme           # Custom tenant
     python data_generator.py --delay 2               # 2s delay between messages
@@ -785,7 +786,7 @@ class DataGenerationRunner:
         with self._stats_lock:
             self.stats[key] += n
 
-    def run(self, personas: list[UserPersona]):
+    def run(self, personas: list[UserPersona], start_index: int = 1):
         total_conversations = sum(len(p.conversations) for p in personas)
         total_messages = sum(
             len(m) for p in personas for c in p.conversations for m in [c.messages]
@@ -820,10 +821,14 @@ class DataGenerationRunner:
         if self.parallel > 1:
             self._run_parallel(personas)
         else:
-            for i, persona in enumerate(personas, 1):
+            # `start_index` keeps log numbering aligned to the full persona list
+            # when resuming (e.g. --start-persona 7 logs "[7/12]").
+            total = start_index - 1 + len(personas)
+            for offset, persona in enumerate(personas):
+                i = start_index + offset
                 log.info(
                     "\n{'='*60}\n[%d/%d] PERSONA: %s (%s)\n{'='*60}",
-                    i, len(personas), persona.name, persona.user_id,
+                    i, total, persona.name, persona.user_id,
                 )
                 self._run_persona(persona, self.client)
 
@@ -1041,7 +1046,12 @@ def main():
     )
     parser.add_argument(
         "--personas", type=int, default=None,
-        help="Limit to first N personas (default: all 12)",
+        help="Limit to first N personas (default: all 12). Applied after --start-persona.",
+    )
+    parser.add_argument(
+        "--start-persona", type=int, default=1,
+        help="Resume from the Nth persona (1-based, default: 1). "
+             "Use to continue an interrupted run without duplicating earlier personas.",
     )
     parser.add_argument(
         "--delay", type=float, default=DEFAULT_DELAY,
@@ -1062,7 +1072,13 @@ def main():
     )
     args = parser.parse_args()
 
-    personas = PERSONAS[: args.personas] if args.personas else PERSONAS
+    start = max(1, args.start_persona)
+    if start > len(PERSONAS):
+        log.error("--start-persona %d exceeds the %d available personas.", start, len(PERSONAS))
+        sys.exit(1)
+    personas = PERSONAS[start - 1:]
+    if args.personas:
+        personas = personas[: args.personas]
 
     client = TravelAppClient(base_url=args.base_url, timeout=args.timeout)
     runner = DataGenerationRunner(
@@ -1074,7 +1090,7 @@ def main():
     )
 
     try:
-        runner.run(personas)
+        runner.run(personas, start_index=start)
     finally:
         client.close()
 
