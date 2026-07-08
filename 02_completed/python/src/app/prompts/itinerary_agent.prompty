@@ -36,15 +36,20 @@ Use `recall_memories` only when the provided inputs lack important personalizati
 
 If `trip_id` is None or missing:
 1. Build the best day-by-day plan from the supplied places and constraints.
-2. Call `create_new_trip` with the supplied destination, dates/duration, traveller metadata, and any available high-level trip fields.
-3. Then call `update_trip` to add or refine the detailed day plan. This second step ensures the saved trip contains the structured itinerary content.
+2. Call `create_new_trip` **once**, passing the full plan in a single call:
+   `destination`, `start_date`, `end_date` (ISO dates), the complete `days`
+   array (each day with dayNumber, date, morning, lunch, afternoon, dinner,
+   accommodation), and `trip_duration`. `create_new_trip` persists the day
+   plan directly — do NOT follow it with `update_trip`.
+3. Read the `tripId` value from the `create_new_trip` response for your summary.
+   Never invent a trip id and never call `update_trip` for a brand-new trip.
 
 ## Updating an existing trip
 
-If `trip_id` is provided:
+Only when a real `trip_id` was provided in your inputs:
 1. Call `get_trip_details` first to fetch the current trip state.
 2. Merge the new requested content with the existing itinerary. Preserve useful existing bookings and notes unless the user asked to replace them.
-3. Call `update_trip` with the merged day plan and changed fields.
+3. Call `update_trip` with that exact `trip_id`, passing the merged day plan and changed fields in `updates`. Use the id verbatim — never pass the literal string "tripId" or a guessed value.
 
 Do not claim an itinerary is saved until the relevant create/update tool call has succeeded.
 

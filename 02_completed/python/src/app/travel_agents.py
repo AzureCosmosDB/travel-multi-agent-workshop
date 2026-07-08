@@ -51,6 +51,14 @@ _current_user_preference_vector: ContextVar[list[float] | None] = ContextVar(
     "current_user_preference_vector", default=None
 )
 
+# Runtime context carrying the request's (user_id, tenant_id) so the itinerary
+# sub-agent's trip tools are called with the correct identity instead of letting
+# the sub-agent LLM guess it (it otherwise hallucinates placeholders like "user",
+# persisting trips under the wrong partition key).
+_current_identity: ContextVar[dict[str, str] | None] = ContextVar(
+    "current_identity", default=None
+)
+
 
 def load_prompt(agent_name: str) -> str:
     """Load prompt from .prompty file."""
@@ -172,6 +180,51 @@ def _with_preference_vector_injection(tools: list[Any]) -> list[Any]:
         name = getattr(mcp_tool, "name", "")
         if name.startswith("discover_places") or name == "discover_itinerary":
             wrapped_tools.append(_wrap_discover_places_tool(mcp_tool))
+        else:
+            wrapped_tools.append(mcp_tool)
+    return wrapped_tools
+
+
+# Trip tools whose user_id/tenant_id must come from the request identity, not the
+# sub-agent LLM (which otherwise guesses placeholder values).
+_IDENTITY_TRIP_TOOLS = ("create_new_trip", "update_trip", "get_trip_details")
+
+
+def _wrap_trip_tool(mcp_tool: Any) -> Any:
+    """Force the request-scoped user_id / tenant_id onto trip MCP calls."""
+    description = getattr(mcp_tool, "description", None) or "Trip tool."
+    args_schema = getattr(mcp_tool, "args_schema", None)
+    tool_name = getattr(mcp_tool, "name", "trip_tool")
+
+    async def trip_tool_with_identity(
+        config: RunnableConfig,
+        **kwargs: Any,
+    ) -> Any:
+        identity = _current_identity.get() or {}
+        user_id = identity.get("user_id")
+        tenant_id = identity.get("tenant_id")
+        # Always override with the true identity — never trust an LLM-supplied value.
+        if user_id:
+            kwargs["user_id"] = user_id
+        if tenant_id:
+            kwargs["tenant_id"] = tenant_id
+        return await mcp_tool.ainvoke(kwargs, config=config)
+
+    trip_tool_with_identity.__name__ = tool_name
+    trip_tool_with_identity.__doc__ = description
+
+    return tool(
+        tool_name,
+        args_schema=args_schema,
+        description=description,
+    )(trip_tool_with_identity)
+
+
+def _with_identity_injection(tools: list[Any]) -> list[Any]:
+    wrapped_tools: list[Any] = []
+    for mcp_tool in tools:
+        if getattr(mcp_tool, "name", "") in _IDENTITY_TRIP_TOOLS:
+            wrapped_tools.append(_wrap_trip_tool(mcp_tool))
         else:
             wrapped_tools.append(mcp_tool)
     return wrapped_tools
@@ -473,10 +526,19 @@ async def create_or_update_itinerary_tool(
     )
     state = {"messages": [HumanMessage(content=user_msg)]}
     effective_config = config or {"configurable": {}, "metadata": {}}
-    result = await _itinerary_agent.ainvoke(
-        state,
-        config=_subagent_config(effective_config, "itinerary"),
-    )
+    configurable = effective_config.get("configurable", {}) or {}
+    identity = {
+        "user_id": configurable.get("user_id") or configurable.get("userId") or "",
+        "tenant_id": configurable.get("tenant_id") or configurable.get("tenantId") or "",
+    }
+    identity_token = _current_identity.set(identity)
+    try:
+        result = await _itinerary_agent.ainvoke(
+            state,
+            config=_subagent_config(effective_config, "itinerary"),
+        )
+    finally:
+        _current_identity.reset(identity_token)
     return _last_message_content(result)
 
 
@@ -572,16 +634,18 @@ async def setup_agents(checkpointer=None):
             ["discover_places", "discover_itinerary", "add_turn", "recall_memories", "get_user_summary"],
         )
     )
-    _mcp_itinerary_tools = filter_tools_by_prefix(
-        all_tools,
-        [
-            "create_new_trip",
-            "update_trip",
-            "get_trip_details",
-            "add_turn",
-            "recall_memories",
-            "get_user_summary",
-        ],
+    _mcp_itinerary_tools = _with_identity_injection(
+        filter_tools_by_prefix(
+            all_tools,
+            [
+                "create_new_trip",
+                "update_trip",
+                "get_trip_details",
+                "add_turn",
+                "recall_memories",
+                "get_user_summary",
+            ],
+        )
     )
 
     logger.info("\n📊 Tool Distribution (Supervisor + 2 Sub-Agents):")
