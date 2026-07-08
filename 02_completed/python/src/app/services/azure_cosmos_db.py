@@ -1383,6 +1383,9 @@ def store_debug_log(
         tool_calls: List of tool calls made during execution
         logprobs: Log probabilities from the model
         content_filter_results: Content filtering results
+        agent_path: Ordered list of LangGraph nodes that ran during the turn
+        handoff_count: Number of transitions between different agents in the path
+        debug_log_id: Optional existing debug log identifier to update
     
     Returns:
         Debug log ID

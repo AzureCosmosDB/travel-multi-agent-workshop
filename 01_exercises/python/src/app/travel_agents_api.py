@@ -1534,6 +1534,10 @@ def get_completion_details(tenantId: str, userId: str, sessionId: str, debugLogI
             for prop in debug_log["propertyBag"]:
                 properties[prop["key"]] = prop["value"]
 
+        agent_path = [
+            agent for agent in properties.get("agent_path", "").split(",") if agent
+        ]
+
         return {
             "id": debugLogId,
             "sessionId": sessionId,
@@ -1549,6 +1553,8 @@ def get_completion_details(tenantId: str, userId: str, sessionId: str, debugLogI
             "totalTokens": properties.get("total_tokens", 0),
             "cachedTokens": properties.get("cached_tokens", 0),
             "transferSuccess": properties.get("transfer_success", False),
+            "agentPath": agent_path,
+            "handoffCount": properties.get("handoff_count", 0),
             "toolCalls": properties.get("tool_calls", "[]"),
             "logprobs": properties.get("logprobs", "{}"),
             "contentFilterResults": properties.get("content_filter_results", "{}")

@@ -1350,6 +1350,8 @@ def store_debug_log(
         tool_calls: List of tool calls made during execution
         logprobs: Log probabilities from the model
         content_filter_results: Content filtering results
+        agent_path: Ordered list of LangGraph nodes that ran during the turn
+        handoff_count: Number of transitions between different agents in the path
     
     Returns:
         Debug log ID
@@ -1553,5 +1555,4 @@ def get_distinct_cities(tenant_id: str) -> List[Dict[str, str]]:
     except Exception as e:
         logger.error(f"Error getting distinct cities: {e}")
         return []
-
 
