@@ -23,9 +23,18 @@ import concurrent.futures
 import json
 import os
 import random
+import sys
 import time
 from pathlib import Path
 from typing import Any, Dict, List
+
+# Ensure stdout/stderr use UTF-8 so emoji in logs/prints don't crash on Windows,
+# where the console defaults to cp1252 and raises UnicodeEncodeError on emoji.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8")
+    except (AttributeError, ValueError):
+        pass
 
 from azure.cosmos import CosmosClient
 from azure.cosmos.exceptions import (

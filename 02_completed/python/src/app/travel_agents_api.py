@@ -5,6 +5,14 @@ import asyncio
 import json
 from pathlib import Path
 
+# Ensure stdout/stderr use UTF-8 so emoji in logs/prints don't crash on Windows,
+# where the console defaults to cp1252 and raises UnicodeEncodeError on emoji.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8")
+    except (AttributeError, ValueError):
+        pass
+
 import fastapi
 from dotenv import load_dotenv
 from datetime import datetime

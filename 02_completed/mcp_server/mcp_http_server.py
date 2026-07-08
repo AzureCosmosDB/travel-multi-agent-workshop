@@ -7,6 +7,14 @@ from langsmith import traceable
 from dotenv import load_dotenv
 from mcp.server.fastmcp import FastMCP
 
+# Ensure stdout/stderr use UTF-8 so emoji in logs/prints don't crash on Windows,
+# where the console defaults to cp1252 and raises UnicodeEncodeError on emoji.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8")
+    except (AttributeError, ValueError):
+        pass
+
 try:
     from src.app.services.agent_memory import get_memory_client
 except ImportError:  # pragma: no cover - supports alternate workshop package layout
