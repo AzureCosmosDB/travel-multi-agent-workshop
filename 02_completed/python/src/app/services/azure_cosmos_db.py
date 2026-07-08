@@ -1023,7 +1023,9 @@ def store_debug_log(
     tool_calls: List[Dict[str, Any]] = None,
     logprobs: Optional[Dict[str, Any]] = None,
     content_filter_results: Optional[Dict[str, Any]] = None,
-    debug_log_id: Optional[str] = None
+    debug_log_id: Optional[str] = None,
+    agent_path: Optional[str] = None,
+    handoff_count: Optional[int] = None
 ) -> str:
     """
     Store detailed debug log information in Cosmos DB.
@@ -1072,6 +1074,12 @@ def store_debug_log(
         {"key": "logprobs", "value": str(logprobs or {}), "timeStamp": timestamp},
         {"key": "content_filter_results", "value": str(content_filter_results or {}), "timeStamp": timestamp}
     ]
+
+    # Agent hand-off analytics (supervisor -> sub-agent delegations)
+    if agent_path is not None:
+        property_bag.append({"key": "agent_path", "value": agent_path, "timeStamp": timestamp})
+    if handoff_count is not None:
+        property_bag.append({"key": "handoff_count", "value": handoff_count, "timeStamp": timestamp})
     
     debug_entry = {
         "id": debug_log_id,

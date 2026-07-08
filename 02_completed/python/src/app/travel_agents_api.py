@@ -430,6 +430,116 @@ def _last_ai_text_from_value(value: Any) -> str:
     return ""
 
 
+# ---------------------------------------------------------------------------
+# Debug-log capture (analytics)
+#
+# v2 streams graph *events* (astream_events) rather than raw node-keyed chunks,
+# so token/agent/tool telemetry is captured here from the event stream and
+# persisted to the Cosmos `Debug` container via store_debug_log — restoring the
+# token / agent-selection / cost analytics pillars on the supervisor architecture.
+# ---------------------------------------------------------------------------
+
+# Graph nodes that represent agents (for agent_path / agent_selected).
+_AGENT_NODES = ("supervisor", "find_places", "create_or_update_itinerary", "itinerary_agent")
+# Sub-agents the supervisor delegates to (everything except the supervisor itself).
+_SUBAGENT_NODES = ("find_places", "create_or_update_itinerary", "itinerary_agent")
+
+
+def _extract_msg_usage(msg: Any) -> Optional[Dict[str, Any]]:
+    """Pull token usage + model metadata from an AIMessage.
+
+    Handles both langchain-core 1.x native ``usage_metadata`` and the
+    OpenAI-style nested ``response_metadata.token_usage``. Returns None when the
+    message carries no usage (e.g. a streamed delta chunk).
+    """
+    if msg is None:
+        return None
+
+    input_t = output_t = total_t = cached_t = 0
+    model_name = finish_reason = system_fingerprint = "Unknown"
+
+    usage = getattr(msg, "usage_metadata", None)
+    if isinstance(usage, dict):
+        input_t = usage.get("input_tokens", 0) or 0
+        output_t = usage.get("output_tokens", 0) or 0
+        total_t = usage.get("total_tokens", 0) or 0
+        details = usage.get("input_token_details") or {}
+        cached_t = details.get("cache_read", 0) or 0
+
+    metadata = getattr(msg, "response_metadata", None)
+    if isinstance(metadata, dict):
+        model_name = metadata.get("model_name", model_name)
+        finish_reason = metadata.get("finish_reason", finish_reason)
+        system_fingerprint = metadata.get("system_fingerprint", system_fingerprint)
+        token_usage = metadata.get("token_usage") or {}
+        if not total_t:
+            input_t = token_usage.get("prompt_tokens", input_t) or input_t
+            output_t = token_usage.get("completion_tokens", output_t) or output_t
+            total_t = token_usage.get("total_tokens", total_t) or total_t
+            prompt_details = token_usage.get("prompt_tokens_details") or {}
+            cached_t = prompt_details.get("cached_tokens", cached_t) or cached_t
+
+    if not (input_t or output_t or total_t):
+        return None
+
+    return {
+        "input_tokens": input_t,
+        "output_tokens": output_t,
+        "total_tokens": total_t,
+        "cached_tokens": cached_t,
+        "model_name": model_name,
+        "finish_reason": finish_reason,
+        "system_fingerprint": system_fingerprint,
+    }
+
+
+def _persist_turn_debug_log(
+    tenant_id: str,
+    user_id: str,
+    thread_id: str,
+    debug_log_id: str,
+    dbg: Dict[str, Any],
+) -> None:
+    """Store a Debug-container log for one completed turn from captured event signal."""
+    nodes = dbg.get("nodes", [])
+    tools = dbg.get("tools", [])
+
+    # In v2's supervisor architecture the sub-agents (find_places,
+    # create_or_update_itinerary) are invoked as *tools*, not graph nodes, so
+    # delegations are derived from tool calls. Any that also surface as chain
+    # nodes are included too (belt-and-suspenders across graph shapes).
+    tool_names = [t.get("name") for t in tools if isinstance(t, dict)]
+    delegations = [name for name in tool_names if name in _SUBAGENT_NODES]
+    delegations += [node for node in nodes if node in _SUBAGENT_NODES and node not in delegations]
+
+    agent_selected = delegations[-1] if delegations else "supervisor"
+    handoff_count = len(delegations)
+    agent_path = ",".join(["supervisor", *delegations]) if delegations else "supervisor"
+
+    try:
+        store_debug_log(
+            session_id=thread_id,
+            tenant_id=tenant_id,
+            user_id=user_id,
+            agent_selected=agent_selected,
+            previous_agent="supervisor" if delegations else "Unknown",
+            finish_reason=dbg.get("finish_reason", "Unknown"),
+            model_name=dbg.get("model_name", "Unknown"),
+            system_fingerprint=dbg.get("system_fingerprint", "Unknown"),
+            input_tokens=dbg.get("input_tokens", 0),
+            output_tokens=dbg.get("output_tokens", 0),
+            total_tokens=dbg.get("total_tokens", 0),
+            cached_tokens=dbg.get("cached_tokens", 0),
+            transfer_success=bool(delegations),
+            tool_calls=tools,
+            agent_path=agent_path,
+            handoff_count=handoff_count,
+            debug_log_id=debug_log_id,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.error(f"❌ Failed to store turn debug log for session {thread_id}: {exc}")
+
+
 def _extract_checkpoint_messages(checkpoint: Any) -> list:
     checkpoint_data = getattr(checkpoint, "checkpoint", checkpoint)
     if not isinstance(checkpoint_data, dict):
@@ -1125,9 +1235,24 @@ async def chat_event_generator(
     user_id: str,
     thread_id: str,
     user_message: str,
+    debug_log_id: Optional[str] = None,
 ) -> AsyncIterator[dict]:
     workflow = get_compiled_graph()
     client = await get_memory_client()
+
+    if not debug_log_id:
+        debug_log_id = str(uuid.uuid4())
+    dbg: Dict[str, Any] = {
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "total_tokens": 0,
+        "cached_tokens": 0,
+        "model_name": "Unknown",
+        "finish_reason": "Unknown",
+        "system_fingerprint": "Unknown",
+        "nodes": [],
+        "tools": [],
+    }
 
     base_config = _thread_config(tenant_id, user_id, thread_id)
     checkpoint_history = trim_history(await _load_checkpoint_history(base_config))
@@ -1155,6 +1280,7 @@ async def chat_event_generator(
         ):
             kind = event.get("event")
             if kind == "on_tool_start":
+                dbg["tools"].append({"name": event.get("name")})
                 yield {
                     "event": "tool_call_start",
                     "tool": event.get("name"),
@@ -1164,8 +1290,23 @@ async def chat_event_generator(
                 yield {"event": "tool_call_done", "tool": event.get("name")}
             elif kind == "on_chain_start":
                 node_name = event.get("name")
+                if node_name in _AGENT_NODES and node_name not in dbg["nodes"]:
+                    dbg["nodes"].append(node_name)
                 if node_name in ("supervisor", "find_places", "create_or_update_itinerary"):
                     yield {"event": "thinking", "node": node_name}
+            elif kind == "on_chat_model_end":
+                usage = _extract_msg_usage(event.get("data", {}).get("output"))
+                if usage:
+                    dbg["input_tokens"] += usage["input_tokens"]
+                    dbg["output_tokens"] += usage["output_tokens"]
+                    dbg["total_tokens"] += usage["total_tokens"]
+                    dbg["cached_tokens"] += usage["cached_tokens"]
+                    if usage["model_name"] != "Unknown":
+                        dbg["model_name"] = usage["model_name"]
+                    if usage["finish_reason"] != "Unknown":
+                        dbg["finish_reason"] = usage["finish_reason"]
+                    if usage["system_fingerprint"] != "Unknown":
+                        dbg["system_fingerprint"] = usage["system_fingerprint"]
             elif kind == "on_chat_model_stream":
                 chunk = event.get("data", {}).get("chunk")
                 delta = _message_content_to_text(getattr(chunk, "content", ""))
@@ -1210,6 +1351,19 @@ async def chat_event_generator(
     task = asyncio.create_task(_flush_memory_bg(client, user_id, thread_id))
     _background_tasks.add(task)
     task.add_done_callback(_background_tasks.discard)
+
+    try:
+        await asyncio.to_thread(
+            _persist_turn_debug_log,
+            tenant_id,
+            user_id,
+            thread_id,
+            debug_log_id,
+            dbg,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("debug log capture failed: %s", exc)
+
     yield {"event": "done", "thread_id": thread_id}
 
 
@@ -1246,7 +1400,7 @@ async def get_chat_completion(
     try:
         debug_log_id = str(uuid.uuid4())
         assistant_chunks: list[str] = []
-        async for event in chat_event_generator(tenantId, userId, sessionId, request_body):
+        async for event in chat_event_generator(tenantId, userId, sessionId, request_body, debug_log_id=debug_log_id):
             if event.get("event") == "token":
                 assistant_chunks.append(event.get("delta", ""))
 
