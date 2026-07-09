@@ -110,19 +110,35 @@ reversible, capability-tiered model selection) — an explicit capability learne
 
 ## 6. Plan to sync `01_exercises` (decisions resolved; ready to implement)
 
-Per §4, port to `01_exercises`:
+> **Verified state (2026-07-09):** `01_exercises` is **behind `02_completed`** by more than the
+> apply-loop. Its provided `travel_agents_api.py` is a teaching scaffold with the agent integration
+> **commented out** (learner enables it) and has **no `chat_event_generator` / ADR-0007 `Debug`
+> re-wire** (`agent_path`/`handoff_count`); its `store_debug_log` lacks those fields. The apply-loop
+> **depends on that ADR-0007 analytics baseline**, so it cannot be dropped into 01 until 01 is brought
+> up to the v2 analytics baseline. **Do not scatter partial apply-loop code into 01 before that
+> prerequisite lands** — it would produce broken/misleading scaffolding.
+
+**Prerequisite (new, must precede the port):** bring `01_exercises` (and the relevant modules) up to
+the **v2 analytics baseline** — the ADR-0007 `Debug` re-wire (`chat_event_generator` token/agent/tool
+capture, `agent_path`/`handoff_count`). This is a larger, maintainer-coordinated workshop update and
+is tracked separately from the apply-loop.
+
+Once the prerequisite is in place, port to `01_exercises`:
 
 - **Provided (pre-built) — copy from `02_completed` into the exercise scaffold:**
   `services/optimization_policy.py`, `services/optimization_recommendations.py`,
   `optimization_api.py`; the `get_chat_model` addition to `services/azure_open_ai.py`; the
   `store_debug_log` field additions to `services/azure_cosmos_db.py`; the per-turn tier-selection
   wiring + `Debug` recording in `travel_agents_api.py`; and `get_supervisor_for_turn`/`_build_supervisor`.
-- **Learner-built (guided TODO):** `classify_turn_tier` in `travel_agents.py` — provided as a
-  documented stub in the new module, with tests/expected behavior so the learner can self-check.
-- **New module doc** `workshop/Module-07.md` (Analytics & Optimization) following the existing module
-  format; **renumber** the current `Module-07.md` (Lessons) to `Module-08.md` and fix cross-links.
-- **Deployment/setup:** the module (or Module-00) must add the two extra model deployments
-  (`gpt-5-nano`, `gpt-5.1`) — via `azd`/Bicep or a documented `az` step — and note quota realities.
+- **Learner-built (guided TODO):** `classify_turn_tier` in `travel_agents.py` — the one piece the
+  learner implements (Module 07, Activity 5). Note `travel_agents.py` ships **empty** in 01 and is
+  built across the modules, so the apply-loop block is delivered **via Module 07** (paste the plumbing;
+  implement the classifier), not pre-placed in the empty file.
+- **New module doc** `workshop/Module-07.md` (Analytics & Optimization) — **done**; the current
+  `Module-07.md` (Lessons) was renumbered to `Module-08.md`, and `Home.md` + `Module-06.md` nav
+  updated. Module-07 carries a **prerequisite banner** pointing at the v2 analytics baseline.
+- **Deployment/setup:** the module adds the two extra model deployments (`gpt-5-nano`, `gpt-5.1`) via
+  documented `az` steps (Module 07, Activity 2), with quota notes.
 
 **Confirmed decisions (previously open):**
 1. **Module numbering:** new **Module 07 Analytics & Optimization**; Lessons moves to **Module 08**;

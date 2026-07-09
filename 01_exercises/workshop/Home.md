@@ -13,4 +13,5 @@ The workshop follows a progressive learning path with the following Modules
 - Module 4: Making Memory Intelligent
 - Module 5: Observability & Tracing
 - Module 6: Evaluating Your Multi-Agent Application (Bonus Module)
-- Module 7: Lessons Learned, Agent and Memory Future, Q&A
+- Module 7: Analytics & Optimization
+- Module 8: Lessons Learned, Agent and Memory Future, Q&A
