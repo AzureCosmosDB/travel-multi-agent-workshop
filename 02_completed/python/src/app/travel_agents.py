@@ -627,7 +627,12 @@ async def setup_agents(checkpointer=None):
         all_tools,
         ["create_session", "get_session_context", "append_turn", "add_turn"],
     )
-    _mcp_recall_memories_tool = filter_tools_by_prefix(all_tools, ["recall_memories"])
+    # filter_tools_by_prefix returns a list; recall_memories_tool invokes this as a
+    # single tool (.ainvoke), so take the first match (or None). Without this the
+    # agent's recall_memories always fails with "'list' object has no attribute
+    # 'ainvoke'" and never reads stored memories to personalize responses.
+    _recall_matches = filter_tools_by_prefix(all_tools, ["recall_memories"])
+    _mcp_recall_memories_tool = _recall_matches[0] if _recall_matches else None
     _mcp_find_places_tools = _with_preference_vector_injection(
         filter_tools_by_prefix(
             all_tools,
