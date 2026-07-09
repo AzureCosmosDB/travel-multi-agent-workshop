@@ -13,6 +13,7 @@ This directory is the persisted knowledge base for the **Agent Analytics and Opt
 | `adr/adr-template.md` | Template for new ADRs. |
 | `optimization-scenarios/README.md` | Catalog of data-validated optimization scenarios (the lab spine). |
 | `workshop-integration.md` | How the optimization apply-loop surfaces in the workshop: core-app changes, learner target, updated learning objectives, and the maintainer change summary. |
+| `workshop-lab-scope.md` | Full scope of the two-module Analytics & Optimization lab: end-state architecture, per-module activity outlines, learner-builds-vs-provided, the provided-asset build backlog, and open decisions. |
 
 ## Working principles (summary — see `charter.md` for the authoritative statement)
 
