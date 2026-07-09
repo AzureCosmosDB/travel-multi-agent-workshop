@@ -53,12 +53,21 @@ what a customer adopting this as a pattern should do.
 > Trade-off: a higher idle baseline than a single shared pool (≈1.7k RU/s floor across 15 containers),
 > accepted deliberately for scale-safety over minimal dev cost.
 
-## Related finding — Checkpoints bloat (recommended follow-up)
+## Related finding — Checkpoints bloat (RESOLVED: 7-day TTL)
 
-Checkpoints holds **330,813 docs / 5.3 GB (~350 checkpoints per session)** — the LangGraph
-`CosmosDBSaver` is not pruning. This is the dominant storage driver and a write hotspot. **Recommend a
-TTL on the Checkpoints container** (e.g., retain a few days) to bound storage and cost; it also shrinks
-the biggest asymmetry source. Not applied yet (separate decision).
+Checkpoints held **330,813 docs / 5.3 GB (~350 checkpoints per session)** — the LangGraph
+`CosmosDBSaver` writes one checkpoint per super-step and keeps the full per-thread history, but only
+the **latest** checkpoint per thread is needed to resume (each is self-contained; older ones are only
+for time-travel, which this app doesn't use).
+
+**Applied:** a **7-day TTL** on the Checkpoints container (`checkpointsTtlSeconds` param = 604800; also
+set on the live dev account). Because every interaction writes a *fresh* checkpoint, the TTL behaves as
+an idle **"resume-within" window**: an active conversation is never affected, and a conversation left
+idle longer than the TTL simply starts fresh. This bounds storage to roughly *(active sessions in the
+window × checkpoints/session)* and removes the dominant asymmetry driver.
+
+- **Workshop/dev:** 7 days is safe (sessions are ephemeral).
+- **Production:** lengthen to 30–90 days per the resumability SLA (it's a parameter).
 
 ## Notes
 

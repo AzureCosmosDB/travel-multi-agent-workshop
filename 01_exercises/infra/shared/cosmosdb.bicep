@@ -23,6 +23,8 @@ param containerMaxRU int = 1000
 param checkpointsMaxRU int = 4000
 @description('Autoscale max RU/s for the Places container (vector search).')
 param placesMaxRU int = 2000
+@description('TTL (seconds) for the Checkpoints container. Acts as the idle "resume-within" window for a conversation; older checkpoints (only needed for time-travel) expire. Default 7 days; lengthen for production. Set 0/-1 to disable.')
+param checkpointsTtlSeconds int = 604800
 param location string = resourceGroup().location
 param name string
 param tags object = {}
@@ -490,6 +492,9 @@ resource cosmosContainerCheckpoints 'Microsoft.DocumentDB/databaseAccounts/sqlDa
   properties: {
     resource: {
       id: checkpointsContainerName
+      // Bound checkpoint accumulation (LangGraph writes one per super-step, keeping
+      // full history per thread). Only the latest per thread is needed to resume.
+      defaultTtl: checkpointsTtlSeconds
       partitionKey: {
         paths: [
           '/session_id'
