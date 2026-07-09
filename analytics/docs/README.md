@@ -11,6 +11,8 @@ This directory is the persisted knowledge base for the **Agent Analytics and Opt
 | `adr/` | Architecture Decision Records — every architectural decision, with the evidence behind it. |
 | `adr/README.md` | Index of all ADRs and the decision process. |
 | `adr/adr-template.md` | Template for new ADRs. |
+| `optimization-scenarios/README.md` | Catalog of data-validated optimization scenarios (the lab spine). |
+| `workshop-integration.md` | How the optimization apply-loop surfaces in the workshop: core-app changes, learner target, updated learning objectives, and the maintainer change summary. |
 
 ## Working principles (summary — see `charter.md` for the authoritative statement)
 
