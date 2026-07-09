@@ -41,16 +41,75 @@ def _bag(doc: dict) -> dict:
     return {i["key"]: i["value"] for i in p} if isinstance(p, list) else (p or {})
 
 
+# Estimated USD per 1M tokens (input, output). ESTIMATE — verify on the Azure
+# pricing calculator before quoting. Used only for the SCEN-007 verify report.
+_EST_PRICING = {
+    "gpt-4.1-mini": (0.40, 1.60),
+    "gpt-5-nano": (0.05, 0.40),
+    "gpt-5.1": (1.25, 10.00),
+}
+
+
+def _price_for(deployment: str) -> tuple[float, float]:
+    return _EST_PRICING.get((deployment or "").split("-2025")[0].split("-2024")[0], (0.40, 1.60))
+
+
+def verify_model_selection(db, tenant: str) -> None:
+    """SCEN-007 verify stage: per-tier token + estimated-cost breakdown.
+
+    Reads the model_tier / model_deployment signal the apply-loop records on each
+    Debug turn, so you can compare tiers (and before/after applying the policy).
+    """
+    dbg = list(
+        db.get_container_client("Debug").query_items(
+            query="SELECT * FROM d WHERE d.tenantId=@t",
+            parameters=[{"name": "@t", "value": tenant}],
+            enable_cross_partition_query=True,
+        )
+    )
+    by_tier: dict[str, dict[str, float]] = collections.defaultdict(
+        lambda: {"turns": 0, "in": 0, "out": 0, "total": 0, "cost": 0.0}
+    )
+    for d in dbg:
+        b = _bag(d)
+        tier = b.get("model_tier") or "unlabeled"
+        dep = b.get("model_deployment") or b.get("model_name") or "unknown"
+        pin, pout = _price_for(dep)
+        i, o = int(b.get("input_tokens") or 0), int(b.get("output_tokens") or 0)
+        row = by_tier[f"{tier} ({dep})"]
+        row["turns"] += 1
+        row["in"] += i
+        row["out"] += o
+        row["total"] += int(b.get("total_tokens") or 0)
+        row["cost"] += (i * pin + o * pout) / 1_000_000
+
+    print(f"\n=== SCEN-007 VERIFY - per-tier cost for tenant '{tenant}' ===")
+    print(f"  (estimated USD, prices are list-price estimates)\n")
+    print(f"  {'tier (deployment)':<40}{'turns':>6}{'in':>9}{'out':>7}{'total':>9}{'est $':>10}")
+    grand = 0.0
+    for name, r in sorted(by_tier.items(), key=lambda x: -x[1]["cost"]):
+        grand += r["cost"]
+        print(f"  {name:<40}{int(r['turns']):>6}{int(r['in']):>9}{int(r['out']):>7}"
+              f"{int(r['total']):>9}{r['cost']:>10.5f}")
+    print(f"  {'TOTAL':<40}{'':>6}{'':>9}{'':>7}{'':>9}{grand:>10.5f}")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description="Mine a tenant for optimization-scenario evidence.")
     ap.add_argument("--tenant", default="v2_analytics")
     ap.add_argument("--database", default=os.environ.get("COSMOSDB_DATABASE_NAME", "TravelAssistantV2"))
+    ap.add_argument("--verify", action="store_true",
+                    help="Only print the SCEN-007 per-tier cost verify report (needs model_tier signal).")
     args = ap.parse_args()
 
     db = CosmosClient(os.environ["COSMOSDB_ENDPOINT"], DefaultAzureCredential()).get_database_client(
         args.database
     )
     T = args.tenant
+
+    if args.verify:
+        verify_model_selection(db, T)
+        return
 
     def q(container: str, query: str) -> list:
         return list(

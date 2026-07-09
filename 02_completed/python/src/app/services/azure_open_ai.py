@@ -2,7 +2,7 @@ import json
 import os
 import re
 import logging
-from typing import List
+from typing import List, Optional
 from azure.identity import DefaultAzureCredential, get_bearer_token_provider
 from langchain_openai import AzureChatOpenAI, AzureOpenAIEmbeddings
 from openai import AzureOpenAI
@@ -74,6 +74,61 @@ logger.info(f"   Embedding Model: {AZURE_OPENAI_EMBEDDING_DEPLOYMENT}")
 def get_model():
     """Return the initialized Azure OpenAI chat model (LangChain)"""
     return model
+
+
+# ============================================================================
+# Tiered model factory (for policy-driven, capability-tiered model selection)
+# ============================================================================
+# SCEN-007: an active optimization policy can route a turn to a cheaper model
+# (trivial turns) or a more capable one (complex turns). Each distinct Azure
+# deployment gets one lazily-built, cached AzureChatOpenAI instance here.
+#
+# gpt-5 / o-series are *reasoning* models: they reject a non-default
+# ``temperature`` and require a recent API version, so we special-case them.
+
+# API version known to support the gpt-5 / o-series reasoning deployments.
+_REASONING_API_VERSION = "2025-04-01-preview"
+
+_chat_model_cache: dict[str, AzureChatOpenAI] = {}
+
+
+def _is_reasoning_deployment(deployment_name: str) -> bool:
+    name = (deployment_name or "").lower()
+    return name.startswith("gpt-5") or name.startswith("o1") or name.startswith("o3") or name.startswith("o4")
+
+
+def get_chat_model(deployment_name: Optional[str] = None) -> AzureChatOpenAI:
+    """Return a cached AzureChatOpenAI bound to a specific Azure deployment.
+
+    Falls back to the default shared ``model`` when no deployment is given or it
+    matches the app default, so callers that don't opt into tiering are unchanged.
+    """
+    if not deployment_name or deployment_name == AZURE_OPENAI_DEPLOYMENT:
+        return model
+
+    cached = _chat_model_cache.get(deployment_name)
+    if cached is not None:
+        return cached
+
+    kwargs: dict = dict(
+        azure_endpoint=AZURE_OPENAI_ENDPOINT,
+        azure_deployment=deployment_name,
+        azure_ad_token_provider=token_provider,
+        streaming=True,
+        max_retries=1,
+    )
+    if _is_reasoning_deployment(deployment_name):
+        # Reasoning models: no temperature override; newer API version.
+        kwargs["api_version"] = _REASONING_API_VERSION
+    else:
+        kwargs["api_version"] = AZURE_OPENAI_API_VERSION
+        kwargs["temperature"] = 0.7
+
+    tiered = AzureChatOpenAI(**kwargs)
+    _chat_model_cache[deployment_name] = tiered
+    logger.info(f"✅ Tiered chat model ready: deployment={deployment_name} "
+                f"reasoning={_is_reasoning_deployment(deployment_name)}")
+    return tiered
 
 
 def get_embeddings_model():

@@ -60,6 +60,7 @@ from src.app.services.azure_cosmos_db import (
 from src.app.travel_agents import (
     setup_agents,
     build_agent_graph,
+    get_supervisor_for_turn,
     cleanup_persistent_session,
     _current_user_preference_vector,
 )
@@ -543,6 +544,8 @@ def _persist_turn_debug_log(
             agent_path=agent_path,
             handoff_count=handoff_count,
             debug_log_id=debug_log_id,
+            model_tier=dbg.get("model_tier"),
+            model_deployment=dbg.get("model_deployment"),
         )
     except Exception as exc:  # noqa: BLE001
         logger.error(f"❌ Failed to store turn debug log for session {thread_id}: {exc}")
@@ -699,6 +702,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Optimization apply-loop endpoints (recommend / apply / revert)
+from src.app.optimization_api import router as optimization_router  # noqa: E402
+app.include_router(optimization_router)
 
 
 # ============================================================================
@@ -1268,6 +1275,20 @@ async def chat_event_generator(
     messages: list[Any] = list(checkpoint_history)
     messages.append(HumanMessage(content=user_message))
     config = _thread_config(tenant_id, user_id, thread_id, pref_vector)
+
+    # SCEN-007 apply-loop effector: pick the model tier for this turn from the
+    # active optimization policy. Falls back to the default supervisor/model
+    # when no policy is active, so behavior is unchanged out of the box.
+    try:
+        selected, deployment, tier = get_supervisor_for_turn(messages)
+        if selected is not None:
+            workflow = selected
+        dbg["model_tier"] = tier
+        dbg["model_deployment"] = deployment
+        if tier != "default":
+            logger.info(f"🎚️  Model tier '{tier}' -> deployment '{deployment}' for this turn")
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(f"Model-tier selection failed; using default supervisor: {exc}")
 
     client.add_local(
         user_id=user_id,

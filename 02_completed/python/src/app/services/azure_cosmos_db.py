@@ -1025,7 +1025,9 @@ def store_debug_log(
     content_filter_results: Optional[Dict[str, Any]] = None,
     debug_log_id: Optional[str] = None,
     agent_path: Optional[str] = None,
-    handoff_count: Optional[int] = None
+    handoff_count: Optional[int] = None,
+    model_tier: Optional[str] = None,
+    model_deployment: Optional[str] = None
 ) -> str:
     """
     Store detailed debug log information in Cosmos DB.
@@ -1080,6 +1082,12 @@ def store_debug_log(
         property_bag.append({"key": "agent_path", "value": agent_path, "timeStamp": timestamp})
     if handoff_count is not None:
         property_bag.append({"key": "handoff_count", "value": handoff_count, "timeStamp": timestamp})
+
+    # Model-selection analytics (SCEN-007): which tier/deployment served this turn.
+    if model_tier is not None:
+        property_bag.append({"key": "model_tier", "value": model_tier, "timeStamp": timestamp})
+    if model_deployment is not None:
+        property_bag.append({"key": "model_deployment", "value": model_deployment, "timeStamp": timestamp})
     
     debug_entry = {
         "id": debug_log_id,
