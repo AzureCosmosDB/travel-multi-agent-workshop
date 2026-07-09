@@ -75,17 +75,23 @@ Fully automating the **Cosmos connection** is the known hard part. Findings:
   connection support expected ~Aug/Sept. Once either lands, connection creation is one API call and
   the whole flow is hands-free.
 
-## Reverse-ETL notebook — read-method note
+## Reverse-ETL notebook — WORKING (read via JDBC SQL endpoint)
 
 `analytics/fabric/TravelAssistantOptimizationInsights.ipynb` computes per-tenant KPIs + per-tier cost
 and writes them to Cosmos `OptimizationInsights` via the **Cosmos Spark connector** with Fabric AAD
 (the workspace identity's Data Contributor role) — **no `%pip`, so it is safe in scheduled jobs**.
 
-Open issue: reading the **mirrored** Delta tables. Mirrored tables use **deletion vectors**, so a
-direct `spark.read.format("delta").load(onelake_path)` fails with *"Cannot work with a non-pinned
-table snapshot"*. `spark.read.synapsesql(...)` on the mirror SQL endpoint is the next attempt.
-**Reliable fix:** create a **Lakehouse shortcut** to the mirror tables and read via
-`spark.read.table(...)` (a catalog reference pins the snapshot), or read via JDBC to the SQL endpoint.
+**Read method (solved):** the Fabric Spark Delta reader (runtime 1.3) **cannot** read the mirrored
+tables' **deletion vectors** — `spark.read.format("delta").load(path)` *and* a Lakehouse-shortcut
+`spark.read.table(...)` both fail with *"Cannot work with a non-pinned table snapshot"*. The working
+fix is to read through the **SQL analytics endpoint over JDBC** (`spark.read.format("jdbc")` with the
+mirror SQL endpoint + `mssparkutils.credentials.getToken("pbi")` as `accessToken`), which resolves
+deletion vectors at the SQL layer. **Validated:** the notebook wrote 8 insight docs (per-tenant
+metrics + per-tier cost) to `OptimizationInsights`.
+
+**Scheduled:** every 15 minutes (`POST …/jobs/RunNotebook/schedules`, Cron interval 15) — near-real-time
+reverse-ETL so the Console's computed insights stay fresh. Power BI reads the mirror directly (Direct
+Lake), so it is real-time without the notebook.
 
 ## Real-time demo (works today, no notebook needed)
 
