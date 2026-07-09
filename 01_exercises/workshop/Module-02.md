@@ -67,6 +67,7 @@ import json
 import logging
 import os
 import sys
+from contextvars import ContextVar
 from typing import Any, Literal
 
 from dotenv import load_dotenv
@@ -126,9 +127,53 @@ def _subagent_config(config: RunnableConfig, agent_name: str) -> RunnableConfig:
     inherited["configurable"] = configurable
     inherited["metadata"] = metadata
     return inherited
+
+
+# The itinerary sub-agent is a ReAct agent whose model fills in tool arguments.
+# Left to its own devices it guesses user_id / tenant_id (e.g. the literal
+# "user"), so trips would be saved under the wrong partition key. This ContextVar
+# plus the wrappers below force the real request identity onto the trip tools.
+_current_identity: ContextVar[dict[str, str] | None] = ContextVar(
+    "current_identity", default=None
+)
+
+_IDENTITY_TRIP_TOOLS = ("create_new_trip", "update_trip", "get_trip_details")
+
+
+def _wrap_trip_tool(mcp_tool: Any) -> Any:
+    """Force the request-scoped user_id / tenant_id onto a trip MCP call."""
+    description = getattr(mcp_tool, "description", None) or "Trip tool."
+    args_schema = getattr(mcp_tool, "args_schema", None)
+    tool_name = getattr(mcp_tool, "name", "trip_tool")
+
+    async def trip_tool_with_identity(config: RunnableConfig, **kwargs: Any) -> Any:
+        identity = _current_identity.get() or {}
+        if identity.get("user_id"):
+            kwargs["user_id"] = identity["user_id"]
+        if identity.get("tenant_id"):
+            kwargs["tenant_id"] = identity["tenant_id"]
+        return await mcp_tool.ainvoke(kwargs, config=config)
+
+    trip_tool_with_identity.__name__ = tool_name
+    trip_tool_with_identity.__doc__ = description
+    return tool(tool_name, args_schema=args_schema, description=description)(
+        trip_tool_with_identity
+    )
+
+
+def _with_identity_injection(tools: list[Any]) -> list[Any]:
+    """Wrap trip tools so they use the request identity, not an LLM-supplied one."""
+    return [
+        _wrap_trip_tool(mcp_tool)
+        if getattr(mcp_tool, "name", "") in _IDENTITY_TRIP_TOOLS
+        else mcp_tool
+        for mcp_tool in tools
+    ]
 ```
 
 `_last_message_content` pulls the human-readable response out of a LangGraph state dict - sub-agents return their final `AIMessage`, and the supervisor wants the string. `_subagent_config` forwards `user_id`, `thread_id`, and other request scoping into every nested invocation, and tags the run with a `sub_agent` metadata field so traces are easy to read.
+
+The `_current_identity` ContextVar and the `_wrap_trip_tool` / `_with_identity_injection` helpers solve a subtle but important problem. The itinerary sub-agent (Activity 3) is a ReAct agent, so **its model chooses the arguments** for the trip tools - including `user_id` and `tenant_id`. Left unconstrained it will guess, often sending a placeholder like `"user"`, and the trip is then saved under the wrong partition key (so the real user never sees it). Wrapping the trip tools lets us set the true identity once per request (in Activity 3) and have the wrapper overwrite whatever the model supplied. We plug these wrappers in during Activity 5.
 
 ### Step 4: Add the Pydantic input schemas
 
@@ -407,14 +452,23 @@ async def create_or_update_itinerary_tool(
     )
     state = {"messages": [HumanMessage(content=user_msg)]}
     effective_config = config or {"configurable": {}, "metadata": {}}
-    result = await _itinerary_agent.ainvoke(
-        state,
-        config=_subagent_config(effective_config, "itinerary"),
-    )
+    configurable = effective_config.get("configurable", {}) or {}
+    identity = {
+        "user_id": configurable.get("user_id") or configurable.get("userId") or "",
+        "tenant_id": configurable.get("tenant_id") or configurable.get("tenantId") or "",
+    }
+    identity_token = _current_identity.set(identity)
+    try:
+        result = await _itinerary_agent.ainvoke(
+            state,
+            config=_subagent_config(effective_config, "itinerary"),
+        )
+    finally:
+        _current_identity.reset(identity_token)
     return _last_message_content(result)
 ```
 
-`_itinerary_agent` is a module-level variable populated in Activity 5 - we'll wire it next.
+`_itinerary_agent` is a module-level variable populated in Activity 5 - we'll wire it next. Note the `_current_identity.set(...)` / `.reset(...)` around the sub-agent call: it publishes the real `user_id` / `tenant_id` for the duration of this request so the wrapped trip tools persist the trip under the correct user (see the helpers in Activity 1, Step 3). The `try/finally` guarantees the ContextVar is always reset, even if the sub-agent raises.
 
 ---
 
@@ -487,9 +541,11 @@ def _partition_mcp_tools(all_tools: list[Any]) -> None:
         all_tools,
         ["discover_places", "discover_itinerary"],
     )
-    _mcp_itinerary_tools = filter_tools_by_prefix(
-        all_tools,
-        ["create_new_trip", "update_trip", "get_trip_details"],
+    _mcp_itinerary_tools = _with_identity_injection(
+        filter_tools_by_prefix(
+            all_tools,
+            ["create_new_trip", "update_trip", "get_trip_details"],
+        )
     )
 
     logger.info("📊 Tool Distribution (Supervisor + 2 Sub-Agents):")
@@ -498,7 +554,7 @@ def _partition_mcp_tools(all_tools: list[Any]) -> None:
     logger.info(f"   Itinerary tools: {[t.name for t in _mcp_itinerary_tools]}")
 ```
 
-Each sub-agent only sees the subset it needs. The itinerary agent physically cannot call `discover_places`; the supervisor physically cannot call `create_new_trip`.
+Each sub-agent only sees the subset it needs. The itinerary agent physically cannot call `discover_places`; the supervisor physically cannot call `create_new_trip`. The itinerary tools are additionally passed through `_with_identity_injection`, which wraps `create_new_trip` / `update_trip` / `get_trip_details` so they always run with the request's real `user_id` / `tenant_id` (set in Activity 3) rather than whatever the sub-agent's model guessed.
 
 ### Step 2: Add `_build_sub_agents`
 
@@ -980,6 +1036,7 @@ import json
 import logging
 import os
 import sys
+from contextvars import ContextVar
 from typing import Any, Literal
 
 from dotenv import load_dotenv
@@ -1077,6 +1134,47 @@ def _subagent_config(config: RunnableConfig, agent_name: str) -> RunnableConfig:
     inherited["configurable"] = configurable
     inherited["metadata"] = metadata
     return inherited
+
+
+# Force the real request identity onto the itinerary sub-agent's trip tools so
+# saved trips persist under the right user (the ReAct model otherwise guesses
+# user_id / tenant_id and can send placeholders like "user").
+_current_identity: ContextVar[dict[str, str] | None] = ContextVar(
+    "current_identity", default=None
+)
+
+_IDENTITY_TRIP_TOOLS = ("create_new_trip", "update_trip", "get_trip_details")
+
+
+def _wrap_trip_tool(mcp_tool: Any) -> Any:
+    """Force the request-scoped user_id / tenant_id onto a trip MCP call."""
+    description = getattr(mcp_tool, "description", None) or "Trip tool."
+    args_schema = getattr(mcp_tool, "args_schema", None)
+    tool_name = getattr(mcp_tool, "name", "trip_tool")
+
+    async def trip_tool_with_identity(config: RunnableConfig, **kwargs: Any) -> Any:
+        identity = _current_identity.get() or {}
+        if identity.get("user_id"):
+            kwargs["user_id"] = identity["user_id"]
+        if identity.get("tenant_id"):
+            kwargs["tenant_id"] = identity["tenant_id"]
+        return await mcp_tool.ainvoke(kwargs, config=config)
+
+    trip_tool_with_identity.__name__ = tool_name
+    trip_tool_with_identity.__doc__ = description
+    return tool(tool_name, args_schema=args_schema, description=description)(
+        trip_tool_with_identity
+    )
+
+
+def _with_identity_injection(tools: list[Any]) -> list[Any]:
+    """Wrap trip tools so they use the request identity, not an LLM-supplied one."""
+    return [
+        _wrap_trip_tool(mcp_tool)
+        if getattr(mcp_tool, "name", "") in _IDENTITY_TRIP_TOOLS
+        else mcp_tool
+        for mcp_tool in tools
+    ]
 
 
 class FindPlacesInput(BaseModel):
@@ -1275,10 +1373,19 @@ async def create_or_update_itinerary_tool(
     )
     state = {"messages": [HumanMessage(content=user_msg)]}
     effective_config = config or {"configurable": {}, "metadata": {}}
-    result = await _itinerary_agent.ainvoke(
-        state,
-        config=_subagent_config(effective_config, "itinerary"),
-    )
+    configurable = effective_config.get("configurable", {}) or {}
+    identity = {
+        "user_id": configurable.get("user_id") or configurable.get("userId") or "",
+        "tenant_id": configurable.get("tenant_id") or configurable.get("tenantId") or "",
+    }
+    identity_token = _current_identity.set(identity)
+    try:
+        result = await _itinerary_agent.ainvoke(
+            state,
+            config=_subagent_config(effective_config, "itinerary"),
+        )
+    finally:
+        _current_identity.reset(identity_token)
     return _last_message_content(result)
 
 
@@ -1344,9 +1451,11 @@ def _partition_mcp_tools(all_tools: list[Any]) -> None:
         all_tools,
         ["discover_places", "discover_itinerary"],
     )
-    _mcp_itinerary_tools = filter_tools_by_prefix(
-        all_tools,
-        ["create_new_trip", "update_trip", "get_trip_details"],
+    _mcp_itinerary_tools = _with_identity_injection(
+        filter_tools_by_prefix(
+            all_tools,
+            ["create_new_trip", "update_trip", "get_trip_details"],
+        )
     )
 
     logger.info("📊 Tool Distribution (Supervisor + 2 Sub-Agents):")
