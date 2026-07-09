@@ -72,19 +72,49 @@ Tier-1 question is *"<some behavior/cost signal> correlated with Trips outcome."
 Each row is a scenario slot. **SCEN-001** is the first fully worked example; the rest are
 **candidates to be validated against the baseline data** (see *Discovery methods*).
 
-## Fix seams & auto-apply safety
+## Optimization maturity model (the levels each scenario climbs)
 
-Optimizations are ranked not just by impact but by **how safely they can be applied** — this is the
-Tier-2 *"which can be automated safely?"* question made concrete:
+The vision defines a five-level progression from observation to self-adaptation. A scenario is
+designed to be walked **up** this ladder — and how far it can safely climb depends on its fix seam
+(see risk domains below):
 
-| Fix seam | Example | Auto-apply safety |
-|---|---|---|
-| **Prompt (`.prompty` data)** | add a supervisor rule (SCEN-001) | **Safe / one-click** — hot-swapped via `load_prompt`, no redeploy |
-| **Threshold / config (env)** | `FACT_EXTRACTION_EVERY_N`, summary cadence | **One-click** — bounded, reversible |
-| **Tool wiring / code** | name-based `find_places` fallback | **Human-review** — code path, needs test + deploy |
+| Level | Name | What the platform does | Human role |
+|---|---|---|---|
+| **L1** | Visibility | Dashboard/report surfaces the metric | Humans identify & implement |
+| **L2** | Recommendations | Platform recommends a fix | Humans review & approve |
+| **L3** | Assisted Optimization | Platform generates the concrete change + impact analysis | Humans approve/reject before deploy |
+| **L4** | Autonomous Optimization | For approved **lower-risk** domains, auto-applies + validates (reversible, auditable) | Humans set policy & audit |
+| **L5** | Adaptive Agent Systems | Fleets continuously self-tune lower-risk domains; higher-risk stays human-governed | Humans govern the envelope |
 
-The lab's headline message: **the safest and highest-leverage optimizations are prompt and threshold
-edits**, which is exactly why the apply-loop (ADR-0001) writes `.prompty`/config rather than code.
+### Risk domains govern the L4/L5 ceiling (from the vision)
+
+This is the concrete answer to *"which optimizations can be automated safely?"*:
+
+- **Lower-risk → autonomous-eligible (can reach L4/L5):** memory salience tuning, memory retention
+  policies, retrieval weighting, routing thresholds, tool-selection policies, model-selection
+  policies, cost policies. These are **parameters/policies** — bounded, reversible, measurable.
+- **Higher-risk → human-governed (ceiling L2/L3):** **prompt modifications**, workflow redesign,
+  agent-instruction changes, agent-capability changes, code generation, deployment changes.
+
+> ⚠️ **Correction of a common intuition:** a prompt edit *feels* safe (it's just text, hot-swappable),
+> but the vision classifies **prompt modifications as higher-risk / human-governed**. So SCEN-001,
+> whose fix is a `supervisor.prompty` rule, is a great L1→L3 teaching example but **caps at Assisted
+> (L3)** — it is applied one-click **with human approval**, not unattended. The scenarios that truly
+> demonstrate **L4/L5 self-adaptation** are the **policy/threshold** ones (routing thresholds, memory
+> salience, model-selection policy, retention) — which is exactly why the catalog deliberately
+> includes both kinds.
+
+## Fix seams & maturity ceiling
+
+| Fix seam | Example | Risk domain | Maturity ceiling |
+|---|---|---|---|
+| **Policy / threshold (config)** | routing threshold, memory salience, retention, model-selection policy | lower-risk | **L4/L5 autonomous** |
+| **Prompt (`.prompty` data)** | add a supervisor rule (SCEN-001) | higher-risk | **L3 assisted** (human-approved) |
+| **Tool wiring / code** | name-based `find_places` fallback | higher-risk | **L3 assisted** + test/deploy |
+
+The lab's headline message: **continuous self-improvement (L4/L5) is reached through the lower-risk
+policy/threshold domains**; prompt, workflow, and code changes stay human-governed with the platform
+providing recommendations, impact analysis, and approval workflows.
 
 ## Discovery methods (how we find more scenarios)
 
@@ -109,18 +139,22 @@ and the `before/after metric`.
 
 ## Catalog
 
-| ID | Title | Dimension(s) | Vision question | Fix seam | Safety | Status |
-|----|-------|--------------|-----------------|----------|--------|--------|
-| [SCEN-001](scen-001-active-trip-city-context.md) | Supervisor re-asks for a city it could infer from the active trip | workflow efficiency · routing · cost | cost per outcome | prompt | one-click | **documented** |
-| SCEN-002 | High-salience memories that are never recalled (recall gap) | memory effectiveness · agent quality | which memories improve success | prompt | one-click | candidate |
-| SCEN-003 | High-token sessions with no confirmed trip (wasted spend) | cost efficiency · business outcomes | cost per outcome | prompt/config | one-click | candidate |
-| SCEN-004 | Stale/superseded memories still surfacing | memory effectiveness | which memories are stale | config/prompt | one-click | candidate |
-| SCEN-005 | Costliest `agent_path` per confirmed trip | workflow efficiency · cost | which workflows to optimize | prompt | one-click | candidate |
-| SCEN-006 | Context-bloat drift (tokens/turn creep over time) | cost efficiency · behavior drift | how behavior evolves | config | one-click | candidate |
-| SCEN-007 | Full model used for trivial turns (greetings, clarifications) | model selection · cost | cost per outcome | config/model-routing | one-click | candidate |
-| SCEN-008 | Supervisor answers place queries from its own knowledge instead of `find_places` | tool utilization · routing · agent quality | which patterns correlate with success | prompt | one-click | candidate |
+Each scenario is exercised up the maturity ladder (L1 visibility → … ) to its **ceiling** — set by
+its risk domain. Policy/threshold scenarios reach **L4/L5 (self-adapting)**; prompt/code scenarios cap
+at **L3 (assisted, human-approved)**.
+
+| ID | Title | Dimension(s) | Fix seam | Risk domain | Maturity ceiling | Status |
+|----|-------|--------------|----------|-------------|------------------|--------|
+| [SCEN-001](scen-001-active-trip-city-context.md) | Supervisor re-asks for a city it could infer from the active trip | workflow efficiency · routing · cost | prompt | higher-risk | **L3 assisted** | **documented** |
+| SCEN-002 | High-salience memories that are never recalled (recall gap) | memory effectiveness · agent quality | retrieval weighting (policy) | lower-risk | **L4/L5 autonomous** | candidate |
+| SCEN-003 | High-token sessions with no confirmed trip (wasted spend) | cost efficiency · business outcomes | cost policy / prompt | mixed | L3–L4 | candidate |
+| SCEN-004 | Stale/superseded memories still surfacing | memory effectiveness | salience + retention policy | lower-risk | **L4/L5 autonomous** | candidate |
+| SCEN-005 | Costliest `agent_path` per confirmed trip | workflow efficiency · cost | routing threshold / prompt | mixed | L3–L4 | candidate |
+| SCEN-006 | Context-bloat drift (tokens/turn creep over time) | cost efficiency · behavior drift | retention / summary cadence (policy) | lower-risk | **L4/L5 autonomous** | candidate |
+| SCEN-007 | Full model used for trivial turns (greetings, clarifications) | model selection · cost | model-selection policy | lower-risk | **L4/L5 autonomous** | candidate |
+| SCEN-008 | Supervisor answers place queries from its own knowledge instead of `find_places` | tool utilization · routing · agent quality | tool-selection policy / prompt | mixed | L3–L4 | candidate |
 
 > Candidates are hypotheses to be **confirmed against the data** before promotion to a full scenario.
-> Coverage goal: at least one scenario per optimization dimension. Current spread — workflow efficiency
-> (001/005), routing (001/008), memory effectiveness (002/004), cost efficiency (003/005/006/007),
-> model selection (007), tool utilization (008), agent quality (002/008), business outcomes (003).
+> Coverage goals: (1) at least one scenario per **optimization dimension**, and (2) a mix of **prompt
+> (L3-ceiling)** and **policy/threshold (L4/L5-ceiling)** scenarios so the lab demonstrates the full
+> maturity ladder — including the self-adapting Level 5 through the lower-risk policy domains.

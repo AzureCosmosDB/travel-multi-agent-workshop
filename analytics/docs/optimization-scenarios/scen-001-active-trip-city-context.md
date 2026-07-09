@@ -4,6 +4,9 @@
 - **Discovered:** 2026-07-08, by naive frontend use (Tony Stark profile, Amsterdam trip)
 - **Category:** Context-passing gap (agent asks for information the session already has)
 - **Vision questions it serves:** *"What is the cost per successful outcome?"*, *"Which workflows should be optimized?"*, *"Which optimizations can be automated safely?"*
+- **Optimization dimensions:** workflow efficiency · routing effectiveness · cost efficiency
+- **Fix seam:** prompt (`supervisor.prompty`) → **higher-risk / human-governed**
+- **Maturity ceiling:** **L3 (Assisted Optimization)** — proposed + impact-analysed by the platform, applied one-click **with human approval**; not unattended (prompt changes are human-governed per the vision)
 - **Related:** ADR-0001 (optimization-loop surface), ADR-0002 (Open Agent Analytics Schema), ADR-0007 (Debug capture)
 
 ## Symptom (what the user sees)
