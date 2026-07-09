@@ -78,9 +78,12 @@ This fits the workshop's file model cleanly:
 
 ## 5. Updated / new learning objectives
 
-Proposed new module **"Analytics & Optimization"** (placed after Module 05 Observability; exact number
-for the maintainer to decide — e.g. a new Module 06, renumbering the current bonus modules, or a
-Module 5b). Learning objectives:
+New module **Module 07 "Analytics & Optimization"** (confirmed). Final module order:
+**05** Observability (LangSmith) → **06** Evaluation → **07** Analytics & Optimization *(new)* →
+**08** Lessons Learned & Future *(was 07)*. Evaluation precedes Optimization deliberately: the eval
+harness from Module 06 becomes the **quality gate** for autonomous apply (see the capstone below).
+
+Learning objectives:
 
 - Explain the optimization loop: **instrument → detect → recommend → apply → verify**, and the
   5-level maturity model (Visibility → Recommendations → Assisted → Autonomous → Adaptive).
@@ -94,12 +97,18 @@ Module 5b). Learning objectives:
 - **Verify** the effect from data (`--verify` per-tier cost), and reason about **cost per successful
   outcome** (SCEN-003), including the honest reasoning-token caveat (a naive "cheaper model" can lose
   once reasoning tokens are counted — the measured verify is the truth).
+- **(Advanced / stretch)** Tier the **itinerary sub-agent (the worker)**, not just the supervisor
+  turn — the higher-value production pattern that puts the capable model where the quality-sensitive
+  generation happens (ties directly to SCEN-005's fat-tail cost and SCEN-003's cost-per-outcome).
+- **(Capstone)** Wire the Module 06 **evaluation harness as an automated quality gate**: an applied
+  optimization stays active only if answer quality holds above a threshold, else it **auto-reverts**.
+  This is what turns "assisted" (L3, human approves) into "autonomous" (L4/L5, self-governing).
 
-**Corrected target for existing modules:** the "What You've Built" recap (Module 07) and any place
+**Corrected target for existing modules:** the "What You've Built" recap (now Module 08) and any place
 that describes the finished system should note the app is now **optimization-ready** (policy-driven,
 reversible, capability-tiered model selection) — an explicit capability learners end with.
 
-## 6. Plan to sync `01_exercises` (proposed, not yet applied)
+## 6. Plan to sync `01_exercises` (decisions resolved; ready to implement)
 
 Per §4, port to `01_exercises`:
 
@@ -110,19 +119,20 @@ Per §4, port to `01_exercises`:
   wiring + `Debug` recording in `travel_agents_api.py`; and `get_supervisor_for_turn`/`_build_supervisor`.
 - **Learner-built (guided TODO):** `classify_turn_tier` in `travel_agents.py` — provided as a
   documented stub in the new module, with tests/expected behavior so the learner can self-check.
-- **New module doc** `workshop/Module-XX.md` implementing the objectives in §5, following the existing
-  module format (Introduction → Learning Objectives → Activities → Test Your Work).
+- **New module doc** `workshop/Module-07.md` (Analytics & Optimization) following the existing module
+  format; **renumber** the current `Module-07.md` (Lessons) to `Module-08.md` and fix cross-links.
 - **Deployment/setup:** the module (or Module-00) must add the two extra model deployments
   (`gpt-5-nano`, `gpt-5.1`) — via `azd`/Bicep or a documented `az` step — and note quota realities.
 
-**Open decisions for the maintainer/author (do not guess):**
-1. Module number/placement (new 06 with renumber? 5b? bonus after 07?).
-2. Whether the **complex** tier should also upgrade the itinerary *sub-agent* model (today only the
-   supervisor turn is tiered).
-3. Whether the lab drives apply/revert from the **Angular dashboard** (build the card) or **REST/CLI**
-   for v1 (author has a stated preference for web UX — likely dashboard, sequenced as a fast-follow).
-4. Whether to gate `apply` behind a quality evaluator before teaching autonomous apply (ADR-0008 open
-   item).
+**Confirmed decisions (previously open):**
+1. **Module numbering:** new **Module 07 Analytics & Optimization**; Lessons moves to **Module 08**;
+   Observability (05) and Evaluation (06) unchanged.
+2. **Sub-agent tiering:** supervisor-turn tiering is the **core** lesson; **worker (itinerary
+   sub-agent) tiering is an advanced/stretch activity**.
+3. **Dashboard vs REST:** ship the lab **REST/CLI-driven now**; build the **Angular apply card as a
+   fast-follow** (it calls the same REST endpoint).
+4. **Quality gate:** teach **manual verify in v1**; the **automated eval gate is the capstone** that
+   unlocks the autonomous (L4/L5) maturity level.
 
 ## 7. For the maintainer — change summary
 
