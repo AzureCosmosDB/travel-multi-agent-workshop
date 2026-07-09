@@ -1,6 +1,6 @@
 # Module 06 - Evaluating Your Multi-Agent Application (Bonus Module)
 
-**[< Observability & Experimentation](./Module-05.md)** - **[Analytics & Optimization >](./Module-07.md)**
+**[< Observability & Experimentation](./Module-05.md)** - **[Agent Analytics >](./Module-07.md)**
 
 ## Introduction
 
@@ -819,4 +819,4 @@ With comprehensive evaluation in place, you can make changes confidently, knowin
 
 ---
 
-**[< Observability & Experimentation](./Module-05.md)** - **[Analytics & Optimization >](./Module-07.md)**
+**[< Observability & Experimentation](./Module-05.md)** - **[Agent Analytics >](./Module-07.md)**

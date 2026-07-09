@@ -1,355 +1,253 @@
-# Module 08 - Lessons Learned & The Future of Agentic Systems
+# Module 08 - Agent Optimization (Apply & Autonomy)
 
-**[< Analytics & Optimization](./Module-07.md)**
+**[< Agent Analytics](./Module-07.md)** - **[Lessons Learned & The Future >](./Module-09.md)**
 
 ## Introduction
 
-Congratulations! You've built a sophisticated multi-agent travel assistant with intelligent memory, automatic summarization, and full observability. Throughout this workshop, you've progressed from a simple single agent to a production-ready multi-agent system with distributed memory management.
+In Module 07 you made your agent's behavior **visible**: you instrumented every turn, explored the signal in the Optimization Console and Power BI, detected the model-selection opportunity, and set a cost-per-outcome baseline. That's the first half of the loop:
 
-In this final module, we'll reflect on what you've learned, explore architectural patterns and best practices, discuss the future of agentic AI and memory systems, and address common questions about building production multi-agent applications.
+> **instrument → detect → recommend →** *apply → verify*
 
-## What You've Built
+This module closes it. You'll **apply** the recommended optimization with one click, **verify** it from data, then climb the maturity ladder: contrast a **lower-risk autonomous** change (model selection) with a **higher-risk human-governed** one (a prompt fix), and finally wire an **automated quality gate** so the system can safely optimize *itself*.
 
-Let's take a moment to appreciate the complexity of your travel assistant:
+> Still additive — you'll implement one decision function and a few small hooks. **No changes to Modules 01–05.** The model tiers (`gpt-5-nano`, `gpt-5.1`) and containers are already provisioned by `azd up`.
 
-### System Architecture
+## Learning Objectives and Activities
 
-**Multi-Agent Orchestration:**
+- Understand why **policies** are the safe surface for automated optimization, and how apply/revert stay reversible
+- **Build the decision** that classifies each turn (trivial / routine / complex)
+- **Apply** a model-selection policy (L4/L5) and **verify** its effect from data
+- Contrast it with a **human-governed L3** optimization (a prompt fix) — the risk model in practice
+- **(Stretch)** Tier the itinerary sub-agent (the worker), the higher-value pattern
+- **(Capstone)** Wire your Module 06 evaluator as an **automated quality gate** that auto-reverts regressions — reaching **autonomous** optimization
 
-- **Orchestrator Agent**: Routes user requests, extracts preferences, coordinates responses
-- **Specialist Agents**: Hotel, Dining, Activity agents with domain expertise
-- **Itinerary Generator**: Creates day-by-day travel plans
-- **Summarizer Agent**: Automatically condenses conversation history
+## Module Exercises
 
-**Intelligent Memory System:**
-
-- **Automatic Preference Extraction**: LLM-powered extraction from natural language
-- **Conflict Resolution**: Detects and resolves contradictory preferences
-- **Memory Types**: Declarative (facts), procedural (preferences), episodic (experiences)
-- **Salience Scoring**: Prioritizes important memories over trivial ones
-- **Memory Superseding**: Old preferences are gracefully replaced by new ones
-
-**Data Architecture:**
-
-- **Cosmos DB**: Scalable NoSQL database with vector search capabilities
-- **Containers**: Sessions, Messages, Summaries, Memories, Places, Trips, Users
-- **Hybrid Search**: Combines semantic search (vectors) + keyword search (RRF)
-- **Partitioning**: Efficient multi-tenant architecture with hierarchical partition keys
-
-**Observability:**
-
-- **LangSmith Integration**: End-to-end tracing of agent decisions
-- **Performance Monitoring**: Track latency, token usage, and costs
-- **Debug Traces**: Visualize execution paths and tool calls
-
-### Key Technical Achievements
-
-1. **Seamless Agent Handoffs**: Users don't need to know which specialist to talk to
-2. **Context-Aware Recommendations**: Every recommendation aligns with stored preferences
-3. **Automatic Summarization**: Long conversations are compressed without losing context
-4. **Conflict-Free Memory**: Contradictory preferences are detected and resolved
-5. **Production-Ready Observability**: Full visibility into system behavior
+1. [Activity 1: The Apply-Loop and the Safe Surface](#activity-1-the-apply-loop-and-the-safe-surface)
+2. [Activity 2: Build the Decision (`classify_turn_tier`)](#activity-2-build-the-decision-classify_turn_tier)
+3. [Activity 3: Apply and Watch It Route](#activity-3-apply-and-watch-it-route)
+4. [Activity 4: Verify from Data](#activity-4-verify-from-data)
+5. [Activity 5: A Different Risk Level — a Human-Governed Optimization](#activity-5-a-different-risk-level--a-human-governed-optimization)
+6. [Activity 6 (Stretch): Tier the Itinerary Sub-Agent](#activity-6-stretch-tier-the-itinerary-sub-agent)
+7. [Activity 7 (Capstone): An Automated Quality Gate](#activity-7-capstone-an-automated-quality-gate)
 
 ---
 
-## Module Sections
+## Activity 1: The Apply-Loop and the Safe Surface
 
-1. [Lessons Learned: Key Takeaways](#lessons-learned-key-takeaways)
-2. [Architectural Best Practices](#architectural-best-practices)
-3. [The Future of Agentic AI](#the-future-of-agentic-ai)
-4. [Memory Systems: What's Next?](#memory-systems-whats-next)
-5. [Common Challenges and Solutions](#common-challenges-and-solutions)
-6. [Production Deployment Considerations](#production-deployment-considerations)
-7. [Resources and Further Learning](#resources-and-further-learning)
+Applying an optimization means **changing how the running system behaves**. The critical question is: *how do we do that safely — and how autonomously?*
+
+The answer is the **risk model** from Module 07:
+
+- **Policies are the safe surface.** Model selection, memory retention, routing thresholds, tool selection — these are bounded knobs. Changing one is a small, **reversible**, audited data change, not a code edit. Because it's reversible and bounded, it can be applied **autonomously** (L4/L5) behind a quality gate.
+- **Prompts, workflows, and code are human-governed.** They change behavior in hard-to-bound ways, so they go through review/PR and cap at **assisted** (L3).
+
+The provided `optimization.py` implements policies as documents in the `OptimizationPolicies` container:
+
+- status flows `proposed → active → reverted`;
+- only an **active + enabled** policy changes behavior — so the default is always safe;
+- **apply** and **revert** are one call each, versioned, with an audit trail.
+
+You'll use this machinery for model selection now, and see the *contrast* with a prompt change in Activity 5.
 
 ---
 
-## Lessons Learned: Key Takeaways
+## Activity 2: Build the Decision (`classify_turn_tier`)
 
-### 1. Agent Specialization Beats Generalization
-
-**What We Learned:**
-Single "do-everything" agents struggle with complex tasks. Specialist agents with focused responsibilities perform better because they:
-
-- Have targeted prompts optimized for specific domains
-- Can use domain-specific tools and data sources
-- Make faster decisions with less context confusion
-
-**Example from the Workshop:**
-The Hotel Agent focuses exclusively on accommodations, allowing it to:
-
-- Recall hotel-specific preferences (quiet rooms, proximity to attractions)
-- Query only hotel-related places in Cosmos DB
-- Use specialized prompts for hotel recommendations
-
-**Key Insight**: Design agents around **capabilities**, not just conversational flow.
-
-### 2. Memory is Not Just Storage
-
-**What We Learned:**
-Effective memory systems require intelligent management:
-
-- **Extraction**: Not all messages contain preferences worth storing
-- **Conflict Resolution**: New information might contradict old beliefs
-- **Salience**: Some memories are more important than others
-- **Retrieval**: Hybrid search (semantic + keyword) outperforms vector-only search
-
-**Example from the Workshop:**
-When a user says "I prefer boutique hotels," the system:
-
-1. Extracts the preference with salience scoring
-2. Checks for conflicts (e.g., previously preferred large chain hotels)
-3. Resolves the conflict (update-existing, store-both, or ask-user)
-4. Stores with proper facets for future retrieval
-
-**Key Insight**: Memory is an **active process**, not passive storage.
-
-### 3. Summarization Prevents Context Collapse
-
-**What We Learned:**
-Long conversations exceed LLM context windows and increase costs. Automatic summarization:
-
-- Keeps recent messages fresh (10-message retention window)
-- Compresses older messages into summaries
-- Reduces token usage by ~70% for long sessions
-- Preserves conversation continuity
-
-**Example from the Workshop:**
-After 20 messages, the system:
-
-1. Identifies the oldest 10 non-summarized messages
-2. Generates a summary preserving key decisions
-3. Marks original messages as superseded (with TTL for cleanup)
-4. Stores summary in both Messages (timeline) and Summaries (cross-session queries)
-
-**Key Insight**: Design for **long-running conversations** from day one.
-
-### 4. Observability is Non-Negotiable
-
-**What We Learned:**
-Without tracing, debugging multi-agent systems is nearly impossible:
-
-- Agent routing decisions are non-deterministic (LLM-based)
-- Execution paths are nested and asynchronous
-- Performance bottlenecks are hard to identify
-
-**Example from the Workshop:**
-LangSmith traces show:
-
-- Which agent made each decision and why
-- Exact memories recalled before recommendations
-- Database query performance and results
-- Token usage per agent (cost attribution)
-
-**Key Insight**: Add observability **before** things go wrong.
-
-### 5. Hybrid Search > Vector-Only Search
-
-**What We Learned:**
-Pure vector search misses exact keyword matches. Hybrid retrieval (RRF) combines:
-
-- **Semantic search**: Understands "budget-friendly" ≈ "affordable"
-- **Keyword search**: Matches exact terms like "wheelchair accessible"
-- **Reciprocal Rank Fusion**: Merges results intelligently
-
-**Example from the Workshop:**
-Query: "romantic waterfront dining"
-
-- Vector search: Finds places with romantic ambiance descriptions
-- Keyword search: Matches tags ["waterfront", "romantic", "fine-dining"]
-- RRF: Returns results that score high in both
-
-**Key Insight**: Leverage **multiple retrieval strategies** for better results.
-
-## The Future of Agentic AI
-
-### 1. From Static to Adaptive Agents
-
-**Current State (Your System):**
-Agents have fixed capabilities defined at design time.
-
-**Future:**
-Agents will **learn and adapt** their behavior:
-
-- **Self-improving prompts**: Agents refine their own instructions based on feedback
-- **Dynamic tool creation**: Agents write new tools when existing ones are insufficient
-- **Meta-learning**: Agents learn from interactions across users
-
-### 2. From Single-Model to Multi-Model Systems
-
-**Current State:**
-Your system uses one LLM (GPT-4.1) for all agents.
-
-**Future:**
-Different agents will use **specialized models**:
-
-- **Orchestrator**: Large reasoning model (GPT-4, Claude 3.5)
-- **Specialists**: Fast, focused models (GPT-3.5, fine-tuned models)
-- **Memory Extraction**: Lightweight structured output models
-- **Summarization**: Efficient long-context models
-
-**Benefits:**
-
-- Reduce costs (use expensive models only when needed)
-- Improve latency (fast models for simple tasks)
-- Optimize for specific capabilities
-
-### 3. From Request-Response to Proactive Agents
-
-**Current State:**
-Your system reacts to user messages.
-
-**Future:**
-Agents will **proactively assist**:
-
-- Detect user intent before explicit requests
-- Suggest actions based on context and history
-- Trigger workflows without user prompting
-
-**Example:**
-
-```
-System: "I noticed you're traveling to Barcelona next month.
-Would you like me to start planning your itinerary? I remember
-you prefer boutique hotels and vegetarian restaurants."
-```
-
-### 4. From Text to Multimodal Agents
-
-**Current State:**
-Your system processes text-only inputs.
-
-**Future:**
-Agents will understand **images, voice, and video**:
-
-- Upload hotel photos: "Find similar properties"
-- Voice commands: "Find restaurants near me"
-- Video tours: Analyze ambiance and aesthetics
-
-**Technologies:**
-
-- GPT-4 Vision, Gemini Vision, Claude Vision
-- Whisper for speech-to-text
-- DALL-E for visualization generation
-
-### 5. From Human-in-Loop to Human-on-Loop
-
-**Current State:**
-Users directly interact with agents.
-
-**Future:**
-Agents handle **end-to-end workflows** autonomously:
-
-- Book reservations
-- Modify itineraries based on real-time changes
-- Negotiate with vendors
-- Handle exceptions (flight delays, cancellations)
-
-**Human Role:**
-
-- Approve high-stakes decisions
-- Provide feedback for learning
-- Intervene when needed
-
-## Memory Systems: What's Next?
-
-### 1. Memory Compression and Distillation
-
-**Problem:**
-Storing every conversation message is expensive and slow to retrieve.
-
-**Solution:**
-**Progressive summarization** at multiple levels:
-
-1. **Message-level**: Individual utterances
-2. **Session-level**: Single conversation summaries (your current implementation)
-3. **Topic-level**: Cross-session summaries by theme
-4. **User-level**: Overall user profile/persona
-
-**Example:**
-
-```
-Session 1: "User prefers boutique hotels in quiet neighborhoods"
-Session 2: "User likes rooftop bars with sunset views"
-Session 3: "User is vegetarian"
-
-→ User Profile: "Sarah is a vegetarian traveler who prefers
-boutique accommodations in quiet areas and enjoys rooftop
-dining with scenic views."
-```
-
-### 2. Memory Graphs and Relationships
-
-**Current State:**
-Memories are independent documents.
-
-**Future:**
-**Graph-based memory** with relationships:
-
-```
-[User: Sarah] -[PREFERS]-> [Hotel: Boutique]
-              -[AVOIDS]-> [Food: Shellfish]
-              -[VISITED]-> [City: Paris]
-[City: Paris] -[HAS]-> [Restaurant: Le Jules Verne]
-[Restaurant: Le Jules Verne] -[SERVES]-> [Cuisine: French]
-```
-
-**Benefits:**
-
-- Discover implicit preferences (likes French cuisine → recommend Bordeaux)
-- Explain recommendations (show reasoning paths)
-- Detect contradictions (prefer budget hotels + luxury dining)
-
-**Technologies:**
-
-- Azure Cosmos DB for Apache Gremlin (graph database)
-- Knowledge graphs with vector embeddings
-- Graph neural networks for reasoning
-
-### 3. Federated Memory and Privacy
-
-**Problem:**
-Centralized memory storage raises privacy concerns.
-
-**Solution:**
-**On-device memory** with federated learning:
-
-- User data stays on personal devices
-- Only anonymized insights shared with cloud
-- Memory retrieval happens locally
-
-**Example:**
-
-```
-Device: Stores raw conversation history
-Cloud: Stores only aggregated preference patterns
-```
-
-**Technologies:**
-
-- Federated learning frameworks (TensorFlow Federated)
-- Differential privacy for aggregation
-- Edge LLMs (Llama, Phi-3 on device)
-
-### 4. Memory Replay and Reflection
-
-**Inspired by:** Human memory consolidation during sleep.
-
-**Concept:**
-Agents **replay past interactions** to:
-
-- Extract higher-level patterns
-- Consolidate episodic memories into semantic knowledge
-- Improve future decision-making
-
-**Implementation:**
+The policy routes each turn to a model tier, but *what tier is this turn?* is a judgment the provided engine leaves to **you**. Open `python/src/app/services/optimization.py` and find the stub:
 
 ```python
-async def consolidate_memories(user_id: str):
-    """Nightly job: Replay sessions and extract patterns."""
-    sessions = get_recent_sessions(user_id, days=7)
-    patterns = extract_patterns(sessions)  # LLM analysis
-    update_semantic_memory(user_id, patterns)
+def classify_turn_tier(text: str, classifier: dict | None = None) -> str:
+    ...
+    classifier = classifier or {}
+    # TODO: replace this with your implementation.
+    return "routine"
 ```
 
+Implement it. Be **conservative** — when in doubt, `routine` (the default model); never silently downgrade a real place query. Reference solution:
+
+```python
+def classify_turn_tier(text: str, classifier: dict | None = None) -> str:
+    classifier = classifier or {}
+    trivial_max = int(classifier.get("trivial_max_words", _DEFAULT_TRIVIAL_MAX_WORDS))
+    trivial_patterns = classifier.get("trivial_patterns", _DEFAULT_TRIVIAL_PATTERNS)
+    complex_patterns = classifier.get("complex_patterns", _DEFAULT_COMPLEX_PATTERNS)
+
+    t = (text or "").strip().lower()
+    if not t:
+        return "routine"
+    for p in complex_patterns:          # explicit planning asks first
+        if re.search(p, t):
+            return "complex"
+    words = re.findall(r"[a-z0-9']+", t)
+    if len(words) <= trivial_max and any(re.search(p, t) for p in trivial_patterns):
+        return "trivial"                # short AND greeting-like
+    return "routine"
+```
+
+The default pattern lists and word cap sit just above the stub. Note the order — **complex first**, then trivial requires *both* short length *and* a greeting-like pattern — so "hotels in Amsterdam" (3 words, no greeting) correctly stays `routine`.
+
+### Self-check
+
+```python
+from src.app.services.optimization import classify_turn_tier
+assert classify_turn_tier("hi") == "trivial"
+assert classify_turn_tier("thanks!") == "trivial"
+assert classify_turn_tier("hotels in Amsterdam") == "routine"
+assert classify_turn_tier("What is the Krasnapolsky?") == "routine"
+assert classify_turn_tier("please build me an itinerary for 3 days in Paris") == "complex"
+assert classify_turn_tier("plan my trip to Tokyo") == "complex"
+```
+
+---
+
+## Activity 3: Apply and Watch It Route
+
+### Wire the enforcement hooks
+
+Two small hooks let the policy actually pick a model per turn.
+
+**Hook A — make your supervisor buildable with any model.** If your supervisor is constructed inline, extract that into a function taking a chat model, then register it once at startup so the layer can build a supervisor per tier:
+
+```python
+def create_supervisor(chat_model):
+    return create_react_agent(chat_model, tools=[...], prompt=..., checkpointer=...)
+
+# once, e.g. in setup_agents:
+from src.app.services import optimization
+optimization.register_supervisor_factory(create_supervisor)
+```
+
+**Hook B — select the tier's supervisor per turn.** Where you currently do `workflow = build_agent_graph()`, use the tiered selector (it returns your default graph when no policy is active, so this is safe):
+
+```python
+workflow, deployment, tier = optimization.get_supervisor_for_turn(
+    messages, default_graph=build_agent_graph()
+)
+```
+
+Then update your Module 07 record hook to log the **real** tier/deployment instead of `"default"`:
+
+```python
+optimization.record_optimization_turn(
+    tenant_id=tenantId, user_id=userId, session_id=sessionId,
+    tier=tier, deployment=deployment,
+    usage={...}, model_name=model_name,
+)
+```
+
+### Apply the policy
+
+One click — from the **Optimization Console** (the "Apply" button on the model-selection card) or via REST:
+
+```powershell
+Invoke-RestMethod -Method Post "http://localhost:8000/optimizations/model-selection/apply" -ContentType "application/json" -Body '{}'
+```
+
+Now send three turns and watch which model serves each (API logs + `OptimizationTurns`):
+
+- `hi` → tier `trivial` → `gpt-5-nano`
+- `hotels in amsterdam` → tier `routine` → `gpt-4.1-mini`
+- `please build me an itinerary for 3 days in amsterdam` → tier `complex` → `gpt-5.1`
+
+### Revert — just as easily
+
+```powershell
+Invoke-RestMethod -Method Post "http://localhost:8000/optimizations/model-selection/revert" -ContentType "application/json" -Body '{}'
+```
+
+After revert, the next turn records `tier=default, deployment=gpt-4.1-mini`. **That reversibility is exactly what makes this policy safe to automate.**
+
+---
+
+## Activity 4: Verify from Data
+
+Re-drive some traffic with the policy applied, then measure:
+
+```powershell
+python analytics/optimization_mining.py --tenant <yourTenant> --verify --container OptimizationTurns
+```
+
+Compare against your Module 07 baseline. Two honest lessons:
+
+1. **The reasoning-token caveat.** `gpt-5-nano` is a *reasoning* model — it can spend a few hundred hidden "reasoning" output tokens even on "hi". A naive "cheaper model saves money" projection ignores that. In practice nano's very low **input** price still makes the trivial turn cheaper — but you only *know* from the measured result. **Always verify; never ship an estimate as a result.**
+2. **Cost per outcome.** The `complex` tier (`gpt-5.1`) is *more* expensive per turn. Whether it's worth it depends on whether better itineraries raise **conversion** — lowering cost per *confirmed trip*, not per turn. Judge the optimization on the outcome metric, not the token bill.
+
+You've now completed the loop for a **lower-risk, autonomous-capable** optimization (maturity L3 today — you approved it; L4/L5 after Activity 7).
+
+---
+
+## Activity 5: A Different Risk Level — a Human-Governed Optimization
+
+Not every optimization is a policy knob. Recall the assistant asking which city a hotel is in even when a city was already chosen — a **prompt** problem (the supervisor prompt doesn't assert the active trip's city). Analytics can *detect* and *recommend* this too, but **applying** it is different.
+
+Open the recommendation for the **active-trip-city-context** scenario (Console or REST). Notice:
+
+- It's the **agent-quality / prompt** dimension, not a policy knob.
+- Its recommended fix is a **prompt change** — higher-risk, hard to bound.
+- So its "Apply" is **not** a live toggle. Instead it **stages** the change: it produces a proposed prompt diff (a PR-style artifact) for a human to review and merge.
+
+This is the **risk model in practice**:
+
+| | Model selection (Activity 3) | Prompt fix (this activity) |
+|---|---|---|
+| Surface | policy (data) | prompt (code) |
+| Apply | live toggle, reversible | staged diff → human review / PR |
+| Max autonomy | L4/L5 | L3 (assisted) |
+
+The same analytics loop surfaces both — but the **apply** step respects each one's risk. Never wire a prompt/workflow/code change to auto-apply the way you did the policy.
+
+---
+
+## Activity 6 (Stretch): Tier the Itinerary Sub-Agent
+
+In Activity 3, a `complex` turn runs the **supervisor** on `gpt-5.1` — but the supervisor then calls the itinerary **sub-agent**, which still uses the default model. So the capable model does the *routing* while the cheap model does the actual **itinerary generation** — arguably backwards.
+
+**The higher-value pattern is to tier the worker.** Where your itinerary sub-agent is built with the default `model`, build it instead with `optimization.get_chat_model("gpt-5.1")` (or rebuild it per-invocation from the active policy's `complex` tier). Then weigh the trade-offs you now understand: **quality** (capable model where creativity matters) vs **latency** (reasoning models are slower) and **attribution** (a turn's tier is less clean when supervisor and sub-agent differ). Measure it the same way and judge it on **cost per outcome**.
+
+---
+
+## Activity 7 (Capstone): An Automated Quality Gate
+
+So far *you* decided whether an optimization was good (Activity 4). That's **L3 — assisted**. To reach **L4/L5 — autonomous**, the *system* must decide, safely. The mechanism is a **quality gate**: after applying, run your **Module 06 evaluator**; keep the policy active only if quality holds above a threshold, else **auto-revert**.
+
+```python
+# pseudo-code — wire in your Module 06 eval harness
+from src.app.services import optimization
+
+optimization.apply_policy("model-selection")            # enact the change
+score = run_quality_eval(sample_conversations)          # your LLM-as-judge from Module 06
+policy = optimization.get_policy("model-selection")
+if score < policy["gate"]["threshold"]:
+    optimization.revert_policy("model-selection")       # self-revert on regression
+    print("optimization reverted: quality gate not met")
+else:
+    print("optimization retained: quality gate passed")
+```
+
+This is the dividing line in the maturity model:
+
+- **L3 Assisted** — a human reads the verify report and approves.
+- **L4/L5 Autonomous** — the gate approves/reverts automatically, so the system can safely tune *itself*, continuously.
+
+With a gate in place, a cost optimization that quietly degrades answers can never stick — which is what makes "let the system optimize itself" trustworthy. That is the foundation of **adaptive** (L5) agent systems.
+
+---
+
+## Test Your Work
+
+- [ ] `classify_turn_tier` passes the Activity 2 self-check.
+- [ ] With the policy **applied**, `hi` / `hotels in amsterdam` / an itinerary request route to `gpt-5-nano` / `gpt-4.1-mini` / `gpt-5.1` (visible in `OptimizationTurns`).
+- [ ] `--verify` shows the per-tier cost breakdown; you can explain the reasoning-token caveat and cost-per-outcome.
+- [ ] **revert** returns the app to `default` / `gpt-4.1-mini`.
+- [ ] You can contrast the **policy** (auto-apply, reversible) vs the **prompt fix** (staged, human-governed) and say why each maxes out at a different maturity level.
+- [ ] (Stretch) The itinerary sub-agent runs on the capable tier.
+- [ ] (Capstone) You can describe — or wire — the Module 06 evaluator as an auto-revert quality gate, and explain why that unlocks autonomous optimization.
+
+## What You Learned
+
+You closed the optimization loop: you **built** the decision, **applied** a reversible model-selection policy with one click, and **verified** the result honestly (measuring, not guessing). You saw why *policies* — not prompts or code — are the safe surface for automation, contrasted an autonomous change with a human-governed one, and learned how an evaluation **quality gate** turns an assisted optimization into an autonomous, self-correcting one. This is the foundation of agent systems that **continuously improve themselves** — the theme we close on in Module 09.
+
 ### Return to **[Home](./Home.md)**
+
+**[< Agent Analytics](./Module-07.md)** - **[Lessons Learned & The Future >](./Module-09.md)**

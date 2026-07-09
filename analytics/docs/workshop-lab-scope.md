@@ -130,12 +130,13 @@ Console apply/revert, verify tool.
 
 ## 9. Open decisions
 
-1. **Optimization Console tech** — minimal static+fetch (fastest, framework-light) vs a small Angular
-   app matching the main frontend. Recommend minimal static+fetch.
+1. **Optimization Console tech** — build it as a **purpose-built, didactic dashboard** (static HTML +
+   fetch is acceptable and framework-light, but **polished enough to demonstrate the rationale** for
+   this architecture and to support **talking points about how to read the surfaced insights** — not
+   a bare-bones throwaway). Own port, reads Cosmos insights, applies via REST. *(Confirmed.)*
 2. **Build sequence** — author both module docs first (they work via REST today), then Console, then
-   Fabric/reverse-ETL? Or infra-first? Recommend **docs → Console → Fabric**.
-3. **Breadth** — include SCEN-004 (memory retention) as a second autonomous example, or keep the two
-   modules focused on model-selection + the SCEN-001 contrast? Recommend keep focused for v1; note
-   SCEN-004 as an optional extension.
-4. **Fabric dependency** — Modules 07/08 should be completable **without** a Fabric workspace (via
-   REST + the Console reading Cosmos directly), with Fabric/Power BI as the "scale it out" layer.
+   Fabric/reverse-ETL. *(Confirmed.)*
+3. **Breadth** — v1 focuses on model-selection (Scenario A) + the SCEN-001 risk contrast (Scenario B);
+   SCEN-004 (memory retention) noted as an optional extension. *(Confirmed.)*
+4. **Fabric dependency** — Modules 07/08 are completable **without** a Fabric workspace (REST + Console
+   reading Cosmos directly); Fabric/Power BI are the optional "scale it out" layer. *(Confirmed.)*
