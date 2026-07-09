@@ -106,11 +106,17 @@ Cosmos workload" story live:
 
 ## Remaining (Power BI is a Desktop-oriented task)
 
-- **Semantic model** over the mirror (Direct Lake) — scriptable via `POST /v1/workspaces/{id}/semanticModels`
-  with a TMDL definition; not yet created for the V2 mirror.
-- **Report visuals + `.pbit` template + attendee-usability test** — best finalized in **Power BI Desktop**
-  against the mirror SQL endpoint / semantic model. `analytics/TravelAssistantReport.pbit` is the
-  parameter-driven v1 template to adapt.
+- **Semantic model** over the mirror (Direct Lake) — **DONE, scripted + validated.**
+  `TravelAssistantV2AnalyticsModel` (`6d5e8b30-999a-49f0-927c-6382c80df913`) created via
+  `POST /v1/workspaces/{id}/semanticModels` with a TMDL definition (tables `OptimizationTurns` +
+  `Trips` in **Direct Lake** mode over the mirror SQL endpoint, plus measures: Total Turns, Total
+  Tokens, Trivial %, Est Cost USD, Confirmed Trips, Cost per Outcome). Validated live via
+  `POST /v1.0/myorg/groups/{id}/datasets/{ds}/executeQueries` (DAX) → **88 turns, 48.9% trivial,
+  $0.49 est cost, 8 confirmed trips, $0.061 cost/outcome** (including simulated turns) — i.e. it reads
+  the mirror in near-real-time with no dataset refresh.
+- **Report visuals + `.pbit` template + attendee-usability test** — best finalized in **Power BI Desktop**:
+  connect to the **`TravelAssistantV2AnalyticsModel`** semantic model (live connection → real-time),
+  build the visuals, and save the `.pbit`. `analytics/TravelAssistantReport.pbit` is the v1 template to adapt.
 
 ## IDs (dev)
 
