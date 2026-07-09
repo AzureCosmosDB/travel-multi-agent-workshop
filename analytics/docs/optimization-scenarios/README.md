@@ -154,10 +154,10 @@ at **L3 (assisted, human-approved)**.
 | ID | Title | Dimension(s) | Fix seam | Risk domain | Maturity ceiling | Status |
 |----|-------|--------------|----------|-------------|------------------|--------|
 | [SCEN-001](scen-001-active-trip-city-context.md) | Supervisor re-asks for a city it could infer from the active trip | workflow efficiency · routing · cost | prompt | higher-risk | **L3 assisted** | **documented** |
-| SCEN-002 | High-salience memories that are never recalled (recall gap) | memory effectiveness · agent quality | retrieval weighting (policy) | lower-risk | **L4/L5 autonomous** | candidate |
+| [SCEN-002](scen-002-memory-effectiveness-gap.md) | Memory-effectiveness gap — which memories improve outcomes? | memory effectiveness · agent quality | retrieval weighting (policy) | lower-risk | **L4/L5 autonomous** | **documented** (needs instrumentation add) |
 | [SCEN-003](scen-003-cost-per-outcome.md) | Cost per successful outcome (north-star KPI) | cost efficiency · business outcomes | *composite metric* | n/a (KPI) | scoreboard for L2–L5 | **documented** |
 | [SCEN-004](scen-004-stale-memory-retention.md) | Stale/superseded memories accumulate (retention & salience policy) | memory effectiveness · cost | salience + retention policy | lower-risk | **L4/L5 autonomous** | **documented** |
-| SCEN-005 | Cost concentrated in a few `agent_path`s (+ double `find_places`) | workflow efficiency · cost | routing threshold / prompt | mixed | L3–L4 | **validated** (candidate) |
+| [SCEN-005](scen-005-agent-path-cost-concentration.md) | Cost concentrated in a few `agent_path`s (+ double `find_places`) | workflow efficiency · cost | routing threshold / prompt | mixed | L3–L4 | **documented** |
 | SCEN-006 | Context-bloat drift (tokens/turn creep over time) | cost efficiency · behavior drift | retention / summary cadence (policy) | lower-risk | L4/L5 | ⚠️ **parked** — data does not support (yet) |
 | [SCEN-007](scen-007-model-selection-trivial-turns.md) | Full model used for trivial turns | model selection · cost | model-selection policy | lower-risk | **L4/L5 autonomous** | **documented** |
 | [SCEN-008](scen-008-tool-utilization-grounding.md) | Supervisor under-uses `find_places` (answers from knowledge; redundant calls) | tool utilization · routing · agent quality | tool-selection policy / prompt | mixed | L3–L4 | **documented** |
