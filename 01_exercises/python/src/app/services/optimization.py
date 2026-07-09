@@ -1,0 +1,471 @@
+"""
+Optimization layer (Module 07 — Analytics & Optimization).
+
+A self-contained, additive "apply-loop" engine for capability-tiered model
+selection (SCEN-007). It bolts onto the app you built in Modules 01-06 with a
+few small hooks (see Module 07) — it does NOT require changes to the earlier
+modules.
+
+The loop it enables:  instrument -> detect -> recommend -> apply -> verify
+
+What ships here (provided):
+  - a Cosmos-backed, reversible **policy store** (OptimizationPolicies)
+  - a per-deployment **model factory** (get_chat_model)
+  - per-turn **tier selection** (select_deployment_for_turn / get_supervisor_for_turn)
+  - per-turn **capture** (record_optimization_turn -> OptimizationTurns)
+  - **recommendation** cards mined from the captured turns
+
+What YOU implement in Module 07:
+  - classify_turn_tier(...)  <-- the one function marked TODO below
+
+Infra note: the OptimizationPolicies and OptimizationTurns containers, and the
+gpt-5-nano / gpt-5.1 model deployments, are provisioned by Bicep (`azd up`).
+This module assumes they already exist — it never creates them at runtime.
+"""
+
+from __future__ import annotations
+
+import logging
+import re
+import threading
+import time
+import uuid
+from datetime import datetime, timezone
+from typing import Any, Callable, Optional
+
+from langchain_openai import AzureChatOpenAI
+
+from src.app.services import azure_cosmos_db as cosmos
+from src.app.services.azure_open_ai import (
+    model,
+    token_provider,
+    AZURE_OPENAI_ENDPOINT,
+    AZURE_OPENAI_API_VERSION,
+    AZURE_OPENAI_DEPLOYMENT,
+)
+
+logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
+MODEL_SELECTION_SCENARIO = "model-selection"
+POLICIES_CONTAINER = "OptimizationPolicies"
+TURNS_CONTAINER = "OptimizationTurns"
+
+# API version known to support the gpt-5 / o-series reasoning deployments.
+_REASONING_API_VERSION = "2025-04-01-preview"
+
+# Estimated USD per 1M tokens (input, output). ESTIMATE — verify on the Azure
+# pricing calculator before quoting. Used only for the recommendation card; the
+# measured verify (`optimization_mining.py --verify`) is authoritative.
+ESTIMATED_PRICING: dict[str, dict[str, float]] = {
+    "gpt-4.1-mini": {"input": 0.40, "output": 1.60},
+    "gpt-5-nano": {"input": 0.05, "output": 0.40},
+    "gpt-5.1": {"input": 1.25, "output": 10.00},
+}
+
+# The policy the recommendation proposes. `enabled: True` means: once *applied*
+# (status active), it routes turns. Until applied it is inert.
+PROPOSED_MODEL_SELECTION_PARAMS: dict[str, Any] = {
+    "enabled": True,
+    "default_deployment": AZURE_OPENAI_DEPLOYMENT,
+    "tiers": {
+        "trivial": "gpt-5-nano",
+        "routine": AZURE_OPENAI_DEPLOYMENT,
+        "complex": "gpt-5.1",
+    },
+    "classifier": {"trivial_max_words": 6},
+}
+
+_DEFAULT_TRIVIAL_PATTERNS = [
+    r"^(hi|hello|hey|yo|greetings)\b",
+    r"^(thanks|thank you|thx|ty)\b",
+    r"^(ok|okay|k|sure|yes|yep|yeah|no|nope|nah)\b",
+    r"^(great|cool|awesome|perfect|nice|got it|sounds good|good|fine)\b",
+]
+_DEFAULT_COMPLEX_PATTERNS = [
+    r"itinerary",
+    r"plan (my|the|a|our) (trip|day|days|vacation|holiday)",
+    r"build (me )?(an? )?itinerary",
+    r"day[- ]by[- ]day",
+    r"full (trip )?plan",
+]
+_DEFAULT_TRIVIAL_MAX_WORDS = 6
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _database():
+    if cosmos.database is None:
+        cosmos.initialize_cosmos_client()
+    return cosmos.database
+
+
+# ---------------------------------------------------------------------------
+# Model factory (per-deployment, cached, reasoning-aware)
+# ---------------------------------------------------------------------------
+
+_chat_model_cache: dict[str, AzureChatOpenAI] = {}
+
+
+def _is_reasoning_deployment(deployment_name: str) -> bool:
+    name = (deployment_name or "").lower()
+    return name.startswith("gpt-5") or name.startswith("o1") or name.startswith("o3") or name.startswith("o4")
+
+
+def get_chat_model(deployment_name: Optional[str] = None) -> AzureChatOpenAI:
+    """Return a cached AzureChatOpenAI bound to a specific Azure deployment.
+
+    Falls back to the app's default shared `model` when no deployment is given
+    or it matches the default. Reasoning models (gpt-5*/o-series) omit
+    `temperature` and use a newer API version.
+    """
+    if not deployment_name or deployment_name == AZURE_OPENAI_DEPLOYMENT:
+        return model
+    cached = _chat_model_cache.get(deployment_name)
+    if cached is not None:
+        return cached
+
+    kwargs: dict = dict(
+        azure_endpoint=AZURE_OPENAI_ENDPOINT,
+        azure_deployment=deployment_name,
+        azure_ad_token_provider=token_provider,
+        streaming=True,
+        max_retries=1,
+    )
+    if _is_reasoning_deployment(deployment_name):
+        kwargs["api_version"] = _REASONING_API_VERSION
+    else:
+        kwargs["api_version"] = AZURE_OPENAI_API_VERSION
+        kwargs["temperature"] = 0.7
+
+    tiered = AzureChatOpenAI(**kwargs)
+    _chat_model_cache[deployment_name] = tiered
+    logger.info(f"✅ Tiered chat model ready: deployment={deployment_name} "
+                f"reasoning={_is_reasoning_deployment(deployment_name)}")
+    return tiered
+
+
+# ---------------------------------------------------------------------------
+# Policy store (reversible; provisioned by Bicep)
+# ---------------------------------------------------------------------------
+
+_CACHE_TTL_SECONDS = 15
+_policy_cache: dict[str, tuple[float, Optional[dict[str, Any]]]] = {}
+_policy_lock = threading.Lock()
+
+
+def _policies_container():
+    db = _database()
+    return db.get_container_client(POLICIES_CONTAINER) if db is not None else None
+
+
+def _invalidate(scenario: str) -> None:
+    with _policy_lock:
+        _policy_cache.pop(scenario, None)
+
+
+def get_active_policy(scenario: str) -> Optional[dict[str, Any]]:
+    """Return the active policy doc for a scenario, or None. Cached (short TTL)."""
+    now = time.monotonic()
+    with _policy_lock:
+        cached = _policy_cache.get(scenario)
+        if cached and (now - cached[0]) < _CACHE_TTL_SECONDS:
+            return cached[1]
+
+    container = _policies_container()
+    policy: Optional[dict[str, Any]] = None
+    if container is not None:
+        try:
+            doc = container.read_item(item=scenario, partition_key=scenario)
+            if doc.get("status") == "active":
+                policy = doc
+        except Exception:  # noqa: BLE001 -- 404 == no policy yet
+            policy = None
+
+    with _policy_lock:
+        _policy_cache[scenario] = (now, policy)
+    return policy
+
+
+def get_policy(scenario: str) -> Optional[dict[str, Any]]:
+    container = _policies_container()
+    if container is None:
+        return None
+    try:
+        return container.read_item(item=scenario, partition_key=scenario)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def list_policies() -> list[dict[str, Any]]:
+    container = _policies_container()
+    if container is None:
+        return []
+    try:
+        return list(container.read_all_items())
+    except Exception as exc:  # noqa: BLE001
+        logger.error(f"Error listing optimization policies: {exc}")
+        return []
+
+
+def upsert_policy(doc: dict[str, Any]) -> Optional[dict[str, Any]]:
+    container = _policies_container()
+    if container is None:
+        return None
+    scenario = doc["scenario"]
+    doc["id"] = scenario
+    doc.setdefault("created_at", _now_iso())
+    doc["updated_at"] = _now_iso()
+    saved = container.upsert_item(doc)
+    _invalidate(scenario)
+    return saved
+
+
+def propose_policy(doc: dict[str, Any]) -> Optional[dict[str, Any]]:
+    doc = dict(doc)
+    doc["status"] = "proposed"
+    doc.setdefault("version", 1)
+    doc["audit"] = list(doc.get("audit", [])) + [
+        {"ts": _now_iso(), "action": "proposed", "by": doc.get("proposed_by", "analytics")}
+    ]
+    return upsert_policy(doc)
+
+
+def _transition(scenario: str, status: str, by: str) -> Optional[dict[str, Any]]:
+    doc = get_policy(scenario)
+    if doc is None:
+        return None
+    doc["status"] = status
+    doc["version"] = int(doc.get("version", 1)) + 1
+    doc["audit"] = list(doc.get("audit", [])) + [{"ts": _now_iso(), "action": status, "by": by}]
+    return upsert_policy(doc)
+
+
+def apply_policy(scenario: str, by: str = "dashboard") -> Optional[dict[str, Any]]:
+    """Activate a scenario's policy (one-click apply). Reversible via revert_policy."""
+    return _transition(scenario, "active", by)
+
+
+def revert_policy(scenario: str, by: str = "dashboard") -> Optional[dict[str, Any]]:
+    """Roll a scenario's policy back to inactive (one-click revert)."""
+    return _transition(scenario, "reverted", by)
+
+
+# ---------------------------------------------------------------------------
+# The decision layer  (YOUR JOB in Module 07)
+# ---------------------------------------------------------------------------
+
+def classify_turn_tier(text: str, classifier: dict[str, Any] | None = None) -> str:
+    """Classify a turn as 'trivial', 'complex', or 'routine' from the user text.
+
+    - 'complex'  : explicit planning / itinerary requests -> capable model
+    - 'trivial'  : short greetings / acknowledgements       -> cheap model
+    - 'routine'  : everything else (incl. place queries)    -> default model
+
+    TODO (Module 07, Activity 5): implement this. Be CONSERVATIVE — only clearly
+    trivial greetings become 'trivial', and only explicit planning asks become
+    'complex', so a real place query never loses quality on the cheap model.
+
+    Helpers you can use (defined above):
+      - classifier.get("trivial_max_words", _DEFAULT_TRIVIAL_MAX_WORDS)
+      - classifier.get("trivial_patterns", _DEFAULT_TRIVIAL_PATTERNS)
+      - classifier.get("complex_patterns", _DEFAULT_COMPLEX_PATTERNS)
+    Suggested order: check complex patterns first, then trivial (short AND
+    greeting-like), else 'routine'.
+    """
+    classifier = classifier or {}
+    # TODO: replace this with your implementation.
+    return "routine"
+
+
+def _latest_user_text(messages: Any) -> str:
+    """Return the most recent human/user message text from a messages list."""
+    for m in reversed(list(messages or [])):
+        if isinstance(m, dict):
+            role, content = m.get("role"), m.get("content")
+        else:
+            role, content = getattr(m, "type", None), getattr(m, "content", None)
+        if role in ("human", "user") and isinstance(content, str):
+            return content
+    return ""
+
+
+def select_deployment_for_turn(messages: Any) -> tuple[str, str]:
+    """Return (deployment_name, tier) for this turn from the active policy.
+
+    With no active/enabled policy this returns the default deployment and tier
+    'default', so the app behaves exactly as before.
+    """
+    default = AZURE_OPENAI_DEPLOYMENT
+    try:
+        policy = get_active_policy(MODEL_SELECTION_SCENARIO)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(f"Could not read model-selection policy; using default model: {exc}")
+        policy = None
+    if not policy:
+        return default, "default"
+    params = policy.get("params", {}) or {}
+    if not params.get("enabled", False):
+        return default, "default"
+    tiers = params.get("tiers", {}) or {}
+    tier = classify_turn_tier(_latest_user_text(messages), params.get("classifier"))
+    deployment = tiers.get(tier) or params.get("default_deployment") or default
+    return deployment, tier
+
+
+# ---------------------------------------------------------------------------
+# Per-tier supervisor selection
+# ---------------------------------------------------------------------------
+# You register your supervisor builder once at startup (Module 07). It must
+# accept a chat model and return a compiled graph, e.g.:
+#     optimization.register_supervisor_factory(lambda m: create_supervisor(m))
+
+_supervisor_factory: Optional[Callable[[Any], Any]] = None
+_supervisor_by_deployment: dict[str, Any] = {}
+
+
+def register_supervisor_factory(factory: Callable[[Any], Any]) -> None:
+    """Register a `(chat_model) -> compiled_graph` builder for tiered supervisors."""
+    global _supervisor_factory
+    _supervisor_factory = factory
+    _supervisor_by_deployment.clear()
+
+
+def get_supervisor_for_turn(messages: Any, default_graph: Any = None) -> tuple[Any, str, str]:
+    """Return (supervisor_graph, deployment, tier) for this turn.
+
+    If no policy is active (tier 'default') or no factory is registered, returns
+    `default_graph` unchanged so behavior is identical to the un-optimized app.
+    """
+    deployment, tier = select_deployment_for_turn(messages)
+    if tier == "default" or _supervisor_factory is None:
+        return default_graph, AZURE_OPENAI_DEPLOYMENT, "default"
+
+    graph = _supervisor_by_deployment.get(deployment)
+    if graph is None:
+        try:
+            graph = _supervisor_factory(get_chat_model(deployment))
+            _supervisor_by_deployment[deployment] = graph
+        except Exception as exc:  # noqa: BLE001
+            logger.error(f"Failed to build supervisor for '{deployment}'; using default: {exc}")
+            return default_graph, AZURE_OPENAI_DEPLOYMENT, "default"
+    return graph, deployment, tier
+
+
+# ---------------------------------------------------------------------------
+# Per-turn capture (the "instrument" step) -> OptimizationTurns
+# ---------------------------------------------------------------------------
+
+def _turns_container():
+    db = _database()
+    return db.get_container_client(TURNS_CONTAINER) if db is not None else None
+
+
+def record_optimization_turn(
+    tenant_id: str,
+    user_id: str,
+    session_id: str,
+    tier: str,
+    deployment: str,
+    usage: Optional[dict[str, Any]] = None,
+    model_name: str = "Unknown",
+) -> None:
+    """Record one turn's tier + token usage for the detect/verify steps.
+
+    `usage` is the per-turn token dict your completion handler already builds,
+    e.g. {"input_tokens", "output_tokens", "total_tokens", "cached_tokens"}.
+    """
+    container = _turns_container()
+    if container is None:
+        return
+    usage = usage or {}
+    doc = {
+        "id": str(uuid.uuid4()),
+        "type": "optimization_turn",
+        "tenantId": tenant_id,
+        "userId": user_id,
+        "sessionId": session_id,
+        "model_tier": tier,
+        "model_deployment": deployment,
+        "model_name": model_name,
+        "input_tokens": int(usage.get("input_tokens") or 0),
+        "output_tokens": int(usage.get("output_tokens") or 0),
+        "total_tokens": int(usage.get("total_tokens") or 0),
+        "cached_tokens": int(usage.get("cached_tokens") or 0),
+        "timeStamp": _now_iso(),
+    }
+    try:
+        container.upsert_item(doc)
+    except Exception as exc:  # noqa: BLE001
+        logger.error(f"Failed to record optimization turn: {exc}")
+
+
+# ---------------------------------------------------------------------------
+# Recommendations (the "recommend" step)
+# ---------------------------------------------------------------------------
+
+def _query_turns(tenant_id: str) -> list[dict]:
+    container = _turns_container()
+    if container is None:
+        return []
+    try:
+        return list(container.query_items(
+            query="SELECT * FROM d WHERE d.tenantId=@t",
+            parameters=[{"name": "@t", "value": tenant_id}],
+            enable_cross_partition_query=True,
+        ))
+    except Exception as exc:  # noqa: BLE001
+        logger.error(f"Error querying optimization turns: {exc}")
+        return []
+
+
+def build_model_selection_recommendation(tenant_id: str) -> dict[str, Any]:
+    """Build the SCEN-007 candidate card from captured OptimizationTurns."""
+    turns = _query_turns(tenant_id)
+    total = len(turns)
+    trivial = trivial_in = trivial_out = 0
+    models: dict[str, int] = {}
+    for d in turns:
+        models[d.get("model_name", "Unknown")] = models.get(d.get("model_name", "Unknown"), 0) + 1
+        out = int(d.get("output_tokens") or 0)
+        if out < 60:  # short answer ~ trivial turn
+            trivial += 1
+            trivial_in += int(d.get("input_tokens") or 0)
+            trivial_out += out
+
+    mini = ESTIMATED_PRICING["gpt-4.1-mini"]
+    nano = ESTIMATED_PRICING["gpt-5-nano"]
+    cost_now = (trivial_in * mini["input"] + trivial_out * mini["output"]) / 1_000_000
+    cost_proposed = (trivial_in * nano["input"] + trivial_out * nano["output"]) / 1_000_000
+
+    active = get_active_policy(MODEL_SELECTION_SCENARIO)
+    status = "active" if active else (get_policy(MODEL_SELECTION_SCENARIO) or {}).get("status", "not_proposed")
+
+    return {
+        "scenario": MODEL_SELECTION_SCENARIO,
+        "scenario_id": "SCEN-007",
+        "title": "Capability-tiered model selection",
+        "status": status,
+        "evidence": {
+            "total_turns": total,
+            "trivial_turns": trivial,
+            "trivial_pct": round(100 * trivial / max(total, 1), 1),
+            "model_distribution": models,
+        },
+        "estimated_saving_usd": round(cost_now - cost_proposed, 4),
+        "estimate_caveat": (
+            "ESTIMATE only. gpt-5-nano is a reasoning model that emits billed "
+            "reasoning tokens, so trivial turns may not actually be cheaper. The "
+            "measured before/after (verify) is authoritative."
+        ),
+        "proposed_params": PROPOSED_MODEL_SELECTION_PARAMS,
+    }
+
+
+def build_recommendations(tenant_id: str) -> list[dict[str, Any]]:
+    return [build_model_selection_recommendation(tenant_id)]

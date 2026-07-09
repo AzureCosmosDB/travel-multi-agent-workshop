@@ -54,14 +54,16 @@ def _price_for(deployment: str) -> tuple[float, float]:
     return _EST_PRICING.get((deployment or "").split("-2025")[0].split("-2024")[0], (0.40, 1.60))
 
 
-def verify_model_selection(db, tenant: str) -> None:
+def verify_model_selection(db, tenant: str, container: str = "OptimizationTurns") -> None:
     """SCEN-007 verify stage: per-tier token + estimated-cost breakdown.
 
-    Reads the model_tier / model_deployment signal the apply-loop records on each
-    Debug turn, so you can compare tiers (and before/after applying the policy).
+    Reads the model_tier / model_deployment signal recorded per turn, so you can
+    compare tiers (and before/after applying the policy). Works with both the
+    flat ``OptimizationTurns`` schema (Module 07 workshop path) and the
+    propertyBag ``Debug`` schema (the deep 02_completed instrumentation).
     """
-    dbg = list(
-        db.get_container_client("Debug").query_items(
+    rows_in = list(
+        db.get_container_client(container).query_items(
             query="SELECT * FROM d WHERE d.tenantId=@t",
             parameters=[{"name": "@t", "value": tenant}],
             enable_cross_partition_query=True,
@@ -70,8 +72,9 @@ def verify_model_selection(db, tenant: str) -> None:
     by_tier: dict[str, dict[str, float]] = collections.defaultdict(
         lambda: {"turns": 0, "in": 0, "out": 0, "total": 0, "cost": 0.0}
     )
-    for d in dbg:
-        b = _bag(d)
+    for d in rows_in:
+        # Flat OptimizationTurns docs put fields at top level; Debug uses propertyBag.
+        b = _bag(d) if d.get("propertyBag") else d
         tier = b.get("model_tier") or "unlabeled"
         dep = b.get("model_deployment") or b.get("model_name") or "unknown"
         pin, pout = _price_for(dep)
@@ -83,7 +86,7 @@ def verify_model_selection(db, tenant: str) -> None:
         row["total"] += int(b.get("total_tokens") or 0)
         row["cost"] += (i * pin + o * pout) / 1_000_000
 
-    print(f"\n=== SCEN-007 VERIFY - per-tier cost for tenant '{tenant}' ===")
+    print(f"\n=== SCEN-007 VERIFY - per-tier cost for tenant '{tenant}' (container: {container}) ===")
     print(f"  (estimated USD, prices are list-price estimates)\n")
     print(f"  {'tier (deployment)':<40}{'turns':>6}{'in':>9}{'out':>7}{'total':>9}{'est $':>10}")
     grand = 0.0
@@ -100,6 +103,8 @@ def main() -> None:
     ap.add_argument("--database", default=os.environ.get("COSMOSDB_DATABASE_NAME", "TravelAssistantV2"))
     ap.add_argument("--verify", action="store_true",
                     help="Only print the SCEN-007 per-tier cost verify report (needs model_tier signal).")
+    ap.add_argument("--container", default="OptimizationTurns",
+                    help="Container to read for --verify (default OptimizationTurns; use 'Debug' for the 02_completed deep instrumentation).")
     args = ap.parse_args()
 
     db = CosmosClient(os.environ["COSMOSDB_ENDPOINT"], DefaultAzureCredential()).get_database_client(
@@ -108,7 +113,7 @@ def main() -> None:
     T = args.tenant
 
     if args.verify:
-        verify_model_selection(db, T)
+        verify_model_selection(db, T, container=args.container)
         return
 
     def q(container: str, query: str) -> list:

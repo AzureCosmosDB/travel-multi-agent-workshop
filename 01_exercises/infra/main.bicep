@@ -62,6 +62,8 @@ module cosmos './shared/cosmosdb.bicep' = {
     usersContainerName: 'Users'
     debugLogsContainerName: 'Debug'
     checkpointsContainerName: 'Checkpoints'
+    optimizationPoliciesContainerName: 'OptimizationPolicies'
+    optimizationTurnsContainerName: 'OptimizationTurns'
   }
   scope: rg
 }
@@ -93,6 +95,20 @@ var deployments = [
 	skuName: 'GlobalStandard'
     modelName: 'text-embedding-3-small'
     modelVersion: '1'
+  }
+  {
+    name: 'gpt-5-nano'
+    skuCapacity: 30
+    skuName: 'GlobalStandard'
+    modelName: 'gpt-5-nano'
+    modelVersion: '2025-08-07'
+  }
+  {
+    name: 'gpt-5.1'
+    skuCapacity: 10
+    skuName: 'GlobalStandard'
+    modelName: 'gpt-5.1'
+    modelVersion: '2025-11-13'
   }
 ]
 

@@ -12,6 +12,8 @@ param memoriesContainerName string = 'memories'
 param turnsContainerName string = 'memories_turns'
 param summariesContainerName string = 'memories_summaries'
 param counterContainerName string = 'counter'
+param optimizationPoliciesContainerName string = 'OptimizationPolicies'
+param optimizationTurnsContainerName string = 'OptimizationTurns'
 @description('Embedding dimensions for the memories container vector index. Must match the embedding model used by azure-cosmos-agent-memory (text-embedding-3-small = 1536).')
 param memoriesEmbeddingDimensions int = 1536
 param location string = resourceGroup().location
@@ -682,6 +684,76 @@ resource cosmosContainerCounter 'Microsoft.DocumentDB/databaseAccounts/sqlDataba
   tags: tags
 }
 
+
+// Container 13: Optimization Policies (analytics apply-loop)
+// Partition Key: /scenario (one active policy doc per optimization scenario)
+resource cosmosContainerOptimizationPolicies 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2024-12-01-preview' = {
+  parent: database
+  name: optimizationPoliciesContainerName
+  properties: {
+    resource: {
+      id: optimizationPoliciesContainerName
+      partitionKey: {
+        paths: [
+          '/scenario'
+        ]
+        kind: 'Hash'
+        version: 2
+      }
+      indexingPolicy: {
+        indexingMode: 'consistent'
+        automatic: true
+        includedPaths: [
+          {
+            path: '/*'
+          }
+        ]
+        excludedPaths: [
+          {
+            path: '/"_etag"/?'
+          }
+        ]
+      }
+    }
+  }
+  tags: tags
+}
+
+// Container 14: Optimization Turns (per-turn tier/token capture for the apply-loop)
+// Partition Key: [/tenantId, /userId, /sessionId] (hierarchical, matches Debug)
+resource cosmosContainerOptimizationTurns 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2024-12-01-preview' = {
+  parent: database
+  name: optimizationTurnsContainerName
+  properties: {
+    resource: {
+      id: optimizationTurnsContainerName
+      partitionKey: {
+        paths: [
+          '/tenantId'
+          '/userId'
+          '/sessionId'
+        ]
+        kind: 'MultiHash'
+        version: 2
+      }
+      indexingPolicy: {
+        indexingMode: 'consistent'
+        automatic: true
+        includedPaths: [
+          {
+            path: '/*'
+          }
+        ]
+        excludedPaths: [
+          {
+            path: '/"_etag"/?'
+          }
+        ]
+      }
+    }
+  }
+  tags: tags
+}
 
 
 

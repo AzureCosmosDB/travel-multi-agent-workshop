@@ -64,17 +64,28 @@ subscription-wide (see ADR-0008).
 
 ## 4. The pedagogical decision (what the learner builds)
 
-**Chosen approach:** *ship the plumbing pre-built; the learner builds the analytics **decision
-layer** and drives the loop on their own data.* (Rejected: making the learner build the policy-store /
-per-tier supervisor plumbing — that buries the analytics lesson under LangGraph/infra mechanics; and
-a pure click-to-demo — too thin to feel real.)
+**Chosen approach:** *an **additive optimization layer** — ship the engine as new drop-in files, have
+the learner wire it in with a few small hooks and implement the one decision function, and provision
+all infra via Bicep.* No changes to Modules 01–05. (Rejected: backporting the deep 02_completed
+apply-loop into 01's diverged provided files + modules — that was open-heart surgery on the whole
+exercise track; and a pure click-to-demo — too thin to feel real.)
 
-This fits the workshop's file model cleanly:
-- The **decision layer** the learner writes is `classify_turn_tier` in `travel_agents.py` — the file
-  learners already build. Deciding *what "trivial" means* is a genuine analytics judgment.
-- All **plumbing** lives in **provided** files (`optimization_policy.py`,
-  `optimization_recommendations.py`, `optimization_api.py`, `get_chat_model`, the API wiring, the
-  `Debug` fields), so learners don't re-implement infrastructure.
+Why additive works here (verified): `01_exercises` is a *teaching scaffold* significantly behind
+`02_completed` (its completion path is a stub the learner builds; it lacks the ADR-0007 `Debug`
+re-wire). Rather than force that prerequisite, the optimization layer **brings its own
+instrumentation** (`record_optimization_turn` → its own `OptimizationTurns` container), so it doesn't
+depend on the earlier modules at all.
+
+What the learner does vs. what's provided:
+- **Provided (drop-in, new files):** `services/optimization.py` (policy store, model factory,
+  tier selection, per-turn capture, recommendations) and `optimization_api.py` (REST surface).
+- **Provisioned by Bicep (`azd up`, in place from Module 00):** `OptimizationPolicies` +
+  `OptimizationTurns` Cosmos containers; `gpt-5-nano` + `gpt-5.1` model deployments. Per the workshop
+  convention, anything Bicep-deployed is already in place — no manual `az` steps, no runtime
+  container creation.
+- **Learner writes:** `classify_turn_tier` (the decision) + four small wiring hooks (mount the router,
+  register a supervisor factory, swap to `get_supervisor_for_turn`, call `record_optimization_turn`) +
+  the stretch (worker tiering) + the capstone (eval quality gate).
 
 ## 5. Updated / new learning objectives
 
@@ -108,47 +119,43 @@ Learning objectives:
 that describes the finished system should note the app is now **optimization-ready** (policy-driven,
 reversible, capability-tiered model selection) — an explicit capability learners end with.
 
-## 6. Plan to sync `01_exercises` (decisions resolved; ready to implement)
+## 6. Implementation status — the additive optimization layer (done for `01_exercises`)
 
-> **Verified state (2026-07-09):** `01_exercises` is **behind `02_completed`** by more than the
-> apply-loop. Its provided `travel_agents_api.py` is a teaching scaffold with the agent integration
-> **commented out** (learner enables it) and has **no `chat_event_generator` / ADR-0007 `Debug`
-> re-wire** (`agent_path`/`handoff_count`); its `store_debug_log` lacks those fields. The apply-loop
-> **depends on that ADR-0007 analytics baseline**, so it cannot be dropped into 01 until 01 is brought
-> up to the v2 analytics baseline. **Do not scatter partial apply-loop code into 01 before that
-> prerequisite lands** — it would produce broken/misleading scaffolding.
+> **Superseded approach:** an earlier plan was to backport the deep `02_completed` apply-loop into
+> 01's provided files, which required first bringing 01 up to the ADR-0007 `Debug` baseline (a large,
+> module-touching prerequisite). We **rejected** that in favor of the **additive layer** (§4), which
+> carries its own instrumentation and needs **zero changes to Modules 01–05**.
 
-**Prerequisite (new, must precede the port):** bring `01_exercises` (and the relevant modules) up to
-the **v2 analytics baseline** — the ADR-0007 `Debug` re-wire (`chat_event_generator` token/agent/tool
-capture, `agent_path`/`handoff_count`). This is a larger, maintainer-coordinated workshop update and
-is tracked separately from the apply-loop.
+**Implemented (branch `mjbrown/unify-v2`):**
 
-Once the prerequisite is in place, port to `01_exercises`:
+- **Bicep (infra, provisioned by `azd up`):** `01_exercises/infra/shared/cosmosdb.bicep` +
+  `main.bicep` add the `OptimizationPolicies` (pk `/scenario`) and `OptimizationTurns` (pk
+  `[/tenantId,/userId,/sessionId]`) containers and the `gpt-5-nano` (2025-08-07) + `gpt-5.1`
+  (2025-11-13) GlobalStandard deployments. `az bicep build` passes.
+- **Provided drop-in code:** `01_exercises/python/src/app/services/optimization.py` (engine) and
+  `optimization_api.py` (REST). Self-contained — import only 01's existing `azure_open_ai` vars and
+  `azure_cosmos_db.database`; **no self-provisioning** (Bicep owns the containers); no edits to any
+  provided file. Compile-checked; all imported symbols verified present in 01.
+- **Learner exercise:** `classify_turn_tier` ships as a documented **stub** in `optimization.py`
+  (learner implements in Module 07, Activity 6), plus four small wiring hooks (Activity 4).
+- **Module doc:** `workshop/Module-07.md` rewritten for the additive flow (confirm Bicep tiers → tour
+  the layer → wire the hooks → detect → implement classifier → apply → verify → stretch → capstone).
+  Lessons renumbered to `Module-08.md`; `Home.md` + `Module-06.md` nav updated.
+- **Verify tool:** `analytics/optimization_mining.py --verify --container OptimizationTurns` reads the
+  flat `OptimizationTurns` schema (still supports `--container Debug` for the 02 deep instrumentation).
 
-- **Provided (pre-built) — copy from `02_completed` into the exercise scaffold:**
-  `services/optimization_policy.py`, `services/optimization_recommendations.py`,
-  `optimization_api.py`; the `get_chat_model` addition to `services/azure_open_ai.py`; the
-  `store_debug_log` field additions to `services/azure_cosmos_db.py`; the per-turn tier-selection
-  wiring + `Debug` recording in `travel_agents_api.py`; and `get_supervisor_for_turn`/`_build_supervisor`.
-- **Learner-built (guided TODO):** `classify_turn_tier` in `travel_agents.py` — the one piece the
-  learner implements (Module 07, Activity 5). Note `travel_agents.py` ships **empty** in 01 and is
-  built across the modules, so the apply-loop block is delivered **via Module 07** (paste the plumbing;
-  implement the classifier), not pre-placed in the empty file.
-- **New module doc** `workshop/Module-07.md` (Analytics & Optimization) — **done**; the current
-  `Module-07.md` (Lessons) was renumbered to `Module-08.md`, and `Home.md` + `Module-06.md` nav
-  updated. Module-07 carries a **prerequisite banner** pointing at the v2 analytics baseline.
-- **Deployment/setup:** the module adds the two extra model deployments (`gpt-5-nano`, `gpt-5.1`) via
-  documented `az` steps (Module 07, Activity 2), with quota notes.
+**Not done / follow-ups:**
+- **`02_completed` convergence:** 02 still runs the deep apply-loop (verified live) and self-provisions
+  its policy container at runtime; converging it onto the shared `optimization.py` + adding the
+  containers/deployments to 02's Bicep is a follow-up (kept as-is for now).
+- **Angular apply card:** the lab is REST/CLI-driven; the dashboard card is a fast-follow.
+- **End-to-end validation in a fresh 01 environment:** the layer is compile-checked and mirrors the
+  live-verified 02 logic, but has not yet been run against a freshly `azd up`-provisioned 01 stack.
 
-**Confirmed decisions (previously open):**
-1. **Module numbering:** new **Module 07 Analytics & Optimization**; Lessons moves to **Module 08**;
-   Observability (05) and Evaluation (06) unchanged.
-2. **Sub-agent tiering:** supervisor-turn tiering is the **core** lesson; **worker (itinerary
-   sub-agent) tiering is an advanced/stretch activity**.
-3. **Dashboard vs REST:** ship the lab **REST/CLI-driven now**; build the **Angular apply card as a
-   fast-follow** (it calls the same REST endpoint).
-4. **Quality gate:** teach **manual verify in v1**; the **automated eval gate is the capstone** that
-   unlocks the autonomous (L4/L5) maturity level.
+**Confirmed decisions:** (1) Module 07 Analytics & Optimization; Lessons → 08. (2) supervisor-turn
+tiering core + worker sub-agent tiering stretch. (3) REST/CLI now + Angular card fast-follow.
+(4) manual verify v1 + automated eval quality-gate capstone. (5) infra via Bicep, not manual/runtime.
+
 
 ## 7. For the maintainer — change summary
 
