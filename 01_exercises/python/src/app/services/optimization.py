@@ -468,7 +468,126 @@ def build_model_selection_recommendation(tenant_id: str) -> dict[str, Any]:
 
 
 def build_recommendations(tenant_id: str) -> list[dict[str, Any]]:
-    return [build_model_selection_recommendation(tenant_id)]
+    return [
+        build_model_selection_recommendation(tenant_id),
+        build_city_context_recommendation(tenant_id),
+    ]
+
+
+# ---------------------------------------------------------------------------
+# Scenario B (SCEN-001) — active-trip city context: a HUMAN-GOVERNED (L3) prompt
+# optimization. Unlike model selection, its "apply" does NOT toggle runtime — it
+# STAGES a proposed prompt change for human review (a prompt/code change is
+# higher-risk, so it caps at maturity L3 and goes through a PR).
+# ---------------------------------------------------------------------------
+
+CITY_CONTEXT_SCENARIO = "active-trip-city-context"
+
+_CITY_ASK_RE = re.compile(
+    r"which city|what city|city (is|are) (it|this|that|you|the hotel)"
+    r"|in which city|which city .* located|what city .* in",
+    re.I,
+)
+
+# The prompt change this scenario recommends (added to supervisor.prompty).
+PROPOSED_CITY_CONTEXT_CHANGE = (
+    "When the user refers to a hotel/place by name and an active trip exists, use the "
+    "active trip's destination city as the search city instead of asking the user which "
+    "city it is in. Only ask for a city when no active trip or destination is known."
+)
+
+
+def _query_assistant_texts(tenant_id: str) -> list[str]:
+    db = _database()
+    if db is None:
+        return []
+    try:
+        rows = db.get_container_client("Messages").query_items(
+            query="SELECT d.role, d.content FROM d WHERE d.tenantId=@t",
+            parameters=[{"name": "@t", "value": tenant_id}],
+            enable_cross_partition_query=True,
+        )
+        return [r.get("content", "") for r in rows
+                if str(r.get("role", "")).lower() == "assistant" and isinstance(r.get("content"), str)]
+    except Exception:  # noqa: BLE001
+        return []
+
+
+def _trip_count(tenant_id: str) -> int:
+    db = _database()
+    if db is None:
+        return 0
+    try:
+        rows = list(db.get_container_client("Trips").query_items(
+            query="SELECT VALUE COUNT(1) FROM d WHERE d.tenantId=@t",
+            parameters=[{"name": "@t", "value": tenant_id}],
+            enable_cross_partition_query=True,
+        ))
+        return int(rows[0]) if rows else 0
+    except Exception:  # noqa: BLE001
+        return 0
+
+
+def build_city_context_recommendation(tenant_id: str) -> dict[str, Any]:
+    """Detect the 'agent re-asks for a city it already knows' pattern (SCEN-001)."""
+    reasks = sum(1 for t in _query_assistant_texts(tenant_id) if _CITY_ASK_RE.search(t))
+    trips = _trip_count(tenant_id)
+
+    doc = get_policy(CITY_CONTEXT_SCENARIO) or {}
+    status = doc.get("status", "not_proposed")
+
+    return {
+        "scenario": CITY_CONTEXT_SCENARIO,
+        "scenario_id": "SCEN-001",
+        "title": "Active-trip city context",
+        "dimension": "agent quality · prompt",
+        "maturity": "L3 (human-governed)",
+        "apply_mode": "staged_change",  # NOT a runtime toggle
+        "risk": "higher-risk (prompt change → human review / PR)",
+        "status": status,
+        "evidence": {
+            "city_reasks": reasks,
+            "trips": trips,
+        },
+        "rationale": (
+            "The supervisor re-asks which city a hotel is in even when an active trip already "
+            "fixes the destination — a prompt gap, not a policy knob."
+        ),
+        "proposed_change": {
+            "file": "python/src/app/prompts/supervisor.prompty",
+            "add": PROPOSED_CITY_CONTEXT_CHANGE,
+        },
+        "note": (
+            "Because this is a prompt change (higher-risk), it cannot be applied at runtime. "
+            "Staging it produces a reviewable proposal for a human to merge via PR (maturity L3)."
+        ),
+    }
+
+
+def stage_prompt_change(scenario: str, by: str = "dashboard") -> Optional[dict[str, Any]]:
+    """'Apply' for a human-governed change: record it as STAGED (never active).
+
+    Returns the staged proposal (the diff/text) for a human to review and merge.
+    This deliberately does NOT change runtime behavior.
+    """
+    if scenario != CITY_CONTEXT_SCENARIO:
+        return None
+    doc = {
+        "scenario": scenario,
+        "scenario_id": "SCEN-001",
+        "title": "Active-trip city context",
+        "status": "staged",              # never 'active' -> no runtime effect
+        "apply_mode": "staged_change",
+        "proposed_change": {
+            "file": "python/src/app/prompts/supervisor.prompty",
+            "add": PROPOSED_CITY_CONTEXT_CHANGE,
+        },
+        "audit": list((get_policy(scenario) or {}).get("audit", [])) + [
+            {"ts": _now_iso(), "action": "staged", "by": by}
+        ],
+    }
+    saved = upsert_policy(doc)
+    return saved
 
 
 # ---------------------------------------------------------------------------

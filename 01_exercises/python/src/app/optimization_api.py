@@ -96,11 +96,31 @@ def propose(scenario: str, body: Optional[ProposeBody] = None) -> dict[str, Any]
 @router.post("/{scenario}/apply")
 def apply(scenario: str, body: Optional[ActionBody] = None) -> dict[str, Any]:
     body = body or ActionBody()
+    # Human-governed (prompt/code) scenarios cannot be runtime-applied — they must be staged.
+    if scenario == optimization.CITY_CONTEXT_SCENARIO:
+        raise HTTPException(
+            status_code=400,
+            detail="This is a human-governed prompt change; use POST /optimizations/"
+                   f"{scenario}/stage to produce a reviewable proposal (it is not applied at runtime).",
+        )
     if optimization.get_policy(scenario) is None:
         propose(scenario, ProposeBody(by=body.by))
     saved = optimization.apply_policy(scenario, by=body.by)
     if saved is None:
         raise HTTPException(status_code=404, detail=f"No policy to apply for '{scenario}'")
+    return saved
+
+
+@router.post("/{scenario}/stage")
+def stage(scenario: str, body: Optional[ActionBody] = None) -> dict[str, Any]:
+    """Stage a human-governed (prompt/code) change for review. Does NOT change runtime."""
+    body = body or ActionBody()
+    saved = optimization.stage_prompt_change(scenario, by=body.by)
+    if saved is None:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Scenario '{scenario}' is not a staged-change (human-governed) scenario.",
+        )
     return saved
 
 

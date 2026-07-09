@@ -201,11 +201,25 @@ You've now completed the loop for a **lower-risk, autonomous-capable** optimizat
 
 Not every optimization is a policy knob. Recall the assistant asking which city a hotel is in even when a city was already chosen — a **prompt** problem (the supervisor prompt doesn't assert the active trip's city). Analytics can *detect* and *recommend* this too, but **applying** it is different.
 
-Open the recommendation for the **active-trip-city-context** scenario (Console or REST). Notice:
+Open the recommendation for the **active-trip-city-context** scenario (Console or `GET /optimizations/<tenant>`). Notice how it differs from the model-selection card:
 
-- It's the **agent-quality / prompt** dimension, not a policy knob.
-- Its recommended fix is a **prompt change** — higher-risk, hard to bound.
-- So its "Apply" is **not** a live toggle. Instead it **stages** the change: it produces a proposed prompt diff (a PR-style artifact) for a human to review and merge.
+- It's the **agent-quality / prompt** dimension, `apply_mode: "staged_change"`, maturity **L3**.
+- Its evidence is the count of **city re-asks** detected in your conversations (reproduce it first: start a trip for Amsterdam, then ask about a hotel by name *without* the city — the supervisor re-asks which city).
+- Its recommended fix is a **prompt change**, so it **cannot be applied at runtime**.
+
+Try to apply it like a policy — it's refused:
+
+```powershell
+# 400: human-governed prompt change; use /stage instead
+Invoke-RestMethod -Method Post "http://localhost:8000/optimizations/active-trip-city-context/apply" -ContentType "application/json" -Body '{}'
+```
+
+Instead, **stage** it (the Console's "Stage for review" button, or `/stage`). Staging records a reviewable proposal — the exact prompt edit and file — for a human to merge via PR. It does **not** change runtime:
+
+```powershell
+Invoke-RestMethod -Method Post "http://localhost:8000/optimizations/active-trip-city-context/stage" -ContentType "application/json" -Body '{}'
+# -> { "status": "staged", "proposed_change": { "file": "...supervisor.prompty", "add": "..." } }
+```
 
 This is the **risk model in practice**:
 

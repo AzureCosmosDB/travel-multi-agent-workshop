@@ -185,9 +185,32 @@ function renderCards(recs, policies) {
   $("cards").innerHTML = (recs.recommendations || []).map(c => {
     const status = pol[c.scenario] || c.status || "not_proposed";
     const ev = c.evidence || {};
+    const staged = c.apply_mode === "staged_change";
+    const dim = `${c.scenario_id || ""} &middot; ${c.dimension || "model selection · cost efficiency"} &middot; ${c.maturity || "L4/L5 (autonomous-capable)"}`;
+    const evHtml = Object.entries(ev).map(([k, v]) =>
+      `<div><span class="evk">${k.replace(/_/g," ")}</span><span class="evv">${num(v)}</span></div>`).join("");
+
+    if (staged) {
+      const pc = c.proposed_change || {};
+      return `<div class="card">
+        <h3>${c.title} <span class="badge ${status}">${status.replace("_"," ")}</span></h3>
+        <div class="dim">${dim} &middot; <b style="color:var(--warn)">human-governed</b></div>
+        <div class="ev">${evHtml}</div>
+        <div class="note" style="margin:0 0 8px">${c.rationale || ""}</div>
+        <div class="caveat">&#9888; ${c.note || "Prompt/code change — staged for human review, not applied at runtime."}</div>
+        <details style="margin-bottom:12px"><summary style="cursor:pointer;color:var(--accent)">Proposed change</summary>
+          <div class="note" style="margin-top:8px"><code>${pc.file || ""}</code></div>
+          <div class="panel" style="margin-top:6px">${pc.add || ""}</div>
+        </details>
+        <div class="actions">
+          <button class="ghost" data-stage="${c.scenario}">Stage for review</button>
+        </div>
+      </div>`;
+    }
+
     return `<div class="card">
       <h3>${c.title} <span class="badge ${status}">${status.replace("_"," ")}</span></h3>
-      <div class="dim">${c.scenario_id || ""} &middot; model selection &middot; cost efficiency &middot; lower-risk (autonomous-capable)</div>
+      <div class="dim">${dim} &middot; lower-risk (autonomous-capable)</div>
       <div class="ev">
         <div><span class="evk">Turns</span><span class="evv">${num(ev.total_turns)}</span></div>
         <div><span class="evk">Trivial</span><span class="evv">${ev.trivial_pct ?? "\u2014"}%</span></div>
@@ -205,6 +228,8 @@ function renderCards(recs, policies) {
     b.onclick = () => act("/optimizations/" + b.dataset.apply + "/apply"));
   document.querySelectorAll("[data-revert]").forEach(b =>
     b.onclick = () => act("/optimizations/" + b.dataset.revert + "/revert"));
+  document.querySelectorAll("[data-stage]").forEach(b =>
+    b.onclick = () => act("/optimizations/" + b.dataset.stage + "/stage"));
 }
 
 async function act(path) {
