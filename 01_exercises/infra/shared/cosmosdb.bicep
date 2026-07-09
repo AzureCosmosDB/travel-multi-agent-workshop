@@ -14,8 +14,11 @@ param summariesContainerName string = 'memories_summaries'
 param counterContainerName string = 'counter'
 param optimizationPoliciesContainerName string = 'OptimizationPolicies'
 param optimizationTurnsContainerName string = 'OptimizationTurns'
+param optimizationInsightsContainerName string = 'OptimizationInsights'
 @description('Embedding dimensions for the memories container vector index. Must match the embedding model used by azure-cosmos-agent-memory (text-embedding-3-small = 1536).')
 param memoriesEmbeddingDimensions int = 1536
+@description('Max RU/s for the database-level shared autoscale throughput (provisioned account required for Fabric mirroring). Minimum autoscale max is 1000.')
+param sharedThroughputMaxRU int = 1000
 param location string = resourceGroup().location
 param name string
 param tags object = {}
@@ -40,12 +43,22 @@ resource cosmosDb 'Microsoft.DocumentDB/databaseAccounts@2024-05-15' = {
     ]
     capabilities: [
       {
-        name: 'EnableServerless'
-      }
-      {
         name: 'EnableNoSQLVectorSearch'
       }
+      {
+        // Required for Fabric mirroring with a workspace-identity connection:
+        // lets the account trust a Fabric workspace via networkAclBypassResourceIds
+        // (set post-provision once the workspace + its identity exist).
+        name: 'EnableFabricNetworkAclBypass'
+      }
     ]
+    // Continuous backup is required for Fabric mirroring (change-feed based).
+    backupPolicy: {
+      type: 'Continuous'
+      continuousModeProperties: {
+        tier: 'Continuous7Days'
+      }
+    }
   }
   tags: tags
 }
@@ -58,8 +71,39 @@ resource database 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases@2024-12-01
     resource: {
       id: databaseName
     }
+    // Provisioned (autoscale) shared throughput — required because Fabric mirroring
+    // does not support serverless accounts. Shared across all containers to keep cost low.
+    options: {
+      autoscaleSettings: {
+        maxThroughput: sharedThroughputMaxRU
+      }
+    }
   }
   tags: tags
+}
+
+// Custom Cosmos SQL RBAC role for Fabric mirroring (readMetadata + readAnalytics).
+// Pre-created here so it is ready to assign to a Fabric workspace identity
+// post-provision (the assignment + networkAclBypass need the workspace, so they
+// are done by the mirroring setup script after the workspace exists).
+resource fabricMirroringRole 'Microsoft.DocumentDB/databaseAccounts/sqlRoleDefinitions@2024-12-01-preview' = {
+  parent: cosmosDb
+  name: guid(cosmosDb.id, 'FabricMirroringRole')
+  properties: {
+    roleName: 'FabricMirroringRole'
+    type: 'CustomRole'
+    assignableScopes: [
+      cosmosDb.id
+    ]
+    permissions: [
+      {
+        dataActions: [
+          'Microsoft.DocumentDB/databaseAccounts/readMetadata'
+          'Microsoft.DocumentDB/databaseAccounts/readAnalytics'
+        ]
+      }
+    ]
+  }
 }
 
 // Container 1: Sessions
@@ -719,6 +763,7 @@ resource cosmosContainerOptimizationPolicies 'Microsoft.DocumentDB/databaseAccou
   tags: tags
 }
 
+
 // Container 14: Optimization Turns (per-turn tier/token capture for the apply-loop)
 // Partition Key: [/tenantId, /userId, /sessionId] (hierarchical, matches Debug)
 resource cosmosContainerOptimizationTurns 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2024-12-01-preview' = {
@@ -734,6 +779,41 @@ resource cosmosContainerOptimizationTurns 'Microsoft.DocumentDB/databaseAccounts
           '/sessionId'
         ]
         kind: 'MultiHash'
+        version: 2
+      }
+      indexingPolicy: {
+        indexingMode: 'consistent'
+        automatic: true
+        includedPaths: [
+          {
+            path: '/*'
+          }
+        ]
+        excludedPaths: [
+          {
+            path: '/"_etag"/?'
+          }
+        ]
+      }
+    }
+  }
+  tags: tags
+}
+
+
+// Container 15: Optimization Insights (Fabric reverse-ETL target for computed KPIs/cards)
+// Partition Key: /tenantId
+resource cosmosContainerOptimizationInsights 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2024-12-01-preview' = {
+  parent: database
+  name: optimizationInsightsContainerName
+  properties: {
+    resource: {
+      id: optimizationInsightsContainerName
+      partitionKey: {
+        paths: [
+          '/tenantId'
+        ]
+        kind: 'Hash'
         version: 2
       }
       indexingPolicy: {

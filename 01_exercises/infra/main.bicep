@@ -64,6 +64,7 @@ module cosmos './shared/cosmosdb.bicep' = {
     checkpointsContainerName: 'Checkpoints'
     optimizationPoliciesContainerName: 'OptimizationPolicies'
     optimizationTurnsContainerName: 'OptimizationTurns'
+    optimizationInsightsContainerName: 'OptimizationInsights'
   }
   scope: rg
 }

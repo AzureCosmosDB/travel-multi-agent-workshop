@@ -14,6 +14,8 @@ param summariesContainerName string = 'memories_summaries'
 param counterContainerName string = 'counter'
 @description('Embedding dimensions for the memories container vector index. Must match the embedding model used by AgentMemoryToolkit (text-embedding-3-small = 1536).')
 param memoriesEmbeddingDimensions int = 1536
+@description('Max RU/s for the database-level shared autoscale throughput (provisioned account required for Fabric mirroring). Minimum autoscale max is 1000.')
+param sharedThroughputMaxRU int = 1000
 param location string = resourceGroup().location
 param name string
 param tags object = {}
@@ -38,12 +40,18 @@ resource cosmosDb 'Microsoft.DocumentDB/databaseAccounts@2024-05-15' = {
     ]
     capabilities: [
       {
-        name: 'EnableServerless'
-      }
-      {
         name: 'EnableNoSQLVectorSearch'
       }
+      {
+        name: 'EnableFabricNetworkAclBypass'
+      }
     ]
+    backupPolicy: {
+      type: 'Continuous'
+      continuousModeProperties: {
+        tier: 'Continuous7Days'
+      }
+    }
   }
   tags: tags
 }
@@ -56,8 +64,35 @@ resource database 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases@2024-12-01
     resource: {
       id: databaseName
     }
+    options: {
+      autoscaleSettings: {
+        maxThroughput: sharedThroughputMaxRU
+      }
+    }
   }
   tags: tags
+}
+
+// Custom Cosmos SQL RBAC role for Fabric mirroring (readMetadata + readAnalytics),
+// pre-created for assignment to a Fabric workspace identity post-provision.
+resource fabricMirroringRole 'Microsoft.DocumentDB/databaseAccounts/sqlRoleDefinitions@2024-12-01-preview' = {
+  parent: cosmosDb
+  name: guid(cosmosDb.id, 'FabricMirroringRole')
+  properties: {
+    roleName: 'FabricMirroringRole'
+    type: 'CustomRole'
+    assignableScopes: [
+      cosmosDb.id
+    ]
+    permissions: [
+      {
+        dataActions: [
+          'Microsoft.DocumentDB/databaseAccounts/readMetadata'
+          'Microsoft.DocumentDB/databaseAccounts/readAnalytics'
+        ]
+      }
+    ]
+  }
 }
 
 // Container 1: Sessions
