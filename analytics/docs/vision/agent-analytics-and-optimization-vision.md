@@ -272,7 +272,7 @@ Higher-risk optimization domains include:
 
 These higher-risk domains remain human-governed, with Fabric providing recommendations, impact analysis, validation, and approval workflows.
 
-### Open Analytics Schema
+### Open Agent Analytics Schema
 
 The platform is built on an open analytical schema representing the core execution primitives common across agent frameworks.
 
@@ -337,7 +337,7 @@ Fabric Mirroring
            ↓
         OneLake
            ↓
-Open Analytics Schema
+Open Agent Analytics Schema
            ↓
 Analytics & Optimization
            ↓

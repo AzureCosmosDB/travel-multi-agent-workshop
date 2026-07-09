@@ -3,7 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-07-08
 - **Deciders:** @markjbrown (mjbrown)
-- **Related:** ADR-0002 (Open Analytics Schema), ADR-0003 (source-pluggable ingestion / OTel alignment), ADR-0006 (adopt v2 as unified baseline)
+- **Related:** ADR-0002 (Open Agent Analytics Schema), ADR-0003 (source-pluggable ingestion / OTel alignment), ADR-0006 (adopt v2 as unified baseline)
 
 ## Context
 
@@ -12,7 +12,7 @@ ADR-0006 made `agent_memory_toolkit_v2` (supervisor + sub-agents-as-tools, `azur
 ## Decision drivers
 
 - Restore the token / agent / cost analytics pillars on v2 with the smallest, lowest-risk change.
-- Reuse the analytics stack already built (Open Analytics Schema, Fabric mirror, Power BI, SQL endpoint, enricher — all read Cosmos documents).
+- Reuse the analytics stack already built (Open Agent Analytics Schema, Fabric mirror, Power BI, SQL endpoint, enricher — all read Cosmos documents).
 - Keep the door open to OpenTelemetry as an additional, standards-aligned source (ADR-0003), without blocking analytics on it.
 
 ## Options considered

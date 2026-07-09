@@ -1,4 +1,4 @@
-# ADR-0002: Adopt the Open Analytics Schema, fix/extend instrumentation, and define the Fabric mirror set
+# ADR-0002: Adopt the Open Agent Analytics Schema, fix/extend instrumentation, and define the Fabric mirror set
 
 - **Status:** Proposed
 - **Date:** 2026-07-07
@@ -13,7 +13,7 @@ A **live audit of the deployed Azure Cosmos DB** (`cosmos-kfpokdh52vbec` / `Trav
 
 ## Decision drivers
 
-- One framework-agnostic analytical model across all six pillars (the vision's Open Analytics Schema).
+- One framework-agnostic analytical model across all six pillars (the vision's Open Agent Analytics Schema).
 - Only mirror data that is **real, analytically useful, and cost-justified**.
 - Ground every "we have this data" claim in observed rows, not code presence.
 - Keep Azure Cosmos DB as the operational system of record (ADR-0001).
@@ -23,11 +23,11 @@ A **live audit of the deployed Azure Cosmos DB** (`cosmos-kfpokdh52vbec` / `Trav
 ### Option A — Mirror existing containers as-is and model in Fabric
 **Rejected.** The live audit shows the telemetry containers are unusable as-is (see Evidence): `Debug` analytical fields empty, `ApiEvents`/`Summaries` empty, `Checkpoints` opaque msgpack.
 
-### Option B — Adopt the Open Analytics Schema as the canonical model; fix/extend instrumentation to emit its primitives into purpose-built Cosmos containers; mirror only the useful subset *(chosen)*
+### Option B — Adopt the Open Agent Analytics Schema as the canonical model; fix/extend instrumentation to emit its primitives into purpose-built Cosmos containers; mirror only the useful subset *(chosen)*
 Map primitives to existing containers where data is real; add/repair emission where it is missing; exclude opaque/empty containers from mirroring.
 
 ### Option C — Rely on external telemetry (LangSmith / OpenTelemetry) as the analytics source
-**Rejected as the primary path.** Not mirrored into Fabric, external dependency; conflicts with the vision's "operational-state-first" and Cosmos-as-SoR. May *enrich* later (the vision allows OTel/OpenInference enrichment). **See ADR-0003**, which resolves the follow-up ("does this make the job harder / would other frameworks adopt LangSmith or OTel?"): the interop target is **OpenTelemetry GenAI semconv** (not LangSmith), the Open Analytics Schema is aligned to it, and ingestion is made source-pluggable — so OTel/OpenInference can be added later as adapter sources without re-modeling.
+**Rejected as the primary path.** Not mirrored into Fabric, external dependency; conflicts with the vision's "operational-state-first" and Cosmos-as-SoR. May *enrich* later (the vision allows OTel/OpenInference enrichment). **See ADR-0003**, which resolves the follow-up ("does this make the job harder / would other frameworks adopt LangSmith or OTel?"): the interop target is **OpenTelemetry GenAI semconv** (not LangSmith), the Open Agent Analytics Schema is aligned to it, and ingestion is made source-pluggable — so OTel/OpenInference can be added later as adapter sources without re-modeling.
 
 ## Evidence (live data, 2026-07-07)
 
@@ -53,7 +53,7 @@ Container counts and shapes (Entra-ID query of the deployed account):
 
 ## Decision
 
-1. **Adopt the vision's Open Analytics Schema (10 primitives) as the canonical analytical model** for this solution.
+1. **Adopt the vision's Open Agent Analytics Schema (10 primitives) as the canonical analytical model** for this solution.
 2. **Map primitives to real data where it exists:** `UserSession`/`WorkflowExecution` ← `Sessions` (+ derived outcome); `AgentStep` ← `Messages`; `MemoryEvent` target ← `Memories` + new retrieval events; Trips/Users/Places remain domain data.
 3. **Fix and extend instrumentation to emit the missing primitives into Cosmos** (each its own follow-up, some their own ADRs):
    - **`TokenUsage`** — capture real per-call usage. **On the app's pinned `langchain-openai==0.3.3` this requires BOTH** (verified end-to-end 2026-07-07, PR #70): (a) set `model_kwargs={"stream_options": {"include_usage": True}}` on the model in `azure_open_ai.py` (under plain `streaming=True`, 0.3.3 leaves `usage_metadata=None`), and (b) read `msg.usage_metadata` instead of the empty `response_metadata.token_usage`. Required for Pillar 3. **Name fields to OTel GenAI semconv** (per ADR-0003): `gen_ai.usage.input_tokens` / `output_tokens`, cached via `gen_ai.usage.cache_read.input_tokens`.
@@ -82,7 +82,7 @@ Container counts and shapes (Entra-ID query of the deployed account):
 
 ## References
 
-- `../vision/agent-analytics-and-optimization-vision.md` (Open Analytics Schema)
+- `../vision/agent-analytics-and-optimization-vision.md` (Open Agent Analytics Schema)
 - `../charter.md` (Data readiness — verified live findings)
 - Live audit: session artifact `inspect_cosmos.py` + aggregates (2026-07-07)
 - Code: `02_completed/python/src/app/services/azure_cosmos_db.py`, `02_completed/python/src/app/travel_agents_api.py:649-735`, `02_completed/python/src/app/services/azure_open_ai.py:35-43`

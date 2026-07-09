@@ -1,4 +1,4 @@
-# ADR-0003: Source-pluggable analytics ingestion — OpenTelemetry GenAI semconv as the interop standard; the Open Analytics Schema as a first-party normalization layer
+# ADR-0003: Source-pluggable analytics ingestion — OpenTelemetry GenAI semconv as the interop standard; the Open Agent Analytics Schema as a first-party normalization layer
 
 - **Status:** Proposed
 - **Date:** 2026-07-07
@@ -7,12 +7,12 @@
 
 ## Context
 
-ADR-0002 chose the vision's **Open Analytics Schema (OAS)** as the canonical analytical model and rejected "external telemetry (LangSmith / OpenTelemetry) as the *primary* analytics source" (Option C), keeping Azure Cosmos DB operational state as the system of record (ADR-0001). Two follow-up questions were raised that this ADR resolves:
+ADR-0002 chose the vision's **Open Agent Analytics Schema (OAS)** as the canonical analytical model and rejected "external telemetry (LangSmith / OpenTelemetry) as the *primary* analytics source" (Option C), keeping Azure Cosmos DB operational state as the system of record (ADR-0001). Two follow-up questions were raised that this ADR resolves:
 
 1. Does not sourcing from LangSmith/OTel make the build harder, and would other agent frameworks (e.g., Microsoft Agent Framework) adopt LangSmith or OpenTelemetry?
 2. Can we later abstract the providers and let the OAS sit above them as a generic analytics layer over multiple agent/observability frameworks?
 
-A prerequisite fact was checked first: **is "Open Analytics Schema" an external standard?** It is not — see Evidence. It is coined in this repo's vision doc. That means the schema is *ours to define*, and the highest-leverage design is to define it as a thin projection over the **real** external standards rather than an invented vocabulary.
+A prerequisite fact was checked first: **is "Open Agent Analytics Schema" an external standard?** It is not — see Evidence. It is coined in this repo's vision doc. That means the schema is *ours to define*, and the highest-leverage design is to define it as a thin projection over the **real** external standards rather than an invented vocabulary.
 
 ## Decision drivers
 
@@ -34,7 +34,7 @@ The OAS stays first-party (it must, to carry operational-state primitives OTel l
 
 ## Evidence
 
-### "Open Analytics Schema" is first-party, not an external standard
+### "Open Agent Analytics Schema" is first-party, not an external standard
 - Defined only in `../vision/agent-analytics-and-optimization-vision.md:275–292` ("an open analytical schema representing the core execution primitives common across agent frameworks") with 10 primitives.
 - Web check (2026-07-07): no established open standard by that exact name. The real neighbours are **OpenInference** (Arize; open schema for LLM/agent spans), **OpenTelemetry GenAI semconv** (`gen_ai.*`), and **OpenLLMetry** (Traceloop). ("Open Agent Spec" is agent *definition*, a different concern.)
 
@@ -73,7 +73,7 @@ OpenInference is a **second** open standard and its names **differ from OTel** �
 
 ## Decision
 
-1. **The Open Analytics Schema remains first-party** (it must, to carry operational-state primitives OTel omits), and is **defined as a normalization layer explicitly aligned to OpenTelemetry GenAI semantic conventions and OpenInference.** Each OAS field records its `gen_ai.*` counterpart where one exists (start with the table above).
+1. **The Open Agent Analytics Schema remains first-party** (it must, to carry operational-state primitives OTel omits), and is **defined as a normalization layer explicitly aligned to OpenTelemetry GenAI semantic conventions and OpenInference.** Each OAS field records its `gen_ai.*` counterpart where one exists (start with the table above).
 2. **Adopt `gen_ai.*`-aligned field names now** for the new/fixed telemetry emitted per ADR-0002 — highest value for `TokenUsage`, `ToolInvocation`, `MemoryEvent`, `EvaluationResult`, `AgentRun`/`AgentStep`. Near-zero extra cost; makes any future OTel source a 1:1 map.
 3. **Ingestion is source-pluggable via an adapter seam:** `source → adapter → OAS → gold → surfaces`. Cosmos operational state is source #1 today; OTel GenAI spans and OpenInference are future sources that require an adapter, not a re-model.
 4. **Do not adopt OTel/LangSmith as the primary source yet** (per ADR-0002 Option C); revisit when the GenAI semconv reaches Stable and a workshop-appropriate backend is justified. LangSmith stays as optional opt-in developer tracing only.

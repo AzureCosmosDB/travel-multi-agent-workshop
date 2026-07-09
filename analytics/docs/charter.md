@@ -39,7 +39,7 @@ Inspected the deployed account `cosmos-kfpokdh52vbec` / `TravelAssistant` direct
 
 **Implication (corrected):** Pillars 1/2/3 are **NOT** "mirror + model" — they require **fixing instrumentation** (real token capture; real agent/transition capture; add latency) and **regenerating data** before any analytics are possible. This couples directly to the data-generation redesign. Pillar 4 (memory) has real data today.
 
-**Unifying model:** map the app's operational state to the vision's **Open Analytics Schema** (`AgentRun`, `AgentStep`, `AgentTransition`, `ToolInvocation`, `MemoryEvent`, `Checkpoint`, `EvaluationResult`, `TokenUsage`, `UserSession`, `WorkflowExecution`) → mirror the useful subset → Fabric gold per pillar → surfaces. (See ADR-0002.)
+**Unifying model:** map the app's operational state to the vision's **Open Agent Analytics Schema** (`AgentRun`, `AgentStep`, `AgentTransition`, `ToolInvocation`, `MemoryEvent`, `Checkpoint`, `EvaluationResult`, `TokenUsage`, `UserSession`, `WorkflowExecution`) → mirror the useful subset → Fabric gold per pillar → surfaces. (See ADR-0002.)
 
 ## First principles (governing rules for this effort)
 
@@ -57,7 +57,7 @@ Inspected the deployed account `cosmos-kfpokdh52vbec` / `TravelAssistant` direct
 ## Open questions to resolve with evidence (tracked, not yet decided)
 
 - **Data generation for the workshop:** the current live generator costs ~3 hrs / ~10M tokens (per `analytics/README.md`) — not workshop-viable. Need a tested, low-cost data path that also produces the new signals Levels 2–3 require across pillars (memory-retrieval events + outcome linkage, latency, evaluation results, etc.).
-- **Open Analytics Schema + mirror-set expansion (candidate ADR-0002):** adopt the vision's 10 core primitives as the canonical instrumentation model emitted to Cosmos, and expand Fabric Mirroring to include `Debug`, `ApiEvents`, `Checkpoints`, `Sessions`, `Messages`. To be decided and validated (RU/cost impact of mirroring more containers to be measured).
+- **Open Agent Analytics Schema + mirror-set expansion (candidate ADR-0002):** adopt the vision's 10 core primitives as the canonical instrumentation model emitted to Cosmos, and expand Fabric Mirroring to include `Debug`, `ApiEvents`, `Checkpoints`, `Sessions`, `Messages`. To be decided and validated (RU/cost impact of mirroring more containers to be measured).
 - **Per-pillar instrumentation gaps:** latency (Pillar 1), `MemoryEvent` stream + outcome linkage (Pillar 4), `EvaluationResult` persistence to Cosmos (Pillar 5), workflow outcome labeling (Pillar 6). Each to be designed and validated.
 - **L4 outcome-validation honesty:** define the proxy/illustrative outcome signal used for the single autonomous slice, and label it clearly as demonstrated-on-synthetic-data.
 - **Module curation:** with modules allowed to be longer/more numerous, decide the final module arc at authoring time — how many pillars get full build-along treatment vs. reference.

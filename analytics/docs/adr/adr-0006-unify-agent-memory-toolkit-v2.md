@@ -18,7 +18,7 @@ Key facts established (evidence below):
 - Maintainer wants the workshop to move to the v2 architecture; we are authorized to be the vehicle.
 - Avoid throwaway work: build the analytics pillars **once**, on the future architecture, not twice.
 - The public workshop/live demos must ship on current libraries and the intended architecture.
-- Preserve our durable design assets (Open Analytics Schema, ADRs, data-gen/enricher, acceptance scenarios) which ADR-0003 already made **architecture-agnostic**.
+- Preserve our durable design assets (Open Agent Analytics Schema, ADRs, data-gen/enricher, acceptance scenarios) which ADR-0003 already made **architecture-agnostic**.
 
 ## Options considered
 
