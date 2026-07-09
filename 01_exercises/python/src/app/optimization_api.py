@@ -58,6 +58,12 @@ def get_recommendations(tenant_id: str) -> dict[str, Any]:
     return {"tenant_id": tenant_id, "recommendations": optimization.build_recommendations(tenant_id)}
 
 
+@router.get("/{tenant_id}/metrics")
+def get_metrics(tenant_id: str) -> dict[str, Any]:
+    """Aggregate KPIs for the Optimization Console (turns, cost, tiers, outcomes)."""
+    return optimization.build_turn_metrics(tenant_id)
+
+
 @router.get("/{scenario}/policy")
 def get_scenario_policy(scenario: str) -> dict[str, Any]:
     doc = optimization.get_policy(scenario)

@@ -469,3 +469,80 @@ def build_model_selection_recommendation(tenant_id: str) -> dict[str, Any]:
 
 def build_recommendations(tenant_id: str) -> list[dict[str, Any]]:
     return [build_model_selection_recommendation(tenant_id)]
+
+
+# ---------------------------------------------------------------------------
+# Aggregate metrics (for the Optimization Console)
+# ---------------------------------------------------------------------------
+
+def _price_for(deployment: str) -> tuple[float, float]:
+    """(input, output) USD per 1M tokens for a deployment/model name. ESTIMATE."""
+    name = (deployment or "").lower()
+    for key, p in ESTIMATED_PRICING.items():
+        if name.startswith(key):
+            return p["input"], p["output"]
+    return ESTIMATED_PRICING["gpt-4.1-mini"]["input"], ESTIMATED_PRICING["gpt-4.1-mini"]["output"]
+
+
+def _confirmed_outcomes(tenant_id: str) -> int:
+    """Count confirmed/completed trips for the tenant (the 'outcome' denominator)."""
+    db = _database()
+    if db is None:
+        return 0
+    try:
+        rows = list(db.get_container_client("Trips").query_items(
+            query="SELECT VALUE COUNT(1) FROM d WHERE d.tenantId=@t AND (d.status='confirmed' OR d.status='completed')",
+            parameters=[{"name": "@t", "value": tenant_id}],
+            enable_cross_partition_query=True,
+        ))
+        return int(rows[0]) if rows else 0
+    except Exception:  # noqa: BLE001 -- Trips may be absent/empty
+        return 0
+
+
+def build_turn_metrics(tenant_id: str) -> dict[str, Any]:
+    """Aggregate the captured turns into the KPIs the Console displays."""
+    turns = _query_turns(tenant_id)
+    total = len(turns)
+    total_in = total_out = total_tokens = trivial = 0
+    est_cost = 0.0
+    models: dict[str, int] = {}
+    by_tier: dict[str, dict[str, Any]] = {}
+
+    for d in turns:
+        i = int(d.get("input_tokens") or 0)
+        o = int(d.get("output_tokens") or 0)
+        total_in += i
+        total_out += o
+        total_tokens += int(d.get("total_tokens") or 0)
+        if o < 60:
+            trivial += 1
+        mname = d.get("model_name", "Unknown")
+        models[mname] = models.get(mname, 0) + 1
+        dep = d.get("model_deployment") or mname
+        pin, pout = _price_for(dep)
+        cost = (i * pin + o * pout) / 1_000_000
+        est_cost += cost
+        key = f"{d.get('model_tier', 'default')} ({dep})"
+        row = by_tier.setdefault(key, {"tier": d.get("model_tier", "default"), "deployment": dep,
+                                       "turns": 0, "tokens": 0, "cost": 0.0})
+        row["turns"] += 1
+        row["tokens"] += int(d.get("total_tokens") or 0)
+        row["cost"] += cost
+
+    confirmed = _confirmed_outcomes(tenant_id)
+    return {
+        "tenant_id": tenant_id,
+        "total_turns": total,
+        "total_input_tokens": total_in,
+        "total_output_tokens": total_out,
+        "total_tokens": total_tokens,
+        "estimated_cost_usd": round(est_cost, 4),
+        "trivial_turns": trivial,
+        "trivial_pct": round(100 * trivial / max(total, 1), 1),
+        "distinct_models": len(models),
+        "model_distribution": models,
+        "confirmed_outcomes": confirmed,
+        "cost_per_outcome_usd": round(est_cost / confirmed, 4) if confirmed else None,
+        "by_tier": sorted(by_tier.values(), key=lambda r: -r["cost"]),
+    }

@@ -136,7 +136,14 @@ You now have three ways to look at the captured signal:
 
 ### The Optimization Console (provided)
 
-Open the **Optimization Console** — the provided analytics web app (its own port, separate from the `:4200` travel app). It reads the captured turns and the recommendation cards and presents them with explanations. Take a few minutes to read each panel; these are the talking points that make the data *mean* something:
+Start the **Optimization Console** — the provided analytics web app — on its own port (separate from the `:4200` travel app):
+
+```powershell
+# from the 01_exercises folder
+python -m http.server 8050 --directory console
+```
+
+Open <http://localhost:8050>, set the **Tenant** to the one you drove traffic with, and click **Refresh**. It reads the captured turns and the recommendation cards and presents them with explanations. Take a few minutes to read each panel; these are the talking points that make the data *mean* something:
 
 - **Turns & spend** — total turns, total tokens, and estimated cost. *Talking point: cost scales with usage, but not evenly — a few turns dominate.*
 - **Model usage** — a breakdown by model. Right now it's **one model, 100%**. *Talking point: every turn, trivial or complex, pays the same rate — the core inefficiency this lab targets.*
