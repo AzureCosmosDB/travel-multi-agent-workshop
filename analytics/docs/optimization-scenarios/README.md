@@ -40,6 +40,14 @@ Every scenario improves one or more of these axes from the vision. They keep the
 `Trips.status` is the shared **outcome** anchor: every other dimension is ultimately judged by whether it
 moves *business outcomes*. A healthy catalog has at least one scenario per dimension.
 
+> **Note on Model selection (this app is single-model today):** the app builds **one** shared chat
+> model (`services/azure_open_ai.py`) that the supervisor and *all* sub-agents use — 100% of baseline
+> turns ran on `gpt-4.1-mini`. So **model selection is an *opportunity dimension* here, not a current
+> behavior**: there is nothing to "tune" yet. Exploring it means *introducing* per-turn/per-task model
+> routing (see SCEN-007), not analyzing an existing variation. It's included because it's a strong
+> cost lever (48% of turns are trivial) and a vision-listed lower-risk autonomous domain — just be
+> clear it's aspirational for this app until the router seam exists.
+
 ## What we can measure (signal inventory)
 
 Everything below already lands in `TravelAssistantV2` (no new instrumentation needed):

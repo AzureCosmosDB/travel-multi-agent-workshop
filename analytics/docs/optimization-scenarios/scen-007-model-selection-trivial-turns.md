@@ -10,6 +10,12 @@
 
 ## Symptom
 
+> **This app is single-model today.** `services/azure_open_ai.py` builds **one** shared chat model
+> (`AzureChatOpenAI`) that the supervisor and *every* sub-agent (find_places selector, itinerary
+> ReAct agent) use. There is **no** per-turn or per-agent model selection — 100% of baseline turns
+> ran on `gpt-4.1-mini`. So this scenario is about **introducing** model selection, not tuning an
+> existing behavior.
+
 Every turn — trivial or complex — runs on the same full chat model. Greetings, acknowledgements,
 and one-line clarifications cost the same model as a multi-tool itinerary build.
 
