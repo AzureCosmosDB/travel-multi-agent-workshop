@@ -8,6 +8,9 @@ candidate scenarios in the [catalog](README.md) with real signal from data we al
 > traffic. The numbers are illustrative of *what the analytics layer surfaces*, not a claim about
 > real users. Re-run after regeneration; magnitudes will shift, the patterns should hold.
 
+> **Reproduce:** `python analytics/optimization_mining.py --tenant v2_analytics` (reads only
+> signal the app already captures; prints the metrics below).
+
 **Corpus:** Debug=291 turns · Messages=582 · Trips=11 · Memories=760 · Sessions=32.
 
 ## Findings by candidate

@@ -1,0 +1,128 @@
+"""
+Optimization-scenario data mining — first-pass "data-first" discovery tool.
+
+Runs the Tier-1 metric queries from `docs/optimization-scenarios/README.md` over a
+Cosmos DB tenant and prints the evidence behind each candidate scenario (cost per
+outcome, agent_path cost, delegation rate, model/cache usage, memory staleness, drift).
+
+It reads only signal the app already captures (ADR-0007 Debug re-wire + Messages +
+Trips + the Agent Memory Toolkit containers) — no new instrumentation. Results feed
+`docs/optimization-scenarios/baseline-findings.md`.
+
+Usage (repo root, with the v2 venv and Cosmos access via DefaultAzureCredential):
+    python analytics/optimization_mining.py --tenant v2_analytics
+
+Env: reads COSMOSDB_ENDPOINT (+ COSMOSDB_DATABASE_NAME, default TravelAssistantV2)
+from 02_completed/python/.env, matching the running app.
+"""
+from __future__ import annotations
+
+import argparse
+import collections
+import os
+import re
+import statistics
+from pathlib import Path
+
+from azure.cosmos import CosmosClient
+from azure.identity import DefaultAzureCredential
+from dotenv import load_dotenv
+
+ENV = Path(__file__).resolve().parents[1] / "02_completed" / "python" / ".env"
+load_dotenv(ENV)
+
+PLACE_RE = re.compile(
+    r"hotel|restaurant|dining|activit|museum|things to do|place|eat|stay|attraction", re.I
+)
+
+
+def _bag(doc: dict) -> dict:
+    p = doc.get("propertyBag")
+    return {i["key"]: i["value"] for i in p} if isinstance(p, list) else (p or {})
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser(description="Mine a tenant for optimization-scenario evidence.")
+    ap.add_argument("--tenant", default="v2_analytics")
+    ap.add_argument("--database", default=os.environ.get("COSMOSDB_DATABASE_NAME", "TravelAssistantV2"))
+    args = ap.parse_args()
+
+    db = CosmosClient(os.environ["COSMOSDB_ENDPOINT"], DefaultAzureCredential()).get_database_client(
+        args.database
+    )
+    T = args.tenant
+
+    def q(container: str, query: str) -> list:
+        return list(
+            db.get_container_client(container).query_items(query=query, enable_cross_partition_query=True)
+        )
+
+    dbg = q("Debug", f"SELECT * FROM d WHERE d.tenantId='{T}'")
+    msgs = q("Messages", f"SELECT d.sessionId, d.role, d.content FROM d WHERE d.tenantId='{T}'")
+    trips = q("Trips", f"SELECT d.userId, d.status FROM d WHERE d.tenantId='{T}'")
+    mems = q("memories", "SELECT d.type, d.salience, d.superseded_by FROM d")
+    print(f"[{T}] Debug={len(dbg)} Messages={len(msgs)} Trips={len(trips)} Memories={len(mems)}\n")
+
+    # SCEN-005 — cost by agent_path
+    path_tokens: dict[str, list[int]] = collections.defaultdict(list)
+    hops = collections.Counter()
+    for d in dbg:
+        b = _bag(d)
+        path_tokens[b.get("agent_path", "?")].append(int(b.get("total_tokens") or 0))
+        hops[str(b.get("handoff_count"))] += 1
+    print("=== SCEN-005 cost by agent_path ===")
+    for ap_, toks in sorted(path_tokens.items(), key=lambda x: -sum(x[1])):
+        print(f"  {ap_:<52} n={len(toks):>3} total={sum(toks):>8} avg={int(statistics.mean(toks)):>6}")
+    print("handoff_count distribution:", dict(hops))
+
+    # SCEN-001/008 — delegation on place-intent sessions
+    user_texts: dict[str, list[str]] = collections.defaultdict(list)
+    for m in msgs:
+        if (m.get("role") or "").lower() == "user":
+            user_texts[m["sessionId"]].append(m.get("content") or "")
+    place_turns = nodeleg = 0
+    for d in dbg:
+        if PLACE_RE.search(" ".join(user_texts.get(d.get("sessionId"), []))):
+            place_turns += 1
+            if str(_bag(d).get("handoff_count")) == "0":
+                nodeleg += 1
+    print("\n=== SCEN-001/008 delegation on place-intent sessions ===")
+    print(f"  turns={place_turns} no-delegation={nodeleg} ({100*nodeleg/max(place_turns,1):.0f}%)")
+
+    # SCEN-003 — cost per outcome
+    sess_tokens: dict[str, int] = collections.defaultdict(int)
+    sess_user: dict[str, str] = {}
+    for d in dbg:
+        sess_tokens[d["sessionId"]] += int(_bag(d).get("total_tokens") or 0)
+        sess_user[d["sessionId"]] = d.get("userId")
+    confirmed_users = {t["userId"] for t in trips if t.get("status") in ("confirmed", "completed")}
+    total = sum(sess_tokens.values())
+    confirmed = sum(1 for t in trips if t.get("status") in ("confirmed", "completed"))
+    wasted = sum(tk for s, tk in sess_tokens.items() if sess_user[s] not in confirmed_users)
+    print("\n=== SCEN-003 cost per outcome ===")
+    print(f"  total_tokens={total} confirmed_trips={confirmed} tokens_per_outcome={int(total/max(confirmed,1))}")
+    print(f"  tokens on users who never confirmed: {wasted} ({100*wasted/max(total,1):.0f}%)")
+
+    # SCEN-007 — model + cache + trivial turns
+    models = collections.Counter()
+    cached = inp = trivial = 0
+    for d in dbg:
+        b = _bag(d)
+        models[b.get("model_name")] += 1
+        cached += int(b.get("cached_tokens") or 0)
+        inp += int(b.get("input_tokens") or 0)
+        if str(b.get("handoff_count")) == "0" and int(b.get("output_tokens") or 0) < 60:
+            trivial += 1
+    print("\n=== SCEN-007 model / cache ===")
+    print(f"  models={dict(models)} cache_hit={100*cached/max(inp,1):.0f}% trivial_turns={trivial}/{len(dbg)}")
+
+    # SCEN-004 — memory staleness
+    superseded = sum(1 for m in mems if m.get("superseded_by"))
+    sal = [m["salience"] for m in mems if isinstance(m.get("salience"), (int, float))]
+    print("\n=== SCEN-004 memory staleness ===")
+    print(f"  superseded={superseded}/{len(mems)} ({100*superseded/max(len(mems),1):.0f}%)"
+          f" salience_mean={statistics.mean(sal):.2f}" if sal else f"  superseded={superseded}/{len(mems)}")
+
+
+if __name__ == "__main__":
+    main()
