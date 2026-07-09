@@ -13,6 +13,14 @@ You've built a capable multi-agent travel assistant, made it **observable** (Mod
 
 Answering these requires turning raw execution into **analytics** — structured, queryable signal about how your agents behave and what it costs. This module is about **visibility and insight**: instrumenting your app to capture that signal, moving it into surfaces you can explore, and reading it to find concrete opportunities. In Module 08 you'll *act* on what you find.
 
+Even beyond describing the system, analytics exists to *change* it. The questions that make this strategic are:
+
+- **How can these insights improve agent behavior?**
+- **Which optimizations should be applied — and which can be applied safely, automatically?**
+- **How can an agent system continuously improve over time?**
+
+Those are the questions this module (visibility) and the next (action) exist to answer.
+
 > **This module is additive.** It bolts onto the app you already built with one small hook and two provided files — **you will not modify Modules 01–05.** The Cosmos containers and the analytics surfaces it uses are provisioned for you by `azd up` (Bicep). You write the capture hook; you *use* the provided dashboards.
 
 ## Learning Objectives and Activities
@@ -128,7 +136,15 @@ You now have three ways to look at the captured signal:
 
 ### The Optimization Console (provided)
 
-Open the **Optimization Console** — the provided analytics web app (its own port, separate from the `:4200` travel app). It reads the captured turns and the recommendation cards and presents them with explanations: per-turn cost, model usage, trivial-turn share, and cost per outcome. Use it to *see* the story your data tells — and note the talking points it surfaces about **why** each insight matters.
+Open the **Optimization Console** — the provided analytics web app (its own port, separate from the `:4200` travel app). It reads the captured turns and the recommendation cards and presents them with explanations. Take a few minutes to read each panel; these are the talking points that make the data *mean* something:
+
+- **Turns & spend** — total turns, total tokens, and estimated cost. *Talking point: cost scales with usage, but not evenly — a few turns dominate.*
+- **Model usage** — a breakdown by model. Right now it's **one model, 100%**. *Talking point: every turn, trivial or complex, pays the same rate — the core inefficiency this lab targets.*
+- **Trivial-turn share** — the fraction of turns that are short, no-delegation answers (greetings, acks, one-line clarifications). *Talking point: these are near-zero-work turns paying full price; commonly ~40–50%.*
+- **Cost per outcome** — total spend divided by confirmed trips. *Talking point: this is the north-star; a turn that never leads to a booking isn't "cheap," it's waste.*
+- **Recommendation cards** — each card is a detected opportunity with evidence and a proposed change. In this module you *read* them; in Module 08 you *apply* them.
+
+Notice what the Console is doing: it turns thousands of individual turns into a handful of **decisions** — which is exactly what a human operator (or, later, the system itself) needs to act.
 
 ### Power BI (provided)
 
@@ -183,7 +199,26 @@ Read the recommendation card (Console or REST). With every turn on one model, tw
 - **A single model serves everything** — greetings and full itinerary generation alike.
 - **A large share of turns are trivial** — short answers with no delegation. Commonly ~40–50%.
 
-That's the **model-selection** opportunity (dimension 6): trivial turns pay full price; high-value turns might merit a stronger model. The card names it, shows the evidence from *your* data, and proposes a tiered policy — the **recommend** step (maturity L2).
+That's the **model-selection** opportunity (dimension 6): trivial turns pay full price; high-value turns might merit a stronger model. The card names it, shows the evidence from *your* data, and proposes a tiered policy — the **recommend** step (maturity L2). A card looks like:
+
+```json
+{
+  "scenario_id": "SCEN-007",
+  "title": "Capability-tiered model selection",
+  "status": "not_proposed",
+  "evidence": {
+    "total_turns": 18,
+    "trivial_turns": 8,
+    "trivial_pct": 44.4,
+    "model_distribution": { "gpt-4.1-mini-...": 18 }
+  },
+  "estimated_saving_usd": 0.13,
+  "estimate_caveat": "ESTIMATE only. gpt-5-nano is a reasoning model ...",
+  "proposed_params": { "tiers": { "trivial": "gpt-5-nano", "routine": "gpt-4.1-mini", "complex": "gpt-5.1" } }
+}
+```
+
+Read it critically: the `evidence` is *your* measured data; the `estimated_saving_usd` is a projection with an explicit caveat (you'll confirm or refute it by measuring in Module 08).
 
 Look also for other dimensions in the same data:
 - **Tool utilization** — how often does a place question get answered from model knowledge instead of a `find_places` search?
@@ -227,6 +262,13 @@ In **Module 08** you'll close the loop — apply the recommended optimization wi
 - [ ] You can open the Optimization Console (and/or Power BI) and explain, in your own words, the trivial-turn waste and the single-model pattern.
 - [ ] `--verify` prints a per-tier (currently all `default`) cost baseline.
 - [ ] You can state why **cost per outcome** — not cost per turn — is the metric that matters.
+
+## Troubleshooting
+
+- **`OptimizationTurns` is empty after traffic.** Confirm the `record_optimization_turn` call is *after* you extract token usage and is actually reached (add a log line). Confirm `azd up` created the `OptimizationTurns` container (`az cosmosdb sql container list ...`).
+- **Recommendation card shows `total_turns: 0`.** You're querying a different `tenantId` than you drove traffic with — pass the same tenant to `GET /optimizations/{tenant}`.
+- **Console shows nothing.** It reads the same Cosmos data as the REST API — verify the API returns a card first, then reload the Console.
+- **`--verify` errors on the container.** Pass `--container OptimizationTurns` (the default), and ensure `COSMOSDB_ENDPOINT`/`COSMOSDB_DATABASE_NAME` in your env match your deployment.
 
 ## What You Learned
 

@@ -150,6 +150,17 @@ Now send three turns and watch which model serves each (API logs + `Optimization
 - `hotels in amsterdam` → tier `routine` → `gpt-4.1-mini`
 - `please build me an itinerary for 3 days in amsterdam` → tier `complex` → `gpt-5.1`
 
+In `OptimizationTurns` you'll see the tier and the *actual* serving model recorded per turn — for example:
+
+```
+tier      deployment    model_name              total_tokens
+trivial   gpt-5-nano    gpt-5-nano-2025-08-07          3,828
+routine   gpt-4.1-mini  gpt-4.1-mini-2025-04-14       15,946
+complex   gpt-5.1       gpt-5.1-2025-11-13            32,616
+```
+
+The `model_name` (reported by the model itself) is your independent proof that the policy actually changed which model ran — not just what you intended.
+
 ### Revert — just as easily
 
 ```powershell
@@ -168,7 +179,16 @@ Re-drive some traffic with the policy applied, then measure:
 python analytics/optimization_mining.py --tenant <yourTenant> --verify --container OptimizationTurns
 ```
 
-Compare against your Module 07 baseline. Two honest lessons:
+Compare against your Module 07 baseline. You'll see a per-tier breakdown like:
+
+```
+tier (deployment)            turns     in    out   total    est $
+complex (gpt-5.1)                1  30918   1698   32616  0.05563
+routine (gpt-4.1-mini)           1  15543    403   15946  0.00686
+trivial (gpt-5-nano)             1   3335    493    3828  0.00036
+```
+
+Two honest lessons:
 
 1. **The reasoning-token caveat.** `gpt-5-nano` is a *reasoning* model — it can spend a few hundred hidden "reasoning" output tokens even on "hi". A naive "cheaper model saves money" projection ignores that. In practice nano's very low **input** price still makes the trivial turn cheaper — but you only *know* from the measured result. **Always verify; never ship an estimate as a result.**
 2. **Cost per outcome.** The `complex` tier (`gpt-5.1`) is *more* expensive per turn. Whether it's worth it depends on whether better itineraries raise **conversion** — lowering cost per *confirmed trip*, not per turn. Judge the optimization on the outcome metric, not the token bill.
@@ -243,6 +263,13 @@ With a gate in place, a cost optimization that quietly degrades answers can neve
 - [ ] You can contrast the **policy** (auto-apply, reversible) vs the **prompt fix** (staged, human-governed) and say why each maxes out at a different maturity level.
 - [ ] (Stretch) The itinerary sub-agent runs on the capable tier.
 - [ ] (Capstone) You can describe — or wire — the Module 06 evaluator as an auto-revert quality gate, and explain why that unlocks autonomous optimization.
+
+## Troubleshooting
+
+- **Turns still all run `gpt-4.1-mini` after apply.** Check that (1) the policy is `active` (`GET /optimizations/model-selection/policy`), (2) you registered the supervisor factory at startup, and (3) your completion handler calls `get_supervisor_for_turn` (not `build_agent_graph` directly). The policy cache also has a ~15s TTL — wait a few seconds after apply.
+- **`gpt-5-nano`/`gpt-5.1` calls error.** These are reasoning models — the provided `get_chat_model` omits `temperature` and uses a newer API version for them. If you built the model yourself, don't pass `temperature`. Confirm both deployments exist (`az cognitiveservices account deployment list ...`); if quota blocked one, point the policy's tier at an available model.
+- **`classify_turn_tier` misroutes.** Run the Activity 2 self-check. A common bug is checking trivial *before* complex, or not requiring *both* short length and a greeting pattern for trivial.
+- **Revert didn't take effect.** Same ~15s cache TTL; the *next* turn after it expires uses the default.
 
 ## What You Learned
 
