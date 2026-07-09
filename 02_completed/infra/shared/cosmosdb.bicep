@@ -14,8 +14,12 @@ param summariesContainerName string = 'memories_summaries'
 param counterContainerName string = 'counter'
 @description('Embedding dimensions for the memories container vector index. Must match the embedding model used by AgentMemoryToolkit (text-embedding-3-small = 1536).')
 param memoriesEmbeddingDimensions int = 1536
-@description('Max RU/s for the database-level shared autoscale throughput (provisioned account required for Fabric mirroring). Minimum autoscale max is 1000.')
-param sharedThroughputMaxRU int = 1000
+@description('Default per-container autoscale max RU/s (autoscale floors at 10%). Dedicated per-container throughput avoids shared-throughput asymmetry trip wires.')
+param containerMaxRU int = 1000
+@description('Autoscale max RU/s for the Checkpoints container (storage + write hotspot).')
+param checkpointsMaxRU int = 4000
+@description('Autoscale max RU/s for the Places container (vector search).')
+param placesMaxRU int = 2000
 param location string = resourceGroup().location
 param name string
 param tags object = {}
@@ -63,11 +67,6 @@ resource database 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases@2024-12-01
   properties: {
     resource: {
       id: databaseName
-    }
-    options: {
-      autoscaleSettings: {
-        maxThroughput: sharedThroughputMaxRU
-      }
     }
   }
   tags: tags
@@ -126,6 +125,11 @@ resource cosmosContainerSessions 'Microsoft.DocumentDB/databaseAccounts/sqlDatab
             path: '/"_etag"/?'
           }
         ]
+      }
+    }
+      options: {
+      autoscaleSettings: {
+        maxThroughput: containerMaxRU
       }
     }
   }
@@ -203,6 +207,11 @@ resource cosmosContainerMessages 'Microsoft.DocumentDB/databaseAccounts/sqlDatab
             language: 'en-US'
           }
         ]
+      }
+    }
+      options: {
+      autoscaleSettings: {
+        maxThroughput: containerMaxRU
       }
     }
   }
@@ -288,6 +297,11 @@ resource cosmosContainerPlaces 'Microsoft.DocumentDB/databaseAccounts/sqlDatabas
         ]
       }
     }
+      options: {
+      autoscaleSettings: {
+        maxThroughput: placesMaxRU
+      }
+    }
   }
   tags: tags
 }
@@ -325,6 +339,11 @@ resource cosmosContainerTrips 'Microsoft.DocumentDB/databaseAccounts/sqlDatabase
         ]
       }
     }
+      options: {
+      autoscaleSettings: {
+        maxThroughput: containerMaxRU
+      }
+    }
   }
   tags: tags
 }
@@ -358,6 +377,11 @@ resource cosmosContainerUsers 'Microsoft.DocumentDB/databaseAccounts/sqlDatabase
             path: '/"_etag"/?'
           }
         ]
+      }
+    }
+      options: {
+      autoscaleSettings: {
+        maxThroughput: containerMaxRU
       }
     }
   }
@@ -397,6 +421,11 @@ resource cosmosContainerApiEvents 'Microsoft.DocumentDB/databaseAccounts/sqlData
         ]
       }
     }
+      options: {
+      autoscaleSettings: {
+        maxThroughput: containerMaxRU
+      }
+    }
   }
   tags: tags
 }
@@ -434,6 +463,11 @@ resource cosmosContainerDebugLogs 'Microsoft.DocumentDB/databaseAccounts/sqlData
         ]
       }
     }
+      options: {
+      autoscaleSettings: {
+        maxThroughput: containerMaxRU
+      }
+    }
   }
   tags: tags
 }
@@ -467,6 +501,11 @@ resource cosmosContainerCheckpoints 'Microsoft.DocumentDB/databaseAccounts/sqlDa
             path: '/"_etag"/?'
           }
         ]
+      }
+    }
+      options: {
+      autoscaleSettings: {
+        maxThroughput: checkpointsMaxRU
       }
     }
   }
@@ -568,6 +607,11 @@ resource cosmosContainerMemories 'Microsoft.DocumentDB/databaseAccounts/sqlDatab
         ]
       }
     }
+      options: {
+      autoscaleSettings: {
+        maxThroughput: containerMaxRU
+      }
+    }
   }
   tags: tags
 }
@@ -612,6 +656,11 @@ resource cosmosContainerMemoriesTurns 'Microsoft.DocumentDB/databaseAccounts/sql
             path: '/supersedes_ids/*'
           }
         ]
+      }
+    }
+      options: {
+      autoscaleSettings: {
+        maxThroughput: containerMaxRU
       }
     }
   }
@@ -675,6 +724,11 @@ resource cosmosContainerMemoriesSummaries 'Microsoft.DocumentDB/databaseAccounts
         ]
       }
     }
+      options: {
+      autoscaleSettings: {
+        maxThroughput: containerMaxRU
+      }
+    }
   }
   tags: tags
 }
@@ -713,6 +767,11 @@ resource cosmosContainerCounter 'Microsoft.DocumentDB/databaseAccounts/sqlDataba
             path: '/"_etag"/?'
           }
         ]
+      }
+    }
+      options: {
+      autoscaleSettings: {
+        maxThroughput: containerMaxRU
       }
     }
   }
