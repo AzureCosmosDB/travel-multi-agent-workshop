@@ -155,7 +155,21 @@ Notice what the Console is doing: it turns thousands of individual turns into a 
 
 ### Power BI (provided)
 
-Open `analytics/TravelAssistantReport.pbit` and point it at your data for the deep, sliceable view (per-session cost, token trends, agent paths).
+For the deep, real-time view, use the provided **`analytics/TravelAssistantV2AnalyticsReport.pbit`**
+template (built with the `analytics/PowerBI_Build_Guide_V2.md` guide):
+
+1. Open the `.pbit` in **Power BI Desktop**.
+2. When prompted, paste your **mirror SQL analytics endpoint** and **mirror database name** (from your
+   Fabric mirrored database — see `analytics/fabric/README.md`).
+3. The report loads over **DirectQuery**, so it reflects new turns **near-real-time** as the mirror
+   replicates. Turn on **page auto-refresh** and run the traffic simulator to watch it move live:
+
+   ```powershell
+   python analytics/traffic_simulator.py --tenant DemoLive --rate 120 --forever
+   ```
+
+> Building your own mirror + report is the Fabric "scale it out" path (Module 08 / `analytics/fabric/`).
+> You can finish this lab's core detect/measure steps with just the Console + REST, no Fabric workspace.
 
 ### The raw signal (REST + CLI)
 
