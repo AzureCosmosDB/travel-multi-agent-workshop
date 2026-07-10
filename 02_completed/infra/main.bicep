@@ -24,6 +24,9 @@ param deployGsi bool = false
 @description('Override the resource group name. Defaults to rg-<environmentName>.')
 param resourceGroupName string = ''
 
+@description('Location for the resource group itself. Defaults to the resource location; set separately when deploying into a pre-existing resource group in a different region (RG location is metadata only and does not constrain resource regions).')
+param resourceGroupLocation string = ''
+
 var tags = {
   'azd-env-name': environmentName
   'owner': owner
@@ -34,7 +37,7 @@ var resourceToken = toLower(uniqueString(subscription().id, environmentName, loc
 
 resource rg 'Microsoft.Resources/resourceGroups@2022-09-01' = {
   name: !empty(resourceGroupName) ? resourceGroupName : 'rg-${environmentName}'
-  location: location
+  location: !empty(resourceGroupLocation) ? resourceGroupLocation : location
   tags: tags
 }
 

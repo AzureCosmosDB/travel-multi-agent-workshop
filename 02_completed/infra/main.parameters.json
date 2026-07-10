@@ -20,6 +20,9 @@
     "resourceGroupName": {
       "value": "${AZURE_RESOURCE_GROUP=}"
     },
+    "resourceGroupLocation": {
+      "value": "${AZURE_RG_LOCATION=}"
+    },
     "deployGsi": {
       "value": "${DEPLOY_GSI=false}"
     }
