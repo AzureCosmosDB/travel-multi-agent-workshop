@@ -50,6 +50,10 @@ def _build_chat_model(deployment_name: str) -> AzureChatOpenAI:
         azure_ad_token_provider=token_provider,
         streaming=True,
         max_retries=1,
+        # Emit a final usage chunk while streaming so LangChain aggregates real token
+        # counts into AIMessage.usage_metadata (otherwise usage is lost under streaming,
+        # which zeroes out the analytics token/cost measures).
+        model_kwargs={"stream_options": {"include_usage": True}},
     )
     if _is_reasoning_deployment(deployment_name):
         kwargs["api_version"] = _REASONING_API_VERSION
