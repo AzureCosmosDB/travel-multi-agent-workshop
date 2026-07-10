@@ -111,11 +111,11 @@ module openAi './shared/openai.bicep' = {
 //Deploy OpenAI Deployments
 var deployments = [
   {
-    name: 'gpt-4.1-mini'
+    name: 'gpt-5.1'
     skuCapacity: 30
 	skuName: 'GlobalStandard'
-    modelName: 'gpt-4.1-mini'
-    modelVersion: '2025-04-14'
+    modelName: 'gpt-5.1'
+    modelVersion: '2025-11-13'
   }
   {
     name: 'text-embedding-3-small'
@@ -123,6 +123,20 @@ var deployments = [
 	skuName: 'GlobalStandard'
     modelName: 'text-embedding-3-small'
     modelVersion: '1'
+  }
+  {
+    name: 'gpt-5-nano'
+    skuCapacity: 50
+	skuName: 'GlobalStandard'
+    modelName: 'gpt-5-nano'
+    modelVersion: '2025-08-07'
+  }
+  {
+    name: 'gpt-5-mini'
+    skuCapacity: 30
+	skuName: 'GlobalStandard'
+    modelName: 'gpt-5-mini'
+    modelVersion: '2025-08-07'
   }
 ]
 

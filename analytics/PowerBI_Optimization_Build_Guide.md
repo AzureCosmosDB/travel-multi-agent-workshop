@@ -113,8 +113,8 @@ Est Cost USD =
 SUMX(
     'TravelAssistant OptimizationTurns',
     VAR d    = 'TravelAssistant OptimizationTurns'[model_deployment]
-    VAR pin  = SWITCH(TRUE(), d = "gpt-5-nano", 0.05, d = "gpt-4.1-mini", 0.40, d = "gpt-5.1", 1.25, 0.40)
-    VAR pout = SWITCH(TRUE(), d = "gpt-5-nano", 0.40, d = "gpt-4.1-mini", 1.60, d = "gpt-5.1", 10.0, 1.60)
+    VAR pin  = SWITCH(TRUE(), d = "gpt-5-nano", 0.05, d = "gpt-5-mini", 0.25, d = "gpt-5.1", 1.25, 1.25)
+    VAR pout = SWITCH(TRUE(), d = "gpt-5-nano", 0.40, d = "gpt-5-mini", 2.00, d = "gpt-5.1", 10.0, 10.0)
     RETURN ('TravelAssistant OptimizationTurns'[input_tokens] * pin + 'TravelAssistant OptimizationTurns'[output_tokens] * pout) / 1000000
 )
 
@@ -205,8 +205,8 @@ Answers: **Which turns are wasteful, and what's the recommended fix?**
   > that need no reasoning. Today every turn runs on the same mid-tier model, so we pay the same for
   > "thanks!" as for "plan my 5-day trip to Tokyo."
   > **Recommendation:** route trivial turns to a cheaper model (`gpt-5-nano`) and reserve the larger
-  > model for complex requests. Trivial turns cost ~4–8× less on `gpt-5-nano` than `gpt-4.1-mini`
-  > (input $0.05 vs $0.40; output $0.40 vs $1.60 per 1M tokens) — no quality loss on turns that were
+  > model for complex requests. Trivial turns cost ~25× less on `gpt-5-nano` than the default `gpt-5.1`
+  > (input $0.05 vs $1.25; output $0.40 vs $10.00 per 1M tokens) — no quality loss on turns that were
   > never reasoning. **Impact:** lower Cost per Outcome while confirmed trips stay flat.
 
 ## Page 4: Applied Optimizations (governance / audit)

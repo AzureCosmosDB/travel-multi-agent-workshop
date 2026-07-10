@@ -15,9 +15,9 @@ load_dotenv(override=False)
 
 # Azure OpenAI configuration
 AZURE_OPENAI_ENDPOINT = os.getenv("AZURE_OPENAI_ENDPOINT")
-AZURE_OPENAI_DEPLOYMENT = os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4o")
+AZURE_OPENAI_DEPLOYMENT = os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-5.1")
 AZURE_OPENAI_EMBEDDING_DEPLOYMENT = os.getenv("AZURE_OPENAI_EMBEDDING_DEPLOYMENT", "text-embedding-3-small")
-AZURE_OPENAI_API_VERSION = os.getenv("AZURE_OPENAI_API_VERSION", "2024-08-01-preview")
+AZURE_OPENAI_API_VERSION = os.getenv("AZURE_OPENAI_API_VERSION", "2025-04-01-preview")
 AZURE_OPENAI_API_KEY = os.getenv("AZURE_OPENAI_API_KEY")
 
 # Initialize Azure credential and token provider
@@ -31,16 +31,37 @@ token_provider = get_bearer_token_provider(
 # LangChain Models (for agents)
 # ============================================================================
 
-# Initialize LangChain Azure OpenAI chat model
-model = AzureChatOpenAI(
-    api_version=AZURE_OPENAI_API_VERSION,
-    azure_endpoint=AZURE_OPENAI_ENDPOINT,
-    azure_deployment=AZURE_OPENAI_DEPLOYMENT,
-    azure_ad_token_provider=token_provider,
-    temperature=0.7,
-    streaming=True,
-    max_retries=1,
-)
+# gpt-5 / o-series are *reasoning* models: they reject a non-default
+# ``temperature`` and require a recent API version. gpt-5.1 is the default chat
+# model; we run it at reasoning_effort="low" to keep chat turns responsive.
+_REASONING_API_VERSION = "2025-04-01-preview"
+
+
+def _is_reasoning_deployment(deployment_name: str) -> bool:
+    name = (deployment_name or "").lower()
+    return name.startswith("gpt-5") or name.startswith("o1") or name.startswith("o3") or name.startswith("o4")
+
+
+def _build_chat_model(deployment_name: str) -> AzureChatOpenAI:
+    """Build an AzureChatOpenAI, adapting kwargs for reasoning vs classic models."""
+    kwargs: dict = dict(
+        azure_endpoint=AZURE_OPENAI_ENDPOINT,
+        azure_deployment=deployment_name,
+        azure_ad_token_provider=token_provider,
+        streaming=True,
+        max_retries=1,
+    )
+    if _is_reasoning_deployment(deployment_name):
+        kwargs["api_version"] = _REASONING_API_VERSION
+        kwargs["reasoning_effort"] = "low"
+    else:
+        kwargs["api_version"] = AZURE_OPENAI_API_VERSION
+        kwargs["temperature"] = 0.7
+    return AzureChatOpenAI(**kwargs)
+
+
+# Initialize LangChain Azure OpenAI chat model (default deployment)
+model = _build_chat_model(AZURE_OPENAI_DEPLOYMENT)
 
 # Initialize LangChain embeddings model
 embeddings_model = AzureOpenAIEmbeddings(
@@ -82,19 +103,9 @@ def get_model():
 # SCEN-007: an active optimization policy can route a turn to a cheaper model
 # (trivial turns) or a more capable one (complex turns). Each distinct Azure
 # deployment gets one lazily-built, cached AzureChatOpenAI instance here.
-#
-# gpt-5 / o-series are *reasoning* models: they reject a non-default
-# ``temperature`` and require a recent API version, so we special-case them.
-
-# API version known to support the gpt-5 / o-series reasoning deployments.
-_REASONING_API_VERSION = "2025-04-01-preview"
+# Reasoning-model handling lives in ``_build_chat_model`` above.
 
 _chat_model_cache: dict[str, AzureChatOpenAI] = {}
-
-
-def _is_reasoning_deployment(deployment_name: str) -> bool:
-    name = (deployment_name or "").lower()
-    return name.startswith("gpt-5") or name.startswith("o1") or name.startswith("o3") or name.startswith("o4")
 
 
 def get_chat_model(deployment_name: Optional[str] = None) -> AzureChatOpenAI:
@@ -110,21 +121,7 @@ def get_chat_model(deployment_name: Optional[str] = None) -> AzureChatOpenAI:
     if cached is not None:
         return cached
 
-    kwargs: dict = dict(
-        azure_endpoint=AZURE_OPENAI_ENDPOINT,
-        azure_deployment=deployment_name,
-        azure_ad_token_provider=token_provider,
-        streaming=True,
-        max_retries=1,
-    )
-    if _is_reasoning_deployment(deployment_name):
-        # Reasoning models: no temperature override; newer API version.
-        kwargs["api_version"] = _REASONING_API_VERSION
-    else:
-        kwargs["api_version"] = AZURE_OPENAI_API_VERSION
-        kwargs["temperature"] = 0.7
-
-    tiered = AzureChatOpenAI(**kwargs)
+    tiered = _build_chat_model(deployment_name)
     _chat_model_cache[deployment_name] = tiered
     logger.info(f"✅ Tiered chat model ready: deployment={deployment_name} "
                 f"reasoning={_is_reasoning_deployment(deployment_name)}")

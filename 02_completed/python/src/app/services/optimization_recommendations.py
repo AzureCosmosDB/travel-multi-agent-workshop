@@ -20,11 +20,11 @@ from typing import Any
 from src.app.services import azure_cosmos_db as cosmos
 from src.app.services import optimization_policy
 
-# Estimated USD per 1M tokens (input, output). ESTIMATE — verify before quoting.
+# Estimated USD per 1M tokens (input, output). Verified list pricing 2026-07.
 ESTIMATED_PRICING: dict[str, dict[str, float]] = {
-    "gpt-4.1-mini": {"input": 0.40, "output": 1.60},
-    "gpt-5-nano": {"input": 0.05, "output": 0.40},
     "gpt-5.1": {"input": 1.25, "output": 10.00},
+    "gpt-5-mini": {"input": 0.25, "output": 2.00},
+    "gpt-5-nano": {"input": 0.05, "output": 0.40},
 }
 
 MODEL_SELECTION_SCENARIO = "model-selection"
@@ -32,10 +32,10 @@ MODEL_SELECTION_SCENARIO = "model-selection"
 # The policy this card proposes (safe default: disabled until applied).
 PROPOSED_MODEL_SELECTION_PARAMS: dict[str, Any] = {
     "enabled": True,
-    "default_deployment": "gpt-4.1-mini",
+    "default_deployment": "gpt-5.1",
     "tiers": {
         "trivial": "gpt-5-nano",
-        "routine": "gpt-4.1-mini",
+        "routine": "gpt-5-mini",
         "complex": "gpt-5.1",
     },
     "classifier": {"trivial_max_words": 6},
@@ -78,12 +78,13 @@ def build_model_selection_recommendation(tenant_id: str) -> dict[str, Any]:
             trivial_in += int(b.get("input_tokens") or 0)
             trivial_out += out
 
-    # Estimated saving IF trivial turns moved from mini -> nano, using the tokens
-    # actually observed on those turns. Optimistic: ignores nano reasoning tokens,
-    # which is why the verify step (measured before/after) is the real proof.
-    mini = ESTIMATED_PRICING["gpt-4.1-mini"]
+    # Estimated saving IF trivial turns moved from the default (gpt-5.1) -> nano,
+    # using the tokens actually observed on those turns. Optimistic: ignores nano
+    # reasoning tokens, which is why the verify step (measured before/after) is
+    # the real proof.
+    baseline = ESTIMATED_PRICING["gpt-5.1"]
     nano = ESTIMATED_PRICING["gpt-5-nano"]
-    cost_now = (trivial_in * mini["input"] + trivial_out * mini["output"]) / 1_000_000
+    cost_now = (trivial_in * baseline["input"] + trivial_out * baseline["output"]) / 1_000_000
     cost_proposed = (trivial_in * nano["input"] + trivial_out * nano["output"]) / 1_000_000
     est_saving = round(cost_now - cost_proposed, 4)
 
