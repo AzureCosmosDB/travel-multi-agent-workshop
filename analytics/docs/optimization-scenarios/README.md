@@ -50,7 +50,7 @@ moves *business outcomes*. A healthy catalog has at least one scenario per dimen
 
 ## What we can measure (signal inventory)
 
-Everything below already lands in `TravelAssistantV2` (no new instrumentation needed):
+Everything below already lands in `TravelAssistant` (no new instrumentation needed):
 
 | Source | Key fields | Feeds |
 |---|---|---|

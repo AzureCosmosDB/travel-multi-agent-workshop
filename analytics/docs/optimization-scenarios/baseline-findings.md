@@ -1,7 +1,7 @@
 # Baseline findings — mining the `v2_analytics` dataset
 
 First **data-first** pass (discovery method #1) over the generated baseline in
-`TravelAssistantV2` / tenant `v2_analytics`. These numbers validate (or weaken) the
+`TravelAssistant` / tenant `v2_analytics`. These numbers validate (or weaken) the
 candidate scenarios in the [catalog](README.md) with real signal from data we already capture.
 
 > **Caveat:** this is **generated** data (12 personas via the data generator), not production

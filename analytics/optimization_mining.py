@@ -12,7 +12,7 @@ Trips + the Agent Memory Toolkit containers) — no new instrumentation. Results
 Usage (repo root, with the v2 venv and Cosmos access via DefaultAzureCredential):
     python analytics/optimization_mining.py --tenant v2_analytics
 
-Env: reads COSMOSDB_ENDPOINT (+ COSMOSDB_DATABASE_NAME, default TravelAssistantV2)
+Env: reads COSMOSDB_ENDPOINT (+ COSMOSDB_DATABASE_NAME, default TravelAssistant)
 from 02_completed/python/.env, matching the running app.
 """
 from __future__ import annotations
@@ -100,7 +100,7 @@ def verify_model_selection(db, tenant: str, container: str = "OptimizationTurns"
 def main() -> None:
     ap = argparse.ArgumentParser(description="Mine a tenant for optimization-scenario evidence.")
     ap.add_argument("--tenant", default="v2_analytics")
-    ap.add_argument("--database", default=os.environ.get("COSMOSDB_DATABASE_NAME", "TravelAssistantV2"))
+    ap.add_argument("--database", default=os.environ.get("COSMOSDB_DATABASE_NAME", "TravelAssistant"))
     ap.add_argument("--verify", action="store_true",
                     help="Only print the SCEN-007 per-tier cost verify report (needs model_tier signal).")
     ap.add_argument("--container", default="OptimizationTurns",

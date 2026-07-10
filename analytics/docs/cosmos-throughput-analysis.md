@@ -2,7 +2,7 @@
 
 **Context:** Fabric mirroring requires a **provisioned** (not serverless) Cosmos account, so the
 workshop account needs throughput. This analysis grounds the choice of **dedicated per-container
-autoscale** over shared database throughput, using real data from the deployed `TravelAssistantV2`
+autoscale** over shared database throughput, using real data from the deployed `TravelAssistant`
 account (2026-07-09).
 
 ## Inventory — 15 containers

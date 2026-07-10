@@ -155,8 +155,8 @@ Notice what the Console is doing: it turns thousands of individual turns into a 
 
 ### Power BI (provided)
 
-For the deep, real-time view, use the provided **`analytics/TravelAssistantV2AnalyticsReport.pbit`**
-template (built with the `analytics/PowerBI_Build_Guide_V2.md` guide):
+For the deep, real-time view, use the provided **`analytics/TravelAssistantAnalyticsReport.pbit`**
+template (built with the `analytics/PowerBI_Optimization_Build_Guide.md` guide):
 
 1. Open the `.pbit` in **Power BI Desktop**.
 2. When prompted, paste your **mirror SQL analytics endpoint** and **mirror database name** (from your

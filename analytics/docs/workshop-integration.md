@@ -168,7 +168,7 @@ capable one), driven by data the app already captures (ADR-0007 `Debug` logs).
   Cosmos status flip with an audit trail, never a code/prompt edit.
 - **Additive** — new files + additive fields; existing analytics stack (Fabric/Power BI/SQL) reads the
   same `Debug` container unchanged.
-- **Verified live** on `TravelAssistantV2` (per-turn routing, `Debug` records the actual serving
+- **Verified live** on `TravelAssistant` (per-turn routing, `Debug` records the actual serving
   model, revert returns to default) — see ADR-0008.
 
 **What it asks of the workshop:**

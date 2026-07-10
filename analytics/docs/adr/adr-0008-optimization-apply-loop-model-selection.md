@@ -49,7 +49,7 @@ effect from data.
   quota-allocated subscription-wide** (identical `used==limit` across every region), with no trimmable
   in-subscription consumer, so a quota-increase request would be required — avoided.
 
-## Evidence (verified live on `TravelAssistantV2`)
+## Evidence (verified live on `TravelAssistant`)
 
 - Deployed `gpt-5-nano` + `gpt-5.1` to `openai-kfpokdh52vbec`; smoke-tested both (need
   `max_completion_tokens`, reject non-default `temperature`, api `2025-04-01-preview`).

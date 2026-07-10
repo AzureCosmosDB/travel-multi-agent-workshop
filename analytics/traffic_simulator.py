@@ -73,9 +73,10 @@ def _turn_doc(tenant: str, user: str, session: str, tier: dict) -> dict:
 
 
 def _trip_doc(tenant: str, user: str) -> dict:
+    trip_id = str(uuid.uuid4())
     return {
-        "id": str(uuid.uuid4()),
-        "tenantId": tenant, "userId": user,
+        "id": trip_id,
+        "tenantId": tenant, "userId": user, "tripId": trip_id,
         "destination": random.choice(CITIES),
         "status": "confirmed",
         "createdAt": datetime.now(timezone.utc).isoformat(),
@@ -84,7 +85,7 @@ def _trip_doc(tenant: str, user: str) -> dict:
 
 def run_direct(args) -> None:
     endpoint = os.environ["COSMOSDB_ENDPOINT"]
-    db_name = os.environ.get("COSMOSDB_DATABASE_NAME", "TravelAssistantV2")
+    db_name = os.environ.get("COSMOSDB_DATABASE_NAME", "TravelAssistant")
     db = CosmosClient(endpoint, DefaultAzureCredential()).get_database_client(db_name)
     turns = db.get_container_client("OptimizationTurns")
     trips = db.get_container_client("Trips")
