@@ -26,6 +26,9 @@
     "deployAnalytics": {
       "value": "${DEPLOY_ANALYTICS=true}"
     },
+    "deployHostedApp": {
+      "value": "${DEPLOY_HOSTED_APP=true}"
+    },
     "deployGsi": {
       "value": "${DEPLOY_GSI=false}"
     }

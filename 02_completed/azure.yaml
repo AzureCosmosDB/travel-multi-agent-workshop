@@ -1,6 +1,28 @@
 name: TravelAssistant
 metadata:
   template: azd-init@1.5.1
+# Hosted app services (deployed by `azd up` when deployHostedApp=true, the default for
+# this complete/demo solution). To run locally instead, set DEPLOY_HOSTED_APP=false and
+# use `azd provision` + the three-terminal local dev flow (see README).
+services:
+  mcp-server:
+    host: containerapp
+    language: python
+    docker:
+      path: ./Dockerfile.mcp
+      context: .
+  api:
+    host: containerapp
+    language: python
+    docker:
+      path: ./Dockerfile.api
+      context: .
+  frontend:
+    host: containerapp
+    language: ts
+    docker:
+      path: ./Dockerfile.frontend
+      context: .
 hooks:
   preprovision:
     posix:

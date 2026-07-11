@@ -1,0 +1,25 @@
+FROM node:20-alpine AS build
+
+WORKDIR /app
+
+COPY frontend/package.json frontend/package-lock.json* ./
+RUN npm ci
+
+COPY frontend/ ./
+RUN npm run build -- --configuration production
+
+FROM nginx:alpine
+
+# Copy the built Angular app (output path: dist/cosmos-voyager/browser)
+COPY --from=build /app/dist/cosmos-voyager/browser /usr/share/nginx/html
+
+# Copy nginx config template and entrypoint
+COPY frontend/nginx.conf.template /etc/nginx/nginx.conf.template
+COPY frontend/docker-entrypoint.sh /docker-entrypoint-custom.sh
+RUN chmod +x /docker-entrypoint-custom.sh
+
+EXPOSE 80
+
+ENTRYPOINT ["/docker-entrypoint-custom.sh"]
+CMD ["nginx", "-g", "daemon off;"]
+
