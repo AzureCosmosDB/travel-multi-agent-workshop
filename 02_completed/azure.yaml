@@ -30,7 +30,7 @@ hooks:
   preprovision:
     posix:
       shell: sh
-      interactive: false
+      interactive: true
       continueOnError: false
       run: |
         # Check if OWNER_EMAIL is already set in azd environment
@@ -42,9 +42,29 @@ hooks:
         else
           echo "OWNER_EMAIL already set to: $EXISTING_OWNER"
         fi
+        # When analytics is enabled, a Microsoft Fabric F2 capacity is deployed. Fabric
+        # capacities are only available in a subset of regions and may be restricted on
+        # your tenant (the app's own region often has NO usable Fabric capacity), so we
+        # prompt for the Fabric region separately.
+        DEPLOY_ANALYTICS=$(azd env get-value DEPLOY_ANALYTICS 2>/dev/null || echo "true")
+        if [ "$DEPLOY_ANALYTICS" != "false" ]; then
+          EXISTING_FAB=$(azd env get-value FABRIC_CAPACITY_LOCATION 2>/dev/null || echo "")
+          if [ -z "$EXISTING_FAB" ]; then
+            echo ""
+            echo "Analytics is enabled (deployAnalytics=true) -> a Fabric F2 capacity will be deployed."
+            echo "Enter an Azure region that has Fabric capacity available on your tenant."
+            printf "Fabric capacity region [westcentralus]: "
+            read FAB_REGION
+            if [ -z "$FAB_REGION" ]; then FAB_REGION="westcentralus"; fi
+            azd env set FABRIC_CAPACITY_LOCATION "$FAB_REGION"
+            echo "Fabric capacity region set to: $FAB_REGION"
+          else
+            echo "FABRIC_CAPACITY_LOCATION already set to: $EXISTING_FAB"
+          fi
+        fi
     windows:
       shell: pwsh
-      interactive: false
+      interactive: true
       continueOnError: false
       run: |
         # Set OWNER_EMAIL from current Azure user
@@ -60,6 +80,25 @@ hooks:
         } catch {
           Write-Host "Could not get current user, setting default"
           azd env set OWNER_EMAIL "user@example.com"
+        }
+        # When analytics is enabled, a Microsoft Fabric F2 capacity is deployed. Fabric
+        # capacities are only available in certain regions and may be restricted on your
+        # tenant (the app's own region often has NO usable Fabric capacity), so prompt for
+        # the Fabric region separately.
+        $deployAnalytics = (azd env get-value DEPLOY_ANALYTICS 2>$null)
+        if ($deployAnalytics -ne "false") {
+          $existingFab = (azd env get-value FABRIC_CAPACITY_LOCATION 2>$null)
+          if (-not $existingFab -or $existingFab.Trim() -eq "") {
+            Write-Host ""
+            Write-Host "Analytics is enabled (deployAnalytics=true) -> a Fabric F2 capacity will be deployed."
+            Write-Host "Enter an Azure region that has Fabric capacity available on your tenant."
+            $fabRegion = Read-Host "Fabric capacity region [westcentralus]"
+            if (-not $fabRegion -or $fabRegion.Trim() -eq "") { $fabRegion = "westcentralus" }
+            azd env set FABRIC_CAPACITY_LOCATION $fabRegion.Trim()
+            Write-Host "Fabric capacity region set to: $($fabRegion.Trim())"
+          } else {
+            Write-Host "FABRIC_CAPACITY_LOCATION already set to: $existingFab"
+          }
         }
   postprovision:
     posix:
