@@ -8,6 +8,31 @@ Follow the workshop modules to build your multi-agent travel planning system fro
 
 Get started here 👉  **[Start the Workshop](workshop/Home.md)**
 
+## Deployment & run options
+
+`azd provision` deploys the **data + AI infra** — an Azure Cosmos DB account (`TravelAssistant`
+database) and an Azure AI Foundry (AIServices) account with the **gpt-5.1** chat model,
+`text-embedding-3-small`, and the optimization-tier models (`gpt-5-nano`, `gpt-5-mini`). The
+post-provision hook writes `python/.env` + `mcp_server/.env`, creates a virtualenv, and seeds Cosmos.
+
+During the workshop the application (Travel API, MCP server, Angular frontend) **runs locally** against
+that infra — see `frontend/README.md` and Module 00. Running locally keeps cost low and avoids a
+container build/deploy every time you change code.
+
+### Optional deployment flags
+
+Set with `azd env set <NAME> <value>` before `azd provision`:
+
+| Flag (env var) | Default (01_exercises) | Effect |
+|---|---|---|
+| `deployAnalytics` (`DEPLOY_ANALYTICS`) | **true** | Provisions the analytics/optimization Cosmos containers (`OptimizationPolicies`, `OptimizationTurns`, `OptimizationInsights`) used by **Modules 07 (Analytics)** and **08 (Optimization)**. Set `false` if you are not doing those modules, for a leaner, cheaper base deployment. |
+
+```powershell
+# Example: skip the analytics containers (not doing Modules 07/08)
+azd env set DEPLOY_ANALYTICS false
+azd provision
+```
+
 ## Project Structure
 
 ```
