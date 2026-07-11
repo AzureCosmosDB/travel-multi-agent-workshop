@@ -43,6 +43,14 @@ region that has Fabric capacity available to you.
   account (OAuth2)** — the deploying user has Cosmos Data Contributor on the new account. This is the
   one manual step; pass the resulting connection id to `provision_fabric.py --phase 2 --connection-id <id>`.
 
+> **Automating this last step is parked, not shipped.** Creating the connection
+> programmatically works today on MSIT but is **demo-only** (the embedded token can't
+> refresh, ~60–90 min TTL) and MSIT-endpoint-specific. The working spike is preserved at
+> [`experimental/create_oauth_connection.py`](./experimental/create_oauth_connection.py)
+> and tracked in [`../docs/parking-lot.md`](../docs/parking-lot.md); we'll wire it in when
+> the Fabric gateway team ships audience/refresh support. Until then, **ship with the
+> manual connection step above.**
+
 ## provision_fabric.py — Phases 1 & 2 (automated, validated end-to-end)
 
 `python analytics/fabric/provision_fabric.py --phase 1` (reads config from `azd env` or CLI flags):
