@@ -268,45 +268,87 @@ def _wait_for_sp_in_aad(sp_object_id: str, timeout: int = 300) -> bool:
     return False
 
 
+def _current_user_object_id() -> Optional[str]:
+    exe = "az.cmd" if os.name == "nt" else "az"
+    r = subprocess.run(
+        [exe, "ad", "signed-in-user", "show", "--query", "id", "-o", "tsv"],
+        capture_output=True, text=True,
+    )
+    return r.stdout.strip() if r.returncode == 0 and r.stdout.strip() else None
+
+
+def ensure_fabric_mirroring_role(cosmos_account: str, rg: str, account_scope: str) -> str:
+    """Return the id of a custom Cosmos role granting readMetadata + readAnalytics,
+    creating it if it doesn't already exist. Fabric mirroring's analytical snapshot read
+    requires readAnalytics, which the built-in Data Contributor role does NOT include."""
+    wanted = {
+        "Microsoft.DocumentDB/databaseAccounts/readMetadata",
+        "Microsoft.DocumentDB/databaseAccounts/readAnalytics",
+    }
+    defs = json.loads(
+        az(["cosmosdb", "sql", "role", "definition", "list", "-a", cosmos_account, "-g", rg, "-o", "json"])
+        or "[]"
+    )
+    for d in defs:
+        perms = d.get("permissions") or []
+        actions = set(perms[0].get("dataActions", [])) if perms else set()
+        if wanted <= actions:
+            return d["id"].split("/sqlRoleDefinitions/")[-1]
+    log("creating custom FabricMirroringRole (readMetadata + readAnalytics)...")
+    body = {
+        "RoleName": "FabricMirroringRole",
+        "Type": "CustomRole",
+        "AssignableScopes": [account_scope],
+        "Permissions": [{"DataActions": sorted(wanted)}],
+    }
+    bf = os.path.join(os.getenv("TEMP", "/tmp"), "fabric_role.json")
+    with open(bf, "w", encoding="utf-8") as f:
+        json.dump(body, f)
+    out = az(["cosmosdb", "sql", "role", "definition", "create", "-a", cosmos_account, "-g", rg,
+              "--body", f"@{bf}", "-o", "json"])
+    return json.loads(out)["id"].split("/sqlRoleDefinitions/")[-1]
+
+
+def _assign_role(cosmos_account: str, rg: str, account_scope: str, role_id: str,
+                 principal_id: str, existing: list, label: str) -> None:
+    for a in existing:
+        props = a.get("properties", a)
+        if props.get("principalId") == principal_id and props.get("roleDefinitionId", "").endswith(role_id):
+            log(f"role already assigned to {label}")
+            return
+    log(f"assigning FabricMirroringRole to {label} ({principal_id})...")
+    az(["cosmosdb", "sql", "role", "assignment", "create", "-a", cosmos_account, "-g", rg,
+        "--role-definition-id", role_id, "--principal-id", principal_id, "--scope", account_scope])
+
+
 def grant_cosmos_rbac(cosmos_account: str, rg: str, sub: str, sp_object_id: str) -> None:
-    """Grant the workspace identity the built-in Cosmos Data Contributor data-plane role."""
-    if not sp_object_id:
-        log("no workspace-identity SP object id; skipping Cosmos RBAC")
-        return
-    if not _wait_for_sp_in_aad(sp_object_id):
-        log("WARNING: workspace-identity SP did not appear in AAD in time; "
-            "re-run this script to finish the Cosmos RBAC assignment.")
-        return
+    """Grant Cosmos readMetadata + readAnalytics to the connection identity.
+
+    Fabric mirroring reads Cosmos through the connection. With an OAuth2 connection that
+    identity is the **deploying user**; with a (future) WorkspaceIdentity connection it is
+    the **workspace identity SP**. Both need readAnalytics (built-in Data Contributor is
+    NOT enough), so we grant a custom FabricMirroringRole to the user (the identity that
+    actually matters today) and to the workspace identity SP for the future path.
+    """
     account_scope = (
         f"/subscriptions/{sub}/resourceGroups/{rg}/providers/"
         f"Microsoft.DocumentDB/databaseAccounts/{cosmos_account}"
     )
+    role_id = ensure_fabric_mirroring_role(cosmos_account, rg, account_scope)
     existing = json.loads(
-        az(
-            [
-                "cosmosdb", "sql", "role", "assignment", "list",
-                "-a", cosmos_account, "-g", rg, "-o", "json",
-            ]
-        )
+        az(["cosmosdb", "sql", "role", "assignment", "list", "-a", cosmos_account, "-g", rg, "-o", "json"])
         or "[]"
     )
-    for a in existing:
-        props = a.get("properties", a)
-        if (props.get("principalId") == sp_object_id
-                and props.get("roleDefinitionId", "").endswith(COSMOS_DATA_CONTRIBUTOR)):
-            log("Cosmos Data Contributor already assigned to workspace identity")
-            return
-    log("assigning Cosmos Data Contributor to workspace identity...")
-    az(
-        [
-            "cosmosdb", "sql", "role", "assignment", "create",
-            "-a", cosmos_account, "-g", rg,
-            "--role-definition-id", COSMOS_DATA_CONTRIBUTOR,
-            "--principal-id", sp_object_id,
-            "--scope", account_scope,
-        ]
-    )
-    log("Cosmos RBAC assigned")
+    user_oid = _current_user_object_id()
+    if user_oid:
+        _assign_role(cosmos_account, rg, account_scope, role_id, user_oid, existing,
+                     "the deploying user (OAuth2 connection identity)")
+    else:
+        log("WARNING: could not resolve the signed-in user object id; the OAuth2 mirror "
+            "connection needs readAnalytics on this account.")
+    if sp_object_id and _wait_for_sp_in_aad(sp_object_id):
+        _assign_role(cosmos_account, rg, account_scope, role_id, sp_object_id, existing,
+                     "the workspace identity SP")
 
 
 def enable_cosmos_bypass(cosmos_account: str, rg: str, tenant_id: str, ws_id: str) -> None:

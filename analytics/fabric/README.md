@@ -43,14 +43,31 @@ region that has Fabric capacity available to you.
   account (OAuth2)** — the deploying user has Cosmos Data Contributor on the new account. This is the
   one manual step; pass the resulting connection id to `provision_fabric.py --phase 2 --connection-id <id>`.
 
-## provision_fabric.py — Phase 1 (automated, validated)
+## provision_fabric.py — Phases 1 & 2 (automated, validated end-to-end)
 
 `python analytics/fabric/provision_fabric.py --phase 1` (reads config from `azd env` or CLI flags):
 creates the workspace, assigns it to the F2 capacity, provisions the workspace identity, waits for
-the identity SP to propagate to AAD, grants it Cosmos **Data Contributor**, and sets the Cosmos
-network-ACL bypass for the workspace. Idempotent (re-run safe). **Validated end-to-end 2026-07-11**
-against the West Central US capacity. Phase 2 (mirror + notebook) then needs the manual OAuth2
-connection above; Phase 3 optionally imports a `.pbit`.
+the identity SP to propagate to AAD, and grants Cosmos **`readMetadata` + `readAnalytics`** (a custom
+`FabricMirroringRole`) to the connection identity. `--phase 2 --connection-id <id>` then creates the
+mirror (OptimizationTurns / Trips / OptimizationPolicies), waits for it to initialize, starts it, and
+uploads the parameterized notebook. Idempotent. **Validated live 2026-07-11**: mirror `Running`, all
+tables `Replicating` (642 / 35 / 0 rows).
+
+### Two gotchas that cost real debugging time (now fixed in code)
+
+1. **`readAnalytics`, not Data Contributor.** The mirror reads Cosmos **as the connection identity**
+   — for an OAuth2 connection that's the **deploying user**, not the workspace identity. Fabric's
+   analytical snapshot read requires `Microsoft.DocumentDB/databaseAccounts/readAnalytics`, which the
+   **built-in Cosmos Data Contributor role does NOT include**. Missing it surfaces as a *misleading*
+   `Http request ... status code 0, either account doesn't exist or it has been deleted` error (looks
+   like a network/region problem — it isn't). Fix: grant a custom role with `readMetadata` +
+   `readAnalytics` to the **user** (see the Cosmos mirroring limitations doc). This is **not** a
+   regional issue — mirroring works cross-region.
+
+2. **Don't set `networkAclBypass` on a public account.** The `networkAclBypass` allowlist is a
+   **private-endpoint** feature. Setting `networkAclBypass=AzureServices` on a public account
+   (`publicNetworkAccess=Enabled`, the workshop default) *blocks* the mirroring snapshot service.
+   Leave it `None` for public accounts; only allowlist a workspace for VNet/PE-restricted accounts.
 
 
 ## What is automated (and proven)
@@ -58,8 +75,8 @@ connection above; Phase 3 optionally imports a `.pbit`.
 | Step | How | State |
 |---|---|---|
 | Workspace identity | `POST /v1/workspaces/{id}/provisionIdentity` | ✅ SP `32087df7-ff95-490f-994f-e2a385f419ab` |
-| Cosmos RBAC | custom `FabricMirroringRole` (`readMetadata`+`readAnalytics`) + built-in Data Contributor, assigned to the workspace identity | ✅ |
-| Network trust | `EnableFabricNetworkAclBypass` capability + `networkAclBypass=AzureServices` + bypass resource id for the workspace | ✅ |
+| Cosmos RBAC | custom `FabricMirroringRole` (`readMetadata`+`readAnalytics`) assigned to the **OAuth2 connection identity (the user)** + the workspace identity | ✅ |
+| Network trust | none needed for public accounts; `networkAclBypass` only for VNet/PE-restricted accounts | ✅ |
 | Mirror | `POST /v1/workspaces/{id}/mirroredDatabases` (source CosmosDb → connection + database, `mountedTables`) + `/startMirroring` | ✅ `TravelAssistantV2Analytics` (`debe9a19-…`) replicating |
 | Reverse-ETL notebook | `POST /v1/workspaces/{id}/notebooks` + `updateDefinition` + `jobs/instances?jobType=RunNotebook` | ⏳ uploaded; read method being finalized (see below) |
 | Traffic simulator | `analytics/traffic_simulator.py` | ✅ proven: 83 turns → mirror in ~60s |
