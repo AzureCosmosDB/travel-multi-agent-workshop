@@ -10,8 +10,16 @@ notebooks, RBAC, and networking are automated through the **Fabric REST API** an
 the **Azure Cosmos ARM API**.
 
 - **Workspace:** Cosmos FabCon (`37733bf9-e6c2-4472-b4fb-22cb547079f7`), F64 capacity.
-- **Cosmos:** `cosmos-kfpokdh52vbec` (rg `rg-mjb-fabcon-travel`), DB `TravelAssistantV2`.
-  Already **provisioned throughput + Continuous backup** (both required for mirroring).
+- **Cosmos (current, westus):** `cosmos-f2tx5x7js4bwi` (rg `rg-mjb-fabcon-travel`), DB `TravelAssistant`.
+  Provisioned autoscale + Continuous backup + `EnableFabricNetworkAclBypass` (all required for mirroring).
+  RBAC (FabricMirroringRole + Data Contributor) assigned to workspace identity SP `32087df7-…` on this
+  account; `networkAclBypass=AzureServices` + the workspace bypass resource id are set.
+- **Cosmos (legacy, westcentralus):** `cosmos-kfpokdh52vbec` / `TravelAssistantV2` — the original mirror
+  (`TravelAssistantV2Analytics`) + semantic model + notebook were built here; **stale** after the
+  westus redeploy. Retire once the new mirror is validated.
+- **Connection:** WorkspaceIdentity connection is **still blocked** (`DMTS_UntrustedEndpointForWorkspaceIdentity`,
+  re-confirmed 2026-07); create the connection via the **portal Mirrored-DB flow with Organizational
+  account (OAuth2)** — the deploying user has Cosmos Data Contributor on the new account.
 
 ## What is automated (and proven)
 
