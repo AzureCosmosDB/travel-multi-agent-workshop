@@ -298,3 +298,4 @@ output AZURE_CONTAINER_REGISTRY_NAME string = deployHostedApp ? containerRegistr
 output FRONTEND_URI string = deployHostedApp ? frontendApp.outputs.uri : ''
 output FABRIC_CAPACITY_NAME string = deployAnalytics ? fabricCapacity.outputs.name : ''
 output FABRIC_CAPACITY_ID string = deployAnalytics ? fabricCapacity.outputs.id : ''
+output MANAGED_IDENTITY_PRINCIPAL_ID string = managedIdentity.outputs.principalId

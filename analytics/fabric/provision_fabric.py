@@ -321,14 +321,16 @@ def _assign_role(cosmos_account: str, rg: str, account_scope: str, role_id: str,
         "--role-definition-id", role_id, "--principal-id", principal_id, "--scope", account_scope])
 
 
-def grant_cosmos_rbac(cosmos_account: str, rg: str, sub: str, sp_object_id: str) -> None:
-    """Grant Cosmos readMetadata + readAnalytics to the connection identity.
+def grant_cosmos_rbac(cosmos_account: str, rg: str, sub: str, sp_object_id: str,
+                      app_identity_oid: str = "") -> None:
+    """Grant Cosmos readMetadata + readAnalytics to every identity that may drive mirroring.
 
     Fabric mirroring reads Cosmos through the connection. With an OAuth2 connection that
-    identity is the **deploying user**; with a (future) WorkspaceIdentity connection it is
-    the **workspace identity SP**. Both need readAnalytics (built-in Data Contributor is
-    NOT enough), so we grant a custom FabricMirroringRole to the user (the identity that
-    actually matters today) and to the workspace identity SP for the future path.
+    identity is the **deploying user**; with a (future) WorkspaceIdentity or service-
+    principal connection it is the **workspace identity SP** or the **app's managed
+    identity**. All need readAnalytics (built-in Data Contributor is NOT enough), so we
+    grant a custom FabricMirroringRole to: the deploying user (the identity that matters
+    today), the app's managed identity, and the workspace identity SP (future paths).
     """
     account_scope = (
         f"/subscriptions/{sub}/resourceGroups/{rg}/providers/"
@@ -346,6 +348,9 @@ def grant_cosmos_rbac(cosmos_account: str, rg: str, sub: str, sp_object_id: str)
     else:
         log("WARNING: could not resolve the signed-in user object id; the OAuth2 mirror "
             "connection needs readAnalytics on this account.")
+    if app_identity_oid:
+        _assign_role(cosmos_account, rg, account_scope, role_id, app_identity_oid, existing,
+                     "the app managed identity")
     if sp_object_id and _wait_for_sp_in_aad(sp_object_id):
         _assign_role(cosmos_account, rg, account_scope, role_id, sp_object_id, existing,
                      "the workspace identity SP")
@@ -559,6 +564,7 @@ def resolve_config(args: argparse.Namespace) -> dict[str, str]:
         "cosmos_account": account or "",
         "cosmos_endpoint": endpoint,
         "db_name": args.database or env.get("COSMOS_DB_DATABASE_NAME", "TravelAssistant"),
+        "app_identity_oid": args.app_identity_principal_id or env.get("MANAGED_IDENTITY_PRINCIPAL_ID", ""),
     }
     return cfg
 
@@ -572,6 +578,9 @@ def main() -> None:
     p.add_argument("--tenant")
     p.add_argument("--cosmos-account", help="Cosmos account name (default derived from COSMOSDB_ENDPOINT)")
     p.add_argument("--cosmos-endpoint")
+    p.add_argument("--app-identity-principal-id",
+                   help="app managed identity object id to also grant the mirroring role "
+                        "(default from azd MANAGED_IDENTITY_PRINCIPAL_ID)")
     p.add_argument("--database", help="Cosmos database name (default TravelAssistant)")
     p.add_argument("--connection-id", help="pre-created OAuth2 Cosmos connection id (skips the interactive prompt)")
     p.add_argument("--notebook", default=os.path.join(os.path.dirname(__file__), "TravelAssistantOptimizationInsights.ipynb"))
@@ -594,7 +603,7 @@ def main() -> None:
     ws_id = get_or_create_workspace(tok, cfg["workspace_name"], capacity_id)
     persist_env({"FABRIC_WORKSPACE_ID": ws_id, "FABRIC_CAPACITY_NAME": cfg["capacity_name"]})
     sp = provision_workspace_identity(tok, ws_id)
-    grant_cosmos_rbac(cfg["cosmos_account"], cfg["rg"], cfg["sub"], sp or "")
+    grant_cosmos_rbac(cfg["cosmos_account"], cfg["rg"], cfg["sub"], sp or "", cfg.get("app_identity_oid", ""))
     enable_cosmos_bypass(cfg["cosmos_account"], cfg["rg"], cfg["tenant_id"], ws_id)
     log(f"PHASE 1 COMPLETE. workspace={ws_id}")
 

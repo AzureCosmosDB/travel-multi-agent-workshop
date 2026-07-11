@@ -351,3 +351,4 @@ output API_URI string = deployHostedApp ? apiApp.outputs.uri : ''
 output MCP_SERVER_URI string = deployHostedApp ? mcpServerApp.outputs.uri : ''
 output FABRIC_CAPACITY_NAME string = deployAnalytics ? fabricCapacity.outputs.name : ''
 output FABRIC_CAPACITY_ID string = deployAnalytics ? fabricCapacity.outputs.id : ''
+output MANAGED_IDENTITY_PRINCIPAL_ID string = managedIdentity.outputs.principalId
