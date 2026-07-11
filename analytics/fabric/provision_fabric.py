@@ -343,6 +343,7 @@ def get_or_create_mirror(tok: Tokens, ws_id: str, connection_id: str, db_name: s
     for m in r.json().get("value", []):
         if m.get("displayName") == name:
             log(f"mirror exists: {m['id']}")
+            _start_mirroring_when_ready(tok, ws_id, m["id"])
             return m["id"]
     mirroring = {
         "properties": {
@@ -372,9 +373,30 @@ def get_or_create_mirror(tok: Tokens, ws_id: str, connection_id: str, db_name: s
     resp = req("POST", f"{FABRIC_API}/workspaces/{ws_id}/mirroredDatabases", hdr, json_body=body, ok=(200, 201, 202))
     result = poll_lro(resp, hdr) or resp.json()
     mid = result["id"]
-    log(f"mirror created: {mid}; starting mirroring...")
-    req("POST", f"{FABRIC_API}/workspaces/{ws_id}/mirroredDatabases/{mid}/startMirroring", hdr, ok=(200, 202))
+    log(f"mirror created: {mid}; waiting for it to initialize before starting...")
+    _start_mirroring_when_ready(tok, ws_id, mid)
     return mid
+
+
+def _start_mirroring_when_ready(tok: Tokens, ws_id: str, mid: str, timeout: int = 300) -> None:
+    """A freshly-created mirror is 'Initializing'; startMirroring is only valid once it
+    reaches 'Initialized'/'Stopped'. Poll, then start (skip if already running)."""
+    hdr = tok.headers(FABRIC_SCOPE)
+    status_url = f"{FABRIC_API}/workspaces/{ws_id}/mirroredDatabases/{mid}/getMirroringStatus"
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        status = (req("POST", status_url, hdr, json_body={}, ok=(200,)).json() or {}).get("status")
+        if status in ("Running", "Starting"):
+            log(f"mirroring already {status}")
+            return
+        if status in ("Initialized", "Stopped"):
+            log(f"mirror {status}; starting mirroring...")
+            req("POST", f"{FABRIC_API}/workspaces/{ws_id}/mirroredDatabases/{mid}/startMirroring",
+                hdr, ok=(200, 202))
+            return
+        log(f"mirror status={status}; waiting...")
+        time.sleep(10)
+    raise TimeoutError(f"mirror {mid} did not become ready to start within {timeout}s")
 
 
 def upload_notebook(tok: Tokens, ws_id: str, nb_path: str, params: dict[str, str]) -> Optional[str]:
