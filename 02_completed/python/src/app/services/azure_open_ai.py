@@ -49,7 +49,10 @@ def _build_chat_model(deployment_name: str) -> AzureChatOpenAI:
         azure_deployment=deployment_name,
         azure_ad_token_provider=token_provider,
         streaming=True,
-        max_retries=1,
+        # Heavy turns (e.g. itinerary generation) fire many sequential model
+        # calls; a low retry count lets a single transient connection/DNS blip
+        # fail the whole turn. Retry a few times with backoff for resilience.
+        max_retries=4,
         # Emit a final usage chunk while streaming so LangChain aggregates real token
         # counts into AIMessage.usage_metadata (otherwise usage is lost under streaming,
         # which zeroes out the analytics token/cost measures).
