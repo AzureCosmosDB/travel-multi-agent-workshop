@@ -24,6 +24,9 @@ param resourceGroupName string = ''
 @description('Deploy the optional analytics/optimization Cosmos containers (Modules 07/08). Default true; set false for a leaner base workshop.')
 param deployAnalytics bool = true
 
+@description('Deploy the app as hosted Azure Container Apps (API + MCP + frontend). Default FALSE for the exercises — run the app locally during the workshop. Set true (DEPLOY_HOSTED_APP=true) + uncomment the services in azure.yaml to deploy a hosted instance.')
+param deployHostedApp bool = false
+
 var tags = {
   'azd-env-name': environmentName
   'owner': owner
@@ -88,11 +91,11 @@ module openAi './shared/openai.bicep' = {
 //Deploy OpenAI Deployments
 var deployments = [
   {
-    name: 'gpt-4.1-mini'
+    name: 'gpt-5.1'
     skuCapacity: 30
 	skuName: 'GlobalStandard'
-    modelName: 'gpt-4.1-mini'
-    modelVersion: '2025-04-14'
+    modelName: 'gpt-5.1'
+    modelVersion: '2025-11-13'
   }
   {
     name: 'text-embedding-3-small'
@@ -109,11 +112,11 @@ var deployments = [
     modelVersion: '2025-08-07'
   }
   {
-    name: 'gpt-5.1'
-    skuCapacity: 10
+    name: 'gpt-5-mini'
+    skuCapacity: 30
     skuName: 'GlobalStandard'
-    modelName: 'gpt-5.1'
-    modelVersion: '2025-11-13'
+    modelName: 'gpt-5-mini'
+    modelVersion: '2025-08-07'
   }
 ]
 
@@ -148,9 +151,127 @@ module AssignRoles './shared/assignroles.bicep' = {
 }
 
 
+// ============================================================================
+// Optional hosted app (Azure Container Apps) — gated by deployHostedApp (default false)
+// ============================================================================
+var appBaseEnv = [
+  { name: 'COSMOSDB_ENDPOINT', value: cosmos.outputs.endpoint }
+  { name: 'COSMOSDB_DATABASE_NAME', value: 'TravelAssistant' }
+  { name: 'AZURE_OPENAI_ENDPOINT', value: openAi.outputs.endpoint }
+  { name: 'AZURE_OPENAI_EMBEDDING_DEPLOYMENT', value: 'text-embedding-3-small' }
+  { name: 'AZURE_OPENAI_DEPLOYMENT', value: 'gpt-5.1' }
+  { name: 'AZURE_OPENAI_API_VERSION', value: '2025-04-01-preview' }
+  { name: 'AZURE_CLIENT_ID', value: managedIdentity.outputs.clientId }
+  { name: 'MCP_AUTH_SECRET_KEY', value: 'travel-mcp-server-jwt-secret-for-local-development' }
+  { name: 'MCP_AUTH_TOKEN', value: 'travel-server-dev-token-2024' }
+]
+
+module logAnalytics './shared/loganalytics.bicep' = if (deployHostedApp) {
+  name: 'log-analytics'
+  params: {
+    name: '${abbrs.operationalInsightsWorkspaces}${resourceToken}'
+    location: location
+    tags: tags
+  }
+  scope: rg
+}
+
+module containerRegistry './shared/containerregistry.bicep' = if (deployHostedApp) {
+  name: 'container-registry'
+  params: {
+    name: '${abbrs.containerRegistryRegistries}${resourceToken}'
+    location: location
+    tags: tags
+    identityPrincipalId: managedIdentity.outputs.principalId
+  }
+  scope: rg
+}
+
+module containerAppsEnvironment './shared/containerappenvironment.bicep' = if (deployHostedApp) {
+  name: 'container-apps-environment'
+  params: {
+    name: '${abbrs.appManagedEnvironments}${resourceToken}'
+    location: location
+    tags: tags
+    logAnalyticsWorkspaceName: logAnalytics.outputs.name
+  }
+  scope: rg
+}
+
+module mcpServerApp './shared/containerapp.bicep' = if (deployHostedApp) {
+  name: 'mcp-server-app'
+  params: {
+    name: '${abbrs.appContainerApps}mcp-${resourceToken}'
+    location: location
+    tags: union(tags, { 'azd-service-name': 'mcp-server' })
+    environmentId: containerAppsEnvironment.outputs.id
+    containerRegistryLoginServer: containerRegistry.outputs.loginServer
+    targetPort: 8080
+    identityId: managedIdentity.outputs.id
+    external: false
+    minReplicas: 1
+    maxReplicas: 3
+    cpu: '1'
+    memory: '2Gi'
+    env: concat(appBaseEnv, [
+      { name: 'PORT', value: '8080' }
+    ])
+  }
+  scope: rg
+}
+
+module apiApp './shared/containerapp.bicep' = if (deployHostedApp) {
+  name: 'api-app'
+  params: {
+    name: '${abbrs.appContainerApps}api-${resourceToken}'
+    location: location
+    tags: union(tags, { 'azd-service-name': 'api' })
+    environmentId: containerAppsEnvironment.outputs.id
+    containerRegistryLoginServer: containerRegistry.outputs.loginServer
+    targetPort: 8000
+    identityId: managedIdentity.outputs.id
+    external: false
+    minReplicas: 1
+    maxReplicas: 3
+    cpu: '1'
+    memory: '2Gi'
+    env: concat(appBaseEnv, [
+      { name: 'MCP_SERVER_BASE_URL', value: 'http://${mcpServerApp.outputs.fqdn}' }
+      { name: 'PORT', value: '8000' }
+    ])
+  }
+  scope: rg
+}
+
+module frontendApp './shared/containerapp.bicep' = if (deployHostedApp) {
+  name: 'frontend-app'
+  params: {
+    name: '${abbrs.appContainerApps}web-${resourceToken}'
+    location: location
+    tags: union(tags, { 'azd-service-name': 'frontend' })
+    environmentId: containerAppsEnvironment.outputs.id
+    containerRegistryLoginServer: containerRegistry.outputs.loginServer
+    targetPort: 80
+    identityId: managedIdentity.outputs.id
+    external: true
+    minReplicas: 1
+    maxReplicas: 3
+    cpu: '0.25'
+    memory: '0.5Gi'
+    env: [
+      { name: 'API_BASE_URL', value: 'http://${apiApp.outputs.fqdn}' }
+    ]
+  }
+  scope: rg
+}
+
+
 // Outputs
 output RG_NAME string = 'rg-${environmentName}'
 output COSMOSDB_ENDPOINT string = cosmos.outputs.endpoint
 output AZURE_OPENAI_ENDPOINT string = openAi.outputs.endpoint
 output AZURE_OPENAI_COMPLETIONSDEPLOYMENTID string = openAiModelDeployments[0].outputs.name
 output AZURE_OPENAI_EMBEDDINGDEPLOYMENTID string = openAiModelDeployments[1].outputs.name
+output AZURE_CONTAINER_REGISTRY_ENDPOINT string = deployHostedApp ? containerRegistry.outputs.loginServer : ''
+output AZURE_CONTAINER_REGISTRY_NAME string = deployHostedApp ? containerRegistry.outputs.name : ''
+output FRONTEND_URI string = deployHostedApp ? frontendApp.outputs.uri : ''

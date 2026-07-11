@@ -22,6 +22,9 @@
     },
     "deployAnalytics": {
       "value": "${DEPLOY_ANALYTICS=true}"
+    },
+    "deployHostedApp": {
+      "value": "${DEPLOY_HOSTED_APP=false}"
     }
   }
 }

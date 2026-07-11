@@ -1,6 +1,32 @@
 name: TravelAssistant
 metadata:
   template: azd-init@1.5.1
+# The workshop runs the app LOCALLY by default (three-terminal dev flow). `azd provision`
+# deploys only the data + AI infra. To instead deploy a HOSTED instance on Azure Container
+# Apps: (1) `azd env set DEPLOY_HOSTED_APP true`, (2) uncomment the `services:` block below,
+# then (3) `azd up`. (The complete solution in 02_completed ships with hosting enabled.)
+# services:
+#   mcp-server:
+#     host: containerapp
+#     language: python
+#     docker:
+#       path: ./Dockerfile.mcp
+#       context: .
+#       remoteBuild: true
+#   api:
+#     host: containerapp
+#     language: python
+#     docker:
+#       path: ./Dockerfile.api
+#       context: .
+#       remoteBuild: true
+#   frontend:
+#     host: containerapp
+#     language: ts
+#     docker:
+#       path: ./Dockerfile.frontend
+#       context: .
+#       remoteBuild: true
 hooks:
   preprovision:
     posix:
@@ -48,7 +74,7 @@ hooks:
         AZURE_OPENAI_ENDPOINT=\"$AZURE_OPENAI_ENDPOINT\"
         AZURE_OPENAI_EMBEDDING_DEPLOYMENT=\"$AZURE_OPENAI_EMBEDDINGDEPLOYMENTID\"
         AZURE_OPENAI_DEPLOYMENT=\"$AZURE_OPENAI_COMPLETIONSDEPLOYMENTID\"
-        AZURE_OPENAI_API_VERSION=\"2024-12-01-preview\"
+        AZURE_OPENAI_API_VERSION=\"2025-04-01-preview\"
         MCP_AUTH_SECRET_KEY=\"travel-mcp-server-jwt-secret-for-local-development\"
         MCP_AUTH_TOKEN=\"travel-server-dev-token-2024\"
         MCP_SERVER_BASE_URL=\"http://localhost:8080\"
@@ -67,7 +93,7 @@ hooks:
         AZURE_OPENAI_ENDPOINT=\"$AZURE_OPENAI_ENDPOINT\"
         AZURE_OPENAI_EMBEDDING_DEPLOYMENT=\"$AZURE_OPENAI_EMBEDDINGDEPLOYMENTID\"
         AZURE_OPENAI_DEPLOYMENT=\"$AZURE_OPENAI_COMPLETIONSDEPLOYMENTID\"
-        AZURE_OPENAI_API_VERSION=\"2024-12-01-preview\"
+        AZURE_OPENAI_API_VERSION=\"2025-04-01-preview\"
         MCP_AUTH_SECRET_KEY=\"travel-mcp-server-jwt-secret-for-local-development\"
         MCP_AUTH_TOKEN=\"travel-server-dev-token-2024\"
         MCP_SERVER_BASE_URL=\"http://localhost:8080\"
@@ -141,7 +167,7 @@ hooks:
         AZURE_OPENAI_ENDPOINT=""$env:AZURE_OPENAI_ENDPOINT""
         AZURE_OPENAI_EMBEDDING_DEPLOYMENT=""$env:AZURE_OPENAI_EMBEDDINGDEPLOYMENTID""
         AZURE_OPENAI_DEPLOYMENT=""$env:AZURE_OPENAI_COMPLETIONSDEPLOYMENTID""
-        AZURE_OPENAI_API_VERSION=""2024-12-01-preview""
+        AZURE_OPENAI_API_VERSION=""2025-04-01-preview""
         MCP_AUTH_SECRET_KEY=""travel-mcp-server-jwt-secret-for-local-development""
         MCP_AUTH_TOKEN=""travel-server-dev-token-2024""
         MCP_SERVER_BASE_URL=""http://localhost:8080""
@@ -161,7 +187,7 @@ hooks:
         AZURE_OPENAI_ENDPOINT=""$env:AZURE_OPENAI_ENDPOINT""
         AZURE_OPENAI_EMBEDDING_DEPLOYMENT=""$env:AZURE_OPENAI_EMBEDDINGDEPLOYMENTID""
         AZURE_OPENAI_DEPLOYMENT=""$env:AZURE_OPENAI_COMPLETIONSDEPLOYMENTID""
-        AZURE_OPENAI_API_VERSION=""2024-12-01-preview""
+        AZURE_OPENAI_API_VERSION=""2025-04-01-preview""
         MCP_AUTH_SECRET_KEY=""travel-mcp-server-jwt-secret-for-local-development""
         MCP_AUTH_TOKEN=""travel-server-dev-token-2024""
         MCP_SERVER_BASE_URL=""http://localhost:8080""
