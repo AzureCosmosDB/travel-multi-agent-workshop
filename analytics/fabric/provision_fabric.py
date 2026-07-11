@@ -486,7 +486,7 @@ def resolve_config(args: argparse.Namespace) -> dict[str, str]:
 
 def main() -> None:
     p = argparse.ArgumentParser(description="Provision Fabric analytics for Travel Assistant optimization")
-    p.add_argument("--workspace", default="Travel Assistant Optimization", help="new workspace display name")
+    p.add_argument("--workspace", default="Multi-Agent Travel Workshop", help="new workspace display name")
     p.add_argument("--capacity", help="Fabric capacity display name (default from azd FABRIC_CAPACITY_NAME)")
     p.add_argument("--resource-group", help="Cosmos resource group (default azd RG_NAME)")
     p.add_argument("--subscription")

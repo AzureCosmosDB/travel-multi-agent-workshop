@@ -10,20 +10,26 @@ notebooks, RBAC, and networking are automated through the **Fabric REST API** an
 the **Azure Cosmos ARM API**. Most of Phase 1 is now scripted end-to-end in
 [`provision_fabric.py`](./provision_fabric.py); see below.
 
-## ⚠️ Fabric capacity region — read first
+## Fabric capacity region — flexible by design
 
-Fabric capacities are only available in a **subset of Azure regions**, and availability
-is **per-tenant**. On this tenant (MSIT), **West US has NO usable Fabric capacity**: an
-ARM-created `Microsoft.Fabric/capacities` resource there reports **Succeeded/Active in
-ARM but never appears in the Fabric control plane** (`/v1/capacities`) — so it can't be
-assigned to a workspace and is effectively dead. **West Central US** works (the capacity
-appeared in the Fabric API within ~30s). This is why `azd up` prompts for a separate
-`FABRIC_CAPACITY_LOCATION` (default `westcentralus`) rather than reusing the app region.
+`azd up` prompts for a separate `FABRIC_CAPACITY_LOCATION` (default `westcentralus`) so you can
+place the Fabric capacity **wherever it best suits you**, independently of the app's own region.
+Fabric capacity availability varies by Azure region and can be governed per-tenant, so the region
+you deploy the app into isn't necessarily where you want — or are allowed — to run Fabric. Pick any
+region that has Fabric capacity available to you.
+
+> **Example:** on the tenant this was built against, the app runs in **West US** while the Fabric
+> capacity lives in **West Central US** — hence the separate prompt.
+>
+> **Heads-up:** if you choose a region where Fabric capacity isn't actually available to your
+> tenant, the ARM `Microsoft.Fabric/capacities` resource can still report **Succeeded/Active** yet
+> never appear in the Fabric control plane (`/v1/capacities`), so it can't be used. If that happens,
+> redeploy the capacity in a region you know has Fabric (it typically appears within ~30s).
 
 - **Capacity (current):** `fabf2tx5x7js4bwi` — **F2**, **West Central US**, Fabric id
   `a04c5461-c9d4-4eb8-b67e-bb76fc302f2d`, admin `mjbrown@microsoft.com`. Deployed by
   `infra/shared/fabriccapacity.bicep` (gated by `deployAnalytics`).
-- **Workspace (current):** `Travel Assistant Optimization` = `e743e261-e1a7-4a64-a6e0-7e4182fce243`,
+- **Workspace (current):** `Multi-Agent Travel Workshop` = `e743e261-e1a7-4a64-a6e0-7e4182fce243`,
   assigned to the F2 capacity, workspace identity SP `8f33e8f7-d216-43e3-8d9f-0426c4d1df4e`
   (app `84c6d9a1-9916-44de-aa42-732d91f50911`). **Created + wired by `provision_fabric.py --phase 1`.**
 - **Cosmos (current, westus):** `cosmos-f2tx5x7js4bwi` (rg `rg-mjb-fabcon-travel`), DB `TravelAssistant`.

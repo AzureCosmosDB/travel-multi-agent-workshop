@@ -44,9 +44,8 @@ hooks:
           echo "OWNER_EMAIL already set to: $EXISTING_OWNER"
         fi
         # When analytics is enabled, a Microsoft Fabric F2 capacity is deployed. Fabric
-        # capacities are only available in a subset of regions and may be restricted on
-        # your tenant (the app's own region often has NO usable Fabric capacity), so we
-        # prompt for the Fabric region separately.
+        # capacity availability varies by region and can be governed per-tenant, so we let
+        # you place it independently of the app region (see analytics/fabric/README.md).
         DEPLOY_ANALYTICS=$(azd env get-value DEPLOY_ANALYTICS 2>/dev/null || echo "true")
         if [ "$DEPLOY_ANALYTICS" != "false" ]; then
           EXISTING_FAB=$(azd env get-value FABRIC_CAPACITY_LOCATION 2>/dev/null || echo "")
@@ -83,9 +82,8 @@ hooks:
           azd env set OWNER_EMAIL "user@example.com"
         }
         # When analytics is enabled, a Microsoft Fabric F2 capacity is deployed. Fabric
-        # capacities are only available in certain regions and may be restricted on your
-        # tenant (the app's own region often has NO usable Fabric capacity), so prompt for
-        # the Fabric region separately.
+        # capacity availability varies by region and can be governed per-tenant, so prompt
+        # for the Fabric region independently of the app region.
         $deployAnalytics = (azd env get-value DEPLOY_ANALYTICS 2>$null)
         if ($deployAnalytics -ne "false") {
           $existingFab = (azd env get-value FABRIC_CAPACITY_LOCATION 2>$null)
