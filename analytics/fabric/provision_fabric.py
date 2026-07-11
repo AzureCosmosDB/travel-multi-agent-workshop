@@ -177,9 +177,15 @@ def persist_env(updates: dict[str, str]) -> None:
 
 
 # --------------------------------------------------------------------------- phase 1
-def wait_for_capacity(tok: Tokens, capacity_name: str, timeout: int = 900) -> str:
-    """Return the Fabric capacity GUID once the ARM capacity has synced to Fabric."""
-    log(f"waiting for capacity '{capacity_name}' to appear in Fabric control plane...")
+def wait_for_capacity(tok: Tokens, capacity_name: str, timeout: int = 2400) -> str:
+    """Return the Fabric capacity GUID once the ARM capacity has synced to Fabric.
+
+    Newly ARM-created Fabric capacities can take a long time (observed 25+ minutes in
+    some tenants) to propagate into the Fabric control plane even though ARM already
+    reports them Active, so this waits generously.
+    """
+    log(f"waiting for capacity '{capacity_name}' to appear in Fabric control plane "
+        f"(ARM-created capacities can take 20-40 min to propagate)...")
     deadline = time.time() + timeout
     while time.time() < deadline:
         r = req("GET", f"{FABRIC_API}/capacities", tok.headers(FABRIC_SCOPE))
