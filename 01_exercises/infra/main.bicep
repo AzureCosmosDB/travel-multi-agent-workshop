@@ -27,6 +27,12 @@ param deployAnalytics bool = true
 @description('Deploy the app as hosted Azure Container Apps (API + MCP + frontend). Default FALSE for the exercises — run the app locally during the workshop. Set true (DEPLOY_HOSTED_APP=true) + uncomment the services in azure.yaml to deploy a hosted instance.')
 param deployHostedApp bool = false
 
+@description('Region for the Fabric capacity (deployed when deployAnalytics=true). Fabric capacities are region-restricted; override with FABRIC_CAPACITY_LOCATION when the app region is not an allowed Fabric region. Defaults to the app location.')
+param fabricCapacityLocation string = ''
+
+@description('Fabric capacity SKU (deployed when deployAnalytics=true). F2 is the smallest; the reverse-ETL Spark notebook bursts via Spark Autoscale Billing.')
+param fabricCapacitySku string = 'F2'
+
 var tags = {
   'azd-env-name': environmentName
   'owner': owner
@@ -266,6 +272,21 @@ module frontendApp './shared/containerapp.bicep' = if (deployHostedApp) {
 }
 
 
+// Fabric capacity for the analytics/optimization pipeline (gated by deployAnalytics).
+var fabricCapacityLocationResolved = empty(fabricCapacityLocation) ? location : fabricCapacityLocation
+module fabricCapacity './shared/fabriccapacity.bicep' = if (deployAnalytics) {
+  name: 'fabric-capacity'
+  params: {
+    name: 'fab${resourceToken}'
+    location: fabricCapacityLocationResolved
+    skuName: fabricCapacitySku
+    adminMembers: [ owner ]
+    tags: tags
+  }
+  scope: rg
+}
+
+
 // Outputs
 output RG_NAME string = 'rg-${environmentName}'
 output COSMOSDB_ENDPOINT string = cosmos.outputs.endpoint
@@ -275,3 +296,5 @@ output AZURE_OPENAI_EMBEDDINGDEPLOYMENTID string = openAiModelDeployments[1].out
 output AZURE_CONTAINER_REGISTRY_ENDPOINT string = deployHostedApp ? containerRegistry.outputs.loginServer : ''
 output AZURE_CONTAINER_REGISTRY_NAME string = deployHostedApp ? containerRegistry.outputs.name : ''
 output FRONTEND_URI string = deployHostedApp ? frontendApp.outputs.uri : ''
+output FABRIC_CAPACITY_NAME string = deployAnalytics ? fabricCapacity.outputs.name : ''
+output FABRIC_CAPACITY_ID string = deployAnalytics ? fabricCapacity.outputs.id : ''

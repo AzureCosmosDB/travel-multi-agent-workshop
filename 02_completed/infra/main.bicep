@@ -33,6 +33,12 @@ param deployAnalytics bool = true
 @description('Deploy the app as hosted Azure Container Apps (API + MCP + frontend, with ACR + Container Apps env + Log Analytics). Default true for this complete/demo solution. Set false to run the app locally instead (provision only the data + AI infra).')
 param deployHostedApp bool = true
 
+@description('Region for the Fabric capacity (deployed when deployAnalytics=true). Fabric capacities are region-restricted; override with FABRIC_CAPACITY_LOCATION when the app region is not an allowed Fabric region. Defaults to the app location.')
+param fabricCapacityLocation string = ''
+
+@description('Fabric capacity SKU (deployed when deployAnalytics=true). F2 is the smallest; the reverse-ETL Spark notebook bursts via Spark Autoscale Billing.')
+param fabricCapacitySku string = 'F2'
+
 var tags = {
   'azd-env-name': environmentName
   'owner': owner
@@ -314,6 +320,23 @@ module frontendApp './shared/containerapp.bicep' = if (deployHostedApp) {
 }
 
 
+// Fabric capacity for the analytics/optimization pipeline (gated by deployAnalytics).
+// The smallest F-SKU; workspace + mirror + semantic model + notebook + report are then
+// provisioned by analytics/fabric/provision_fabric.py against this capacity.
+var fabricCapacityLocationResolved = empty(fabricCapacityLocation) ? location : fabricCapacityLocation
+module fabricCapacity './shared/fabriccapacity.bicep' = if (deployAnalytics) {
+  name: 'fabric-capacity'
+  params: {
+    name: 'fab${resourceToken}'
+    location: fabricCapacityLocationResolved
+    skuName: fabricCapacitySku
+    adminMembers: [ owner ]
+    tags: tags
+  }
+  scope: rg
+}
+
+
 // Outputs
 output RG_NAME string = 'rg-${environmentName}'
 output COSMOSDB_ENDPOINT string = deployGsi ? cosmosGsi.outputs.endpoint : cosmos.outputs.endpoint
@@ -326,3 +349,5 @@ output AZURE_CONTAINER_REGISTRY_NAME string = deployHostedApp ? containerRegistr
 output FRONTEND_URI string = deployHostedApp ? frontendApp.outputs.uri : ''
 output API_URI string = deployHostedApp ? apiApp.outputs.uri : ''
 output MCP_SERVER_URI string = deployHostedApp ? mcpServerApp.outputs.uri : ''
+output FABRIC_CAPACITY_NAME string = deployAnalytics ? fabricCapacity.outputs.name : ''
+output FABRIC_CAPACITY_ID string = deployAnalytics ? fabricCapacity.outputs.id : ''

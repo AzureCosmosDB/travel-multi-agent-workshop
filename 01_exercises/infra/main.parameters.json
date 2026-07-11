@@ -25,6 +25,12 @@
     },
     "deployHostedApp": {
       "value": "${DEPLOY_HOSTED_APP=false}"
+    },
+    "fabricCapacityLocation": {
+      "value": "${FABRIC_CAPACITY_LOCATION=}"
+    },
+    "fabricCapacitySku": {
+      "value": "${FABRIC_CAPACITY_SKU=F2}"
     }
   }
 }
