@@ -11,18 +11,21 @@ services:
     docker:
       path: ./Dockerfile.mcp
       context: .
+      remoteBuild: true
   api:
     host: containerapp
     language: python
     docker:
       path: ./Dockerfile.api
       context: .
+      remoteBuild: true
   frontend:
     host: containerapp
     language: ts
     docker:
       path: ./Dockerfile.frontend
       context: .
+      remoteBuild: true
 hooks:
   preprovision:
     posix:
@@ -258,3 +261,34 @@ hooks:
         Write-Host "✅ Setup complete!"
         Write-Host ""
         Write-Host "═══════════════════════════════════════════════════════════════"
+  postdeploy:
+    posix:
+      shell: sh
+      interactive: false
+      continueOnError: true
+      run: |
+        echo "Restarting API container to establish a fresh MCP session..."
+        API_NAME=$(az containerapp list -g "$RG_NAME" --query "[?tags.\"azd-service-name\"=='api'].name" -o tsv)
+        if [ -n "$API_NAME" ]; then
+          API_REVISION=$(az containerapp show --name "$API_NAME" -g "$RG_NAME" --query "properties.latestRevisionName" -o tsv 2>/dev/null)
+          az containerapp revision restart --name "$API_NAME" -g "$RG_NAME" --revision "$API_REVISION"
+          echo "✅ API container restarted with fresh MCP session"
+        else
+          echo "⚠️  Could not find API container app to restart"
+        fi
+    windows:
+      shell: pwsh
+      interactive: false
+      continueOnError: true
+      run: |
+        Write-Host "Restarting API container to establish a fresh MCP session..."
+        $apiName = (az containerapp list -g "$env:RG_NAME" --query "[?tags.""azd-service-name""=='api'].name" -o tsv 2>$null)
+        if ($apiName) {
+          $revision = (az containerapp show --name $apiName -g "$env:RG_NAME" --query "properties.latestRevisionName" -o tsv 2>$null)
+          if ($revision) {
+            az containerapp revision restart --name $apiName -g "$env:RG_NAME" --revision $revision
+            Write-Host "✅ API container restarted with fresh MCP session"
+          }
+        } else {
+          Write-Host "⚠️  Could not find API container app to restart"
+        }
