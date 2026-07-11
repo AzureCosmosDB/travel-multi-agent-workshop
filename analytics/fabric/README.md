@@ -7,19 +7,45 @@ mirroring**, a reverse-ETL notebook, and a real-time Power BI story.
 Everything here was driven via **REST + `az`** with a normal `az login` token —
 **no MCP or extra tooling needed**. Fabric ARM support is limited, so mirroring,
 notebooks, RBAC, and networking are automated through the **Fabric REST API** and
-the **Azure Cosmos ARM API**.
+the **Azure Cosmos ARM API**. Most of Phase 1 is now scripted end-to-end in
+[`provision_fabric.py`](./provision_fabric.py); see below.
 
-- **Workspace:** Cosmos FabCon (`37733bf9-e6c2-4472-b4fb-22cb547079f7`), F64 capacity.
+## ⚠️ Fabric capacity region — read first
+
+Fabric capacities are only available in a **subset of Azure regions**, and availability
+is **per-tenant**. On this tenant (MSIT), **West US has NO usable Fabric capacity**: an
+ARM-created `Microsoft.Fabric/capacities` resource there reports **Succeeded/Active in
+ARM but never appears in the Fabric control plane** (`/v1/capacities`) — so it can't be
+assigned to a workspace and is effectively dead. **West Central US** works (the capacity
+appeared in the Fabric API within ~30s). This is why `azd up` prompts for a separate
+`FABRIC_CAPACITY_LOCATION` (default `westcentralus`) rather than reusing the app region.
+
+- **Capacity (current):** `fabf2tx5x7js4bwi` — **F2**, **West Central US**, Fabric id
+  `a04c5461-c9d4-4eb8-b67e-bb76fc302f2d`, admin `mjbrown@microsoft.com`. Deployed by
+  `infra/shared/fabriccapacity.bicep` (gated by `deployAnalytics`).
+- **Workspace (current):** `Travel Assistant Optimization` = `e743e261-e1a7-4a64-a6e0-7e4182fce243`,
+  assigned to the F2 capacity, workspace identity SP `8f33e8f7-d216-43e3-8d9f-0426c4d1df4e`
+  (app `84c6d9a1-9916-44de-aa42-732d91f50911`). **Created + wired by `provision_fabric.py --phase 1`.**
 - **Cosmos (current, westus):** `cosmos-f2tx5x7js4bwi` (rg `rg-mjb-fabcon-travel`), DB `TravelAssistant`.
   Provisioned autoscale + Continuous backup + `EnableFabricNetworkAclBypass` (all required for mirroring).
-  RBAC (FabricMirroringRole + Data Contributor) assigned to workspace identity SP `32087df7-…` on this
-  account; `networkAclBypass=AzureServices` + the workspace bypass resource id are set.
-- **Cosmos (legacy, westcentralus):** `cosmos-kfpokdh52vbec` / `TravelAssistantV2` — the original mirror
-  (`TravelAssistantV2Analytics`) + semantic model + notebook were built here; **stale** after the
-  westus redeploy. Retire once the new mirror is validated.
+  Cosmos **Data Contributor** assigned to the workspace identity SP `8f33e8f7-…`;
+  `networkAclBypass=AzureServices` + the workspace bypass resource id are set (both by Phase 1).
+- **Legacy (retire):** old F64 workspace `37733bf9-…` + `cosmos-kfpokdh52vbec`/`TravelAssistantV2`
+  mirror `TravelAssistantV2Analytics` (`debe9a19-…`) — stale after the westus redeploy.
 - **Connection:** WorkspaceIdentity connection is **still blocked** (`DMTS_UntrustedEndpointForWorkspaceIdentity`,
   re-confirmed 2026-07); create the connection via the **portal Mirrored-DB flow with Organizational
-  account (OAuth2)** — the deploying user has Cosmos Data Contributor on the new account.
+  account (OAuth2)** — the deploying user has Cosmos Data Contributor on the new account. This is the
+  one manual step; pass the resulting connection id to `provision_fabric.py --phase 2 --connection-id <id>`.
+
+## provision_fabric.py — Phase 1 (automated, validated)
+
+`python analytics/fabric/provision_fabric.py --phase 1` (reads config from `azd env` or CLI flags):
+creates the workspace, assigns it to the F2 capacity, provisions the workspace identity, waits for
+the identity SP to propagate to AAD, grants it Cosmos **Data Contributor**, and sets the Cosmos
+network-ACL bypass for the workspace. Idempotent (re-run safe). **Validated end-to-end 2026-07-11**
+against the West Central US capacity. Phase 2 (mirror + notebook) then needs the manual OAuth2
+connection above; Phase 3 optionally imports a `.pbit`.
+
 
 ## What is automated (and proven)
 
