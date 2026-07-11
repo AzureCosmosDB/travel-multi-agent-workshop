@@ -21,6 +21,9 @@ param owner string = 'defaultuser@example.com'
 @description('Override the resource group name. Defaults to rg-<environmentName>.')
 param resourceGroupName string = ''
 
+@description('Deploy the optional analytics/optimization Cosmos containers (Modules 07/08). Default true; set false for a leaner base workshop.')
+param deployAnalytics bool = true
+
 var tags = {
   'azd-env-name': environmentName
   'owner': owner
@@ -65,6 +68,7 @@ module cosmos './shared/cosmosdb.bicep' = {
     optimizationPoliciesContainerName: 'OptimizationPolicies'
     optimizationTurnsContainerName: 'OptimizationTurns'
     optimizationInsightsContainerName: 'OptimizationInsights'
+    deployAnalytics: deployAnalytics
   }
   scope: rg
 }

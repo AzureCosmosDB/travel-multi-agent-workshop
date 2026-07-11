@@ -23,6 +23,9 @@
     "resourceGroupLocation": {
       "value": "${AZURE_RG_LOCATION=}"
     },
+    "deployAnalytics": {
+      "value": "${DEPLOY_ANALYTICS=true}"
+    },
     "deployGsi": {
       "value": "${DEPLOY_GSI=false}"
     }

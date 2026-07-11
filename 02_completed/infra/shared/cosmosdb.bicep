@@ -12,6 +12,11 @@ param memoriesContainerName string = 'memories'
 param turnsContainerName string = 'memories_turns'
 param summariesContainerName string = 'memories_summaries'
 param counterContainerName string = 'counter'
+param optimizationPoliciesContainerName string = 'OptimizationPolicies'
+param optimizationTurnsContainerName string = 'OptimizationTurns'
+param optimizationInsightsContainerName string = 'OptimizationInsights'
+@description('Deploy the optional analytics/optimization containers (Modules 07/08 — OptimizationPolicies/Turns/Insights). Set false for a leaner base deployment; the app still self-provisions them at runtime if the analytics features are used.')
+param deployAnalytics bool = true
 @description('Embedding dimensions for the memories container vector index. Must match the embedding model used by AgentMemoryToolkit (text-embedding-3-small = 1536).')
 param memoriesEmbeddingDimensions int = 1536
 @description('Default per-container autoscale max RU/s (autoscale floors at 10%). Dedicated per-container throughput avoids shared-throughput asymmetry trip wires.')
@@ -784,6 +789,123 @@ resource cosmosContainerCounter 'Microsoft.DocumentDB/databaseAccounts/sqlDataba
 }
 
 
+
+
+// Optimization Policies (analytics apply-loop) — PK /scenario
+resource cosmosContainerOptimizationPolicies 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2024-12-01-preview' = if (deployAnalytics) {
+  parent: database
+  name: optimizationPoliciesContainerName
+  properties: {
+    resource: {
+      id: optimizationPoliciesContainerName
+      partitionKey: {
+        paths: [
+          '/scenario'
+        ]
+        kind: 'Hash'
+        version: 2
+      }
+      indexingPolicy: {
+        indexingMode: 'consistent'
+        automatic: true
+        includedPaths: [
+          {
+            path: '/*'
+          }
+        ]
+        excludedPaths: [
+          {
+            path: '/"_etag"/?'
+          }
+        ]
+      }
+    }
+    options: {
+      autoscaleSettings: {
+        maxThroughput: containerMaxRU
+      }
+    }
+  }
+  tags: tags
+}
+
+// Optimization Turns (per-turn tier/token capture) — PK [/tenantId,/userId,/sessionId]
+resource cosmosContainerOptimizationTurns 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2024-12-01-preview' = if (deployAnalytics) {
+  parent: database
+  name: optimizationTurnsContainerName
+  properties: {
+    resource: {
+      id: optimizationTurnsContainerName
+      partitionKey: {
+        paths: [
+          '/tenantId'
+          '/userId'
+          '/sessionId'
+        ]
+        kind: 'MultiHash'
+        version: 2
+      }
+      indexingPolicy: {
+        indexingMode: 'consistent'
+        automatic: true
+        includedPaths: [
+          {
+            path: '/*'
+          }
+        ]
+        excludedPaths: [
+          {
+            path: '/"_etag"/?'
+          }
+        ]
+      }
+    }
+    options: {
+      autoscaleSettings: {
+        maxThroughput: containerMaxRU
+      }
+    }
+  }
+  tags: tags
+}
+
+// Optimization Insights (Fabric reverse-ETL target for computed KPIs/cards) — PK /tenantId
+resource cosmosContainerOptimizationInsights 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2024-12-01-preview' = if (deployAnalytics) {
+  parent: database
+  name: optimizationInsightsContainerName
+  properties: {
+    resource: {
+      id: optimizationInsightsContainerName
+      partitionKey: {
+        paths: [
+          '/tenantId'
+        ]
+        kind: 'Hash'
+        version: 2
+      }
+      indexingPolicy: {
+        indexingMode: 'consistent'
+        automatic: true
+        includedPaths: [
+          {
+            path: '/*'
+          }
+        ]
+        excludedPaths: [
+          {
+            path: '/"_etag"/?'
+          }
+        ]
+      }
+    }
+    options: {
+      autoscaleSettings: {
+        maxThroughput: containerMaxRU
+      }
+    }
+  }
+  tags: tags
+}
 
 
 // Outputs

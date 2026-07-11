@@ -15,6 +15,8 @@ param counterContainerName string = 'counter'
 param optimizationPoliciesContainerName string = 'OptimizationPolicies'
 param optimizationTurnsContainerName string = 'OptimizationTurns'
 param optimizationInsightsContainerName string = 'OptimizationInsights'
+@description('Deploy the optional analytics/optimization containers (Modules 07/08 — OptimizationPolicies/Turns/Insights). Set false for a leaner base workshop that skips the analytics modules.')
+param deployAnalytics bool = true
 @description('Embedding dimensions for the memories container vector index. Must match the embedding model used by azure-cosmos-agent-memory (text-embedding-3-small = 1536).')
 param memoriesEmbeddingDimensions int = 1536
 @description('Default per-container autoscale max RU/s (autoscale floors at 10%). Dedicated per-container throughput avoids shared-throughput asymmetry trip wires.')
@@ -793,7 +795,7 @@ resource cosmosContainerCounter 'Microsoft.DocumentDB/databaseAccounts/sqlDataba
 
 // Container 13: Optimization Policies (analytics apply-loop)
 // Partition Key: /scenario (one active policy doc per optimization scenario)
-resource cosmosContainerOptimizationPolicies 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2024-12-01-preview' = {
+resource cosmosContainerOptimizationPolicies 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2024-12-01-preview' = if (deployAnalytics) {
   parent: database
   name: optimizationPoliciesContainerName
   properties: {
@@ -833,7 +835,7 @@ resource cosmosContainerOptimizationPolicies 'Microsoft.DocumentDB/databaseAccou
 
 // Container 14: Optimization Turns (per-turn tier/token capture for the apply-loop)
 // Partition Key: [/tenantId, /userId, /sessionId] (hierarchical, matches Debug)
-resource cosmosContainerOptimizationTurns 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2024-12-01-preview' = {
+resource cosmosContainerOptimizationTurns 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2024-12-01-preview' = if (deployAnalytics) {
   parent: database
   name: optimizationTurnsContainerName
   properties: {
@@ -875,7 +877,7 @@ resource cosmosContainerOptimizationTurns 'Microsoft.DocumentDB/databaseAccounts
 
 // Container 15: Optimization Insights (Fabric reverse-ETL target for computed KPIs/cards)
 // Partition Key: /tenantId
-resource cosmosContainerOptimizationInsights 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2024-12-01-preview' = {
+resource cosmosContainerOptimizationInsights 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2024-12-01-preview' = if (deployAnalytics) {
   parent: database
   name: optimizationInsightsContainerName
   properties: {

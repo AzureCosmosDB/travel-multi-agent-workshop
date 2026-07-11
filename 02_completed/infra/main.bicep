@@ -27,6 +27,9 @@ param resourceGroupName string = ''
 @description('Location for the resource group itself. Defaults to the resource location; set separately when deploying into a pre-existing resource group in a different region (RG location is metadata only and does not constrain resource regions).')
 param resourceGroupLocation string = ''
 
+@description('Deploy the optional analytics/optimization Cosmos containers (Modules 07/08). Default true; set false for a leaner base deployment.')
+param deployAnalytics bool = true
+
 var tags = {
   'azd-env-name': environmentName
   'owner': owner
@@ -71,6 +74,7 @@ module cosmos './shared/cosmosdb.bicep' = if (!deployGsi) {
     memoriesContainerName: 'memories'
     turnsContainerName: 'memories_turns'
     summariesContainerName: 'memories_summaries'
+    deployAnalytics: deployAnalytics
   }
   scope: rg
 }
