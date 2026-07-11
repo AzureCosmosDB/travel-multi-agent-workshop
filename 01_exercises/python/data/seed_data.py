@@ -220,6 +220,40 @@ def seed_memories(database) -> None:
         upload_items_concurrent(memories_container, memories, "memories")
 
 
+def seed_conversations(database) -> None:
+    """Seed the pre-baked generated data — conversation history + analytics signal.
+
+    These are captured once from a live deployment by ``export_conversations.py`` so
+    attendees/demo users get a fully-populated app + analytics with **no LLM**:
+
+        sessions.json           -> Sessions
+        messages.json           -> Messages
+        debug.json              -> Debug (deep per-turn telemetry)
+        optimization_turns.json -> OptimizationTurns (derived from Debug; analytics)
+
+    ``Debug`` / ``OptimizationTurns`` only exist when the analytics infra is deployed
+    (deployAnalytics=true); missing containers are skipped with a note.
+    """
+    print("\n💬 Seeding CONVERSATIONS + ANALYTICS SIGNAL (offline, no LLM)...")
+    for filename, container_name, label in (
+        ("sessions.json", "Sessions", "sessions"),
+        ("messages.json", "Messages", "messages"),
+        ("debug.json", "Debug", "debug turn logs"),
+        ("optimization_turns.json", "OptimizationTurns", "optimization turns"),
+    ):
+        items = load_json_file(filename)
+        if not items:
+            continue
+        try:
+            container = database.get_container_client(container_name)
+            container.read()
+        except CosmosResourceNotFoundError:
+            print(f"   ⚠️  Container '{container_name}' not found — skipping {label} "
+                  "(deploy analytics infra to seed it).")
+            continue
+        upload_items_concurrent(container, items, label)
+
+
 # ============================================================================
 # Main
 # ============================================================================
@@ -242,6 +276,7 @@ def main() -> None:
     seed_places(database.get_container_client("Places"))
     seed_trips(database.get_container_client("Trips"))
     seed_memories(database)
+    seed_conversations(database)
     print(f"\n✅ Seed complete in {time.time() - start:.1f}s")
 
 
