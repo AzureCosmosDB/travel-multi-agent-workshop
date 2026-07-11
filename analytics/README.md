@@ -26,6 +26,20 @@ This guide walks you through generating realistic data in the Travel Multi-Agent
 
 ## Step 1: Generate Data
 
+> **⏩ You can skip generating data.** A pre-baked "golden" dataset (conversations, memories,
+> trips, and the `OptimizationTurns` analytics signal for the `analytics_demo` + `marvel`
+> tenants) is committed under `python/data/` and loaded **into Cosmos DB offline, with no LLM
+> calls** by `seed_data.py` — which `azd up` runs automatically in its post-provision hook. So a
+> fresh `azd up` already gives you a fully-populated app, and the local **Optimization Console**
+> (which reads `OptimizationTurns` straight from Cosmos) works immediately.
+>
+> **This does not set up Fabric.** The Fabric analytics in this guide (mirror → notebook →
+> Power BI) still require you to **configure Cosmos DB mirroring in Step 2** so the seeded Cosmos
+> data replicates into Fabric — the seed just means the data is already in Cosmos waiting to be
+> mirrored (mirroring's initial snapshot picks up the existing rows). Run the generator below
+> **only** if you want to produce your own data from scratch or learn how it's made; to refresh
+> the committed dataset afterward, re-export it with `python data/export_conversations.py`.
+
 The application ships with only a handful of seed users and trips. The data generator creates realistic conversation data by simulating 12 user personas interacting with the travel assistant.
 
 ### 1.1 Set Up the Analytics Virtual Environment
