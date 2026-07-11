@@ -249,6 +249,7 @@ def seed_conversations(database) -> None:
         ("messages.json", "Messages", "messages"),
         ("debug.json", "Debug", "debug turn logs"),
         ("optimization_turns.json", "OptimizationTurns", "optimization turns"),
+        ("optimization_policies.json", "OptimizationPolicies", "optimization policies"),
     ):
         items = load_json_file(filename)
         if not items:
