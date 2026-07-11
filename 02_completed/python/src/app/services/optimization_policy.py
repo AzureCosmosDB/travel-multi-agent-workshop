@@ -27,7 +27,7 @@ import time
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-from azure.cosmos import PartitionKey
+from azure.cosmos import PartitionKey, ThroughputProperties
 
 from src.app.services import azure_cosmos_db as cosmos
 
@@ -61,6 +61,12 @@ def _get_container():
         _policies_container = cosmos.database.create_container_if_not_exists(
             id=CONTAINER_NAME,
             partition_key=PartitionKey(path="/scenario"),
+            # Autoscale to match the Bicep-provisioned container. Without this,
+            # Cosmos defaults a new dedicated container to manual 400 RU/s, which
+            # then conflicts with the Bicep autoscale offer ("Updating offer to
+            # autoscale throughput is not allowed") if the app self-provisions it
+            # before infra deploy.
+            offer_throughput=ThroughputProperties(auto_scale_max_throughput=1000),
         )
         logger.info("✅ OptimizationPolicies container ready")
     except Exception as exc:  # noqa: BLE001

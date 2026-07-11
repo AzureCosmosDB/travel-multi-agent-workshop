@@ -735,12 +735,15 @@ async def setup_agents(checkpointer=None):
     _mcp_client = MultiServerMCPClient(client_config)
     logger.info("✅ MCP Client initialized successfully")
 
-    # Create persistent session
+    # Create persistent session + load tools with timeouts. On a cold start the API
+    # can race ahead of the MCP server being ready; without a timeout the connect/
+    # load hangs indefinitely and blocks uvicorn startup (failing the health probe).
+    # A timeout makes it fail fast so the caller's retry logic recovers.
     _session_context = _mcp_client.session("travel_tools")
-    _persistent_session = await _session_context.__aenter__()
+    _persistent_session = await asyncio.wait_for(_session_context.__aenter__(), timeout=30)
 
     # Load all MCP tools once for this persistent session
-    all_tools = await load_mcp_tools(_persistent_session)
+    all_tools = await asyncio.wait_for(load_mcp_tools(_persistent_session), timeout=30)
 
     logger.info("[DEBUG] All tools registered from Travel Assistant MCP server:")
     for mcp_tool in all_tools:
