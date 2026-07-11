@@ -247,10 +247,35 @@ def provision_workspace_identity(tok: Tokens, ws_id: str) -> Optional[str]:
     return sp
 
 
+def _wait_for_sp_in_aad(sp_object_id: str, timeout: int = 300) -> bool:
+    """Wait for a newly-provisioned workspace-identity SP to be queryable in AAD.
+
+    Fabric provisions the identity immediately but its AAD service principal takes a
+    minute or two to propagate; Cosmos RBAC assignment fails with 'not found in the AAD
+    tenant' until it does.
+    """
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        exe = "az.cmd" if os.name == "nt" else "az"
+        r = subprocess.run(
+            [exe, "ad", "sp", "show", "--id", sp_object_id, "--query", "id", "-o", "tsv"],
+            capture_output=True, text=True,
+        )
+        if r.returncode == 0 and r.stdout.strip():
+            return True
+        log("waiting for workspace-identity SP to propagate to AAD...")
+        time.sleep(15)
+    return False
+
+
 def grant_cosmos_rbac(cosmos_account: str, rg: str, sub: str, sp_object_id: str) -> None:
     """Grant the workspace identity the built-in Cosmos Data Contributor data-plane role."""
     if not sp_object_id:
         log("no workspace-identity SP object id; skipping Cosmos RBAC")
+        return
+    if not _wait_for_sp_in_aad(sp_object_id):
+        log("WARNING: workspace-identity SP did not appear in AAD in time; "
+            "re-run this script to finish the Cosmos RBAC assignment.")
         return
     account_scope = (
         f"/subscriptions/{sub}/resourceGroups/{rg}/providers/"
