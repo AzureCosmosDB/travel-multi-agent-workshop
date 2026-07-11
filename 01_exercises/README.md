@@ -26,6 +26,7 @@ Set with `azd env set <NAME> <value>` before `azd provision`:
 | Flag (env var) | Default (01_exercises) | Effect |
 |---|---|---|
 | `deployAnalytics` (`DEPLOY_ANALYTICS`) | **true** | Provisions the analytics/optimization Cosmos containers (`OptimizationPolicies`, `OptimizationTurns`, `OptimizationInsights`) used by **Modules 07 (Analytics)** and **08 (Optimization)**. Set `false` if you are not doing those modules, for a leaner, cheaper base deployment. |
+| `deployHostedApp` (`DEPLOY_HOSTED_APP`) | **false** | Off by default — the workshop runs the app **locally** (`azd provision` + three terminals). To deploy a hosted instance on Azure Container Apps instead: `azd env set DEPLOY_HOSTED_APP true`, **uncomment the `services:` block in `azure.yaml`**, then `azd up`. (The complete solution in `02_completed` ships with hosting enabled by default.) |
 
 ```powershell
 # Example: skip the analytics containers (not doing Modules 07/08)
