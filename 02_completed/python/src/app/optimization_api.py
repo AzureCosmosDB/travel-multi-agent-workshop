@@ -24,6 +24,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from src.app.services import optimization_policy
+from src.app.services import fabric_capacity
 from src.app.services.optimization_recommendations import (
     build_recommendations,
     PROPOSED_MODEL_SELECTION_PARAMS,
@@ -59,6 +60,35 @@ class ActionBody(BaseModel):
 @router.get("/policies")
 def list_policies() -> dict[str, Any]:
     return {"policies": optimization_policy.list_policies()}
+
+
+# --- Fabric capacity control (pause/resume the analytics infra to stop the meter) ---
+@router.get("/fabric/capacity")
+def fabric_capacity_status() -> dict[str, Any]:
+    """Current Fabric capacity state, or {configured:false} if no capacity is wired up."""
+    try:
+        return fabric_capacity.get_status()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Fabric capacity status failed: %s", exc)
+        raise HTTPException(status_code=502, detail=f"Fabric capacity query failed: {exc}")
+
+
+@router.post("/fabric/capacity/suspend")
+def fabric_capacity_suspend() -> dict[str, Any]:
+    """Pause the Fabric capacity to stop billing."""
+    try:
+        return fabric_capacity.suspend()
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=f"Fabric capacity suspend failed: {exc}")
+
+
+@router.post("/fabric/capacity/resume")
+def fabric_capacity_resume() -> dict[str, Any]:
+    """Resume the Fabric capacity (needed to refresh the analytics)."""
+    try:
+        return fabric_capacity.resume()
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=f"Fabric capacity resume failed: {exc}")
 
 
 @router.get("/{tenant_id}")

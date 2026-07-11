@@ -82,6 +82,11 @@ hooks:
         DEDUP_EVERY_N=1
         THREAD_SUMMARY_EVERY_N=5
         USER_SUMMARY_EVERY_N=5
+        FABRIC_CAPACITY_NAME=\"$FABRIC_CAPACITY_NAME\"
+        AZURE_SUBSCRIPTION_ID=\"$AZURE_SUBSCRIPTION_ID\"
+        AZURE_RESOURCE_GROUP=\"$RG_NAME\"
+        FABRIC_WORKSPACE_ID=\"$FABRIC_WORKSPACE_ID\"
+        FABRIC_MIRROR_ID=\"$FABRIC_MIRROR_ID\"
         " > ./python/.env
 
         echo "✅ Environment file created at ./python/.env"
@@ -175,6 +180,11 @@ hooks:
         DEDUP_EVERY_N=1
         THREAD_SUMMARY_EVERY_N=5
         USER_SUMMARY_EVERY_N=5
+        FABRIC_CAPACITY_NAME=""$env:FABRIC_CAPACITY_NAME""
+        AZURE_SUBSCRIPTION_ID=""$env:AZURE_SUBSCRIPTION_ID""
+        AZURE_RESOURCE_GROUP=""$env:RG_NAME""
+        FABRIC_WORKSPACE_ID=""$env:FABRIC_WORKSPACE_ID""
+        FABRIC_MIRROR_ID=""$env:FABRIC_MIRROR_ID""
         " > ./python/.env
 
         Write-Host "✅ Environment file created at ./python/.env"

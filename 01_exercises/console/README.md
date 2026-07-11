@@ -31,6 +31,13 @@ Click **Refresh** (or press Enter in the Tenant box).
 - **Cost by tier** — spend grouped by the tier that served each turn.
 - **Recommendation cards** — detected opportunities with **Apply / Revert** buttons (lower-risk
   policies only; higher-risk prompt/code changes are staged for human review).
+- **Analytics infrastructure — Fabric capacity** *(shown only when a capacity is wired up)* — the
+  Fabric F-capacity that powers the analytics, with **Pause / Resume** buttons and a **mirror sync**
+  indicator. The capacity bills while it is running, so you resume it to refresh the analytics and
+  pause it when done to stop the meter. Because pausing/resuming a capacity does **not** auto-manage
+  Cosmos mirroring, Resume also restarts mirroring and Pause stops it; the indicator reports whether
+  the mirror is **caught up** (all tables past their initial snapshot) and the last sync time, so you
+  know when the analytics are current and safe to pause.
 
 ## Requirements
 
@@ -45,3 +52,13 @@ Click **Refresh** (or press Enter in the Tenant box).
 - `GET /optimizations/{tenant}` — recommendation cards
 - `GET /optimizations/policies` — policy status
 - `POST /optimizations/{scenario}/apply` · `POST /optimizations/{scenario}/revert`
+- `GET /optimizations/fabric/capacity` — Fabric capacity state + mirror sync status
+- `POST /optimizations/fabric/capacity/resume` — resume the capacity + restart mirroring
+- `POST /optimizations/fabric/capacity/suspend` — stop mirroring + pause the capacity
+
+The Fabric endpoints return `{"configured": false}` (and the console hides the control) unless
+`FABRIC_CAPACITY_NAME`, `AZURE_SUBSCRIPTION_ID`, and `AZURE_RESOURCE_GROUP` are set — the
+`azd up` post-provision hook writes them to `python/.env` when `deployAnalytics=true`, and
+`analytics/fabric/provision_fabric.py` adds `FABRIC_WORKSPACE_ID` / `FABRIC_MIRROR_ID` once the
+mirror exists. Locally the API acts as your `az login` identity (the capacity admin), so no extra
+RBAC is needed.

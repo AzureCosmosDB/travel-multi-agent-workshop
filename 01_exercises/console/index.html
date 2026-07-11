@@ -108,6 +108,10 @@
   <div class="note"><b>Lower-risk policies</b> (like model selection) can be applied here with one click and reverted just as easily. Higher-risk prompt/code changes are staged for human review instead.</div>
   <div id="cards"></div>
 
+  <div class="section-title" id="fabric-title" style="display:none">Analytics infrastructure &mdash; Fabric capacity</div>
+  <div class="note" id="fabric-note" style="display:none">The Fabric capacity that powers these analytics <b>bills while it is running</b>, idle or not. <b>Resume</b> it to refresh the mirror &amp; reverse-ETL, then <b>Pause</b> it when you are done to stop the meter &mdash; a cost optimization applied to the very infrastructure doing the optimizing.</div>
+  <div class="panel" id="fabric" style="display:none"></div>
+
   <div class="section-title">The loop</div>
   <div class="panel loop">
     <span class="pill"><b>instrument</b></span> &rarr;
@@ -237,6 +241,61 @@ async function act(path) {
   catch (e) { $("error").innerHTML = `<div class="err">${e.message}</div>`; }
 }
 
+function renderFabric(f) {
+  const show = f && f.configured;
+  ["fabric-title", "fabric-note", "fabric"].forEach(id => $(id).style.display = show ? "" : "none");
+  if (!show) return;
+  if (f.found === false) {
+    $("fabric").innerHTML = `<div class="note">Capacity <code>${f.name || ""}</code> is configured but not found.</div>`;
+    return;
+  }
+  const state = f.state || "Unknown";
+  const active = state === "Active";
+  const paused = state === "Paused" || state === "Suspended";
+  const label = active ? "Running (billing)" : (paused ? "Paused (no charge)" : state);
+
+  // Mirror sync line — only meaningful while the capacity is Active.
+  let mirrorHtml = "";
+  if (active && f.mirroring) {
+    const m = f.mirroring;
+    if (m.caughtUp) {
+      const when = m.lastSync ? new Date(m.lastSync).toLocaleTimeString() : "";
+      mirrorHtml = `<div class="note" style="margin:6px 0 0"><span class="badge active">Mirror in sync &#10003;</span>
+        ${m.tableCount} table(s) replicating${when ? " &middot; last sync " + when : ""} &mdash; analytics are current, safe to pause.</div>`;
+    } else {
+      mirrorHtml = `<div class="note" style="margin:6px 0 0"><span class="badge">Mirror catching up&hellip;</span>
+        status <b>${m.status || "?"}</b>${m.tableCount ? " &middot; " + m.tableCount + " table(s)" : ""} &mdash; wait for sync before trusting the analytics. Click Refresh.</div>`;
+    }
+  } else if (active) {
+    mirrorHtml = `<div class="note" style="margin:6px 0 0">No mirror wired up (run <code>provision_fabric.py</code> to create it).</div>`;
+  }
+
+  $("fabric").innerHTML = `<div class="barrow" style="align-items:center">
+      <div class="lbl" style="min-width:auto">${f.name} &middot; ${f.sku || ""} &middot; ${f.location || ""}</div>
+      <span class="badge ${active ? "active" : ""}" style="margin:0 10px">${label}</span>
+      <div class="spacer" style="flex:1"></div>
+      <button id="fab-resume" ${active ? "disabled" : ""}>Resume</button>
+      <button id="fab-pause" class="danger" ${active ? "" : "disabled"}>Pause</button>
+    </div>${mirrorHtml}`;
+  const btn = $("fab-resume"); if (btn) btn.onclick = () => fabricAct("resume");
+  const btn2 = $("fab-pause"); if (btn2) btn2.onclick = () => fabricAct("suspend");
+}
+
+async function fabricAct(action) {
+  try {
+    $("error").innerHTML = "";
+    const verb = action === "resume" ? "Resuming (and restarting mirroring)" : "Pausing (and stopping mirroring)";
+    $("fabric").innerHTML = `<div class="note">${verb}&hellip; this can take up to ~90s. The page will refresh automatically.</div>`;
+    await jpost("/optimizations/fabric/capacity/" + action);
+    await loadFabric();
+  } catch (e) { $("error").innerHTML = `<div class="err">${e.message}</div>`; }
+}
+
+async function loadFabric() {
+  try { renderFabric(await jget("/optimizations/fabric/capacity")); }
+  catch { renderFabric({configured: false}); }
+}
+
 async function load() {
   $("error").innerHTML = "";
   try {
@@ -249,6 +308,7 @@ async function load() {
   } catch (e) {
     $("error").innerHTML = `<div class="err">Could not load: ${e.message}. Is the API running at ${api()}?</div>`;
   }
+  loadFabric();
 }
 
 $("refresh").onclick = load;
