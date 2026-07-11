@@ -44,8 +44,8 @@ region that has Fabric capacity available to you.
   one manual step; pass the resulting connection id to `provision_fabric.py --phase 2 --connection-id <id>`.
 
 > **Automating this last step is parked, not shipped.** Creating the connection
-> programmatically works today on MSIT but is **demo-only** (the embedded token can't
-> refresh, ~60–90 min TTL) and MSIT-endpoint-specific. The working spike is preserved at
+> programmatically works today on MSIT but is **demo-only** (the embedded token is
+> short-lived and can't refresh) and MSIT-endpoint-specific. The working spike is preserved at
 > [`experimental/create_oauth_connection.py`](./experimental/create_oauth_connection.py)
 > and tracked in [`../docs/parking-lot.md`](../docs/parking-lot.md); we'll wire it in when
 > the Fabric gateway team ships audience/refresh support. Until then, **ship with the
@@ -136,8 +136,8 @@ Fully automating the **Cosmos connection** is the known hard part. Findings:
   **`DMTS_UntrustedEndpointForWorkspaceIdentity`** for the Cosmos `documents.azure.com` host —
   **even after** provisioning the workspace identity, assigning the two Cosmos RBAC roles, and
   enabling the Fabric network-ACL bypass. This is a **Fabric-side endpoint-trust gap**, not a Cosmos
-  config issue. **This is the escalation item** — it likely matures alongside the Service Principal
-  connection support expected ~Aug/Sept. Once either lands, connection creation is one API call and
+  config issue. **This is the escalation item** — it likely matures alongside Service Principal
+  connection support. Once either lands, connection creation is one API call and
   the whole flow is hands-free.
 
 ## Reverse-ETL notebook — WORKING (read via JDBC SQL endpoint)

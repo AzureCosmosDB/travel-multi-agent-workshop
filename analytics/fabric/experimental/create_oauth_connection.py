@@ -18,24 +18,17 @@ What works (validated 2026-07-11 on the MSIT tenant):
     identity — see provision_fabric.py), a mirror can use this connection.
 
 What is still broken (why this is PARKED):
-  1. **No refresh token.** `az account get-access-token` returns only an access token
-     (the connection's RefreshToken is empty), so the connection dies when that token
-     expires (~60-90 min). A durable connection needs an auth-code flow that yields a
-     refresh token the **Fabric gateway OAuth app** can redeem (`useCustomOAuthApp:false`).
-     The Fabric gateway team is investigating setting the target audience + refresh on the
-     automated path (expected ~Sept). Until then this is demo-only.
-  2. **MSIT-only endpoint.** The DMTS gateway cluster endpoint below is the MSIT redirect
-     (`df-msit-scus-redirect...`). Production uses a different endpoint; discover it from
-     the Power BI global service (TODO) rather than hardcoding.
+  1. No refresh token. `az account get-access-token` returns only an access token, so the
+     connection dies when it expires (~1 hour). A durable connection needs a refresh token
+     the Fabric gateway OAuth app can redeem.
+  2. MSIT-only endpoint. The DMTS endpoint below is the MSIT redirect; production differs.
 
-Usage (once unblocked):
-    python create_oauth_connection.py \
-        --host https://<account>.documents.azure.com:443/ \
-        [--endpoint https://df-msit-scus-redirect.analysis.windows.net] \
-        [--name cdb-mirror-oauth-conn]
+Turn this on once the Fabric gateway team supports audience + refresh on the automated
+path, then confirm a mirror survives past token expiry and wire in an optional
+`--auto-connection` flag with the manual step as fallback.
 
-Prints the created connection id, which you can pass to
-`provision_fabric.py --phase 2 --connection-id <id>`.
+Usage:
+    python create_oauth_connection.py --host https://<account>.documents.azure.com:443/
 """
 from __future__ import annotations
 

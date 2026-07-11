@@ -30,17 +30,13 @@ update an ADR). Keep entries short and link to the code/spike that proves the ap
     [`../fabric/experimental/create_oauth_connection.py`](../fabric/experimental/create_oauth_connection.py).
 - **What's blocked (why it's parked):**
   1. **No refresh token.** The embedded token has no refresh token, so the connection
-     dies at token expiry (~60–90 min). A durable connection needs an auth-code flow
-     yielding a refresh token the **Fabric gateway OAuth app** (`useCustomOAuthApp:false`)
-     can redeem — the Fabric gateway team is investigating audience/refresh support on the
-     automated path.
-  2. **MSIT-only endpoint.** The DMTS endpoint is the MSIT redirect
-     (`df-msit-scus-redirect.analysis.windows.net`); production uses a different endpoint
-     that must be discovered from the Power BI global service.
-- **Trigger to revisit:** Fabric gateway team ships automated-connection audience/refresh
-  support (expected ~September). Re-run the spike, confirm a mirror survives past token
-  expiry, then wire an optional `--auto-connection` path into `provision_fabric.py` with
-  the manual step as the fallback.
+     dies at token expiry (~1 hour). A durable connection needs a refresh token the
+     Fabric gateway OAuth app can redeem.
+  2. **MSIT-only endpoint.** The DMTS endpoint is the MSIT redirect; production differs.
+- **Trigger to revisit:** Fabric gateway team supports audience + refresh on the automated
+  path. Re-run the spike, confirm a mirror survives past token expiry, then wire an
+  optional `--auto-connection` path into `provision_fabric.py` with the manual step as the
+  fallback.
 - **References:** `analytics/fabric/README.md` (connection section);
   `analytics/fabric/provision_fabric.py` (Phase 2).
 
