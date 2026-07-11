@@ -310,7 +310,24 @@ def grant_cosmos_rbac(cosmos_account: str, rg: str, sub: str, sp_object_id: str)
 
 
 def enable_cosmos_bypass(cosmos_account: str, rg: str, tenant_id: str, ws_id: str) -> None:
-    """Enable EnableFabricNetworkAclBypass + AzureServices bypass + the workspace bypass id."""
+    """Configure the Cosmos network trust needed for Fabric mirroring.
+
+    The ``networkAclBypass`` allowlist is a **private-endpoint / restricted-network**
+    feature: it lets an allowlisted Fabric workspace bypass the account's network ACLs.
+    On a **public** account (``publicNetworkAccess=Enabled``, the workshop default) it is
+    unnecessary and actively harmful — setting ``networkAclBypass=AzureServices`` puts a
+    public account into a mode that *blocks* the mirroring snapshot service (observed:
+    'status code 0, account doesn't exist'). So we only apply the bypass when the account
+    is not publicly reachable; for public accounts we leave the network config alone.
+    """
+    info = json.loads(
+        az(["cosmosdb", "show", "-n", cosmos_account, "-g", rg,
+            "--query", "{public:publicNetworkAccess}", "-o", "json"]) or "{}"
+    )
+    if (info.get("public") or "Enabled") == "Enabled":
+        log("Cosmos account is public (publicNetworkAccess=Enabled); skipping the "
+            "networkAclBypass (it is a private-endpoint feature and would block mirroring).")
+        return
     bypass_id = (
         f"/tenants/{tenant_id}/subscriptions/00000000-0000-0000-0000-000000000000/"
         f"resourceGroups/Fabric/providers/Microsoft.Fabric/workspaces/{ws_id}"
@@ -321,9 +338,7 @@ def enable_cosmos_bypass(cosmos_account: str, rg: str, tenant_id: str, ws_id: st
     )
     names = {c.get("name") for c in caps}
     names.add("EnableFabricNetworkAclBypass")
-    if "EnableNoSQLVectorSearch" not in names and any("Vector" in (n or "") for n in names):
-        pass
-    log("enabling Cosmos network-ACL bypass for the workspace...")
+    log("restricted-network account: enabling Cosmos network-ACL bypass for the workspace...")
     az(
         [
             "cosmosdb", "update", "-n", cosmos_account, "-g", rg,
