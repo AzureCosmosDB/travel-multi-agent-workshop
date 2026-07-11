@@ -254,6 +254,11 @@ function renderFabric(f) {
   const paused = state === "Paused" || state === "Suspended";
   const label = active ? "Running (billing)" : (paused ? "Paused (no charge)" : state);
 
+  // Don't let the user pause before the mirror has caught up, or in-flight data
+  // (a fresh seed / generated traffic) never propagates into Fabric.
+  const mirrorPending = f.mirroring && !f.mirroring.caughtUp;
+  const pauseBlocked = active && mirrorPending;
+
   // Mirror sync line — only meaningful while the capacity is Active.
   let mirrorHtml = "";
   if (active && f.mirroring) {
@@ -264,7 +269,7 @@ function renderFabric(f) {
         ${m.tableCount} table(s) replicating${when ? " &middot; last sync " + when : ""} &mdash; analytics are current, safe to pause.</div>`;
     } else {
       mirrorHtml = `<div class="note" style="margin:6px 0 0"><span class="badge">Mirror catching up&hellip;</span>
-        status <b>${m.status || "?"}</b>${m.tableCount ? " &middot; " + m.tableCount + " table(s)" : ""} &mdash; wait for sync before trusting the analytics. Click Refresh.</div>`;
+        status <b>${m.status || "?"}</b>${m.tableCount ? " &middot; " + m.tableCount + " table(s)" : ""} &mdash; <b>Pause is disabled until the mirror catches up</b>, otherwise this run's data never reaches Fabric. Click Refresh.</div>`;
     }
   } else if (active) {
     mirrorHtml = `<div class="note" style="margin:6px 0 0">No mirror wired up (run <code>provision_fabric.py</code> to create it).</div>`;
@@ -275,7 +280,8 @@ function renderFabric(f) {
       <span class="badge ${active ? "active" : ""}" style="margin:0 10px">${label}</span>
       <div class="spacer" style="flex:1"></div>
       <button id="fab-resume" ${active ? "disabled" : ""}>Resume</button>
-      <button id="fab-pause" class="danger" ${active ? "" : "disabled"}>Pause</button>
+      <button id="fab-pause" class="danger" ${(!active || pauseBlocked) ? "disabled" : ""}
+        title="${pauseBlocked ? 'Wait for the mirror to catch up before pausing' : 'Pause the capacity to stop billing'}">Pause</button>
     </div>${mirrorHtml}`;
   const btn = $("fab-resume"); if (btn) btn.onclick = () => fabricAct("resume");
   const btn2 = $("fab-pause"); if (btn2) btn2.onclick = () => fabricAct("suspend");
