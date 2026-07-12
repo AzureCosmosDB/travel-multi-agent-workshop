@@ -60,7 +60,7 @@ applied and validated:
 | Contributing scenario | Lever on cost/outcome |
 |---|---|
 | SCEN-001 | fewer avoidable clarification turns before a result |
-| SCEN-007 | cheaper model on the 48% trivial turns |
+| SCEN-007 | cheaper model on the ~23% trivial turns |
 | SCEN-004 | less stale-memory retrieval cost |
 | SCEN-005 | trim the most expensive agent paths (+ the double-`find_places`) |
 | SCEN-008 | ground place queries in `find_places` instead of re-asking |

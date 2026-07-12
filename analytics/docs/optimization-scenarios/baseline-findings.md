@@ -22,12 +22,12 @@ candidate scenarios in the [catalog](README.md) with real signal from data we al
   a concrete "wasted spend" signal and the headline *cost-per-outcome* metric.
 
 ### ✅ SCEN-007 — full model used for trivial turns (STRONG; **L4/L5 autonomous**)
-- **All 291 turns** ran on `gpt-4.1-mini` (single model — no task-based selection).
-- **140/291 turns (48%)** were **trivial** (no delegation, <60 output tokens: greetings,
-  acknowledgements, clarifications) yet used the full model.
-- Cache-hit ratio is already high (**86%**: 1,291,520 cached / 1,500,920 input tokens), so the
-  remaining lever is **model-selection policy** (route trivial turns to a cheaper model) — a
-  lower-risk domain that can reach autonomous L4/L5.
+- With no policy applied, turns use the `gpt-5.1` default (single model — no task-based selection).
+- **~23% of turns (90/395)** are **trivial** by the canonical classifier signal
+  (`model_tier = "trivial"`: short greetings/acks, ≤6 words plus a greeting/ack pattern,
+  no delegation) yet use the full model until routed.
+- Cache-hit ratio is already high (**~74%**), so the remaining lever is **model-selection policy**
+  (route trivial turns to `gpt-5-nano`) — a lower-risk domain that can reach autonomous L4/L5.
 
 ### ✅ SCEN-004 — stale/superseded memories accumulate (STRONG; **L4/L5 autonomous**)
 - **509 of 760 memories (67%)** are **superseded** (stale) — heavy churn from the

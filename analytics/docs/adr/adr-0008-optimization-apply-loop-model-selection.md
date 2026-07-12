@@ -5,6 +5,8 @@
 - **Deciders:** @markjbrown (mjbrown)
 - **Related:** ADR-0001 (optimization-loop surface), ADR-0006 (v2 baseline), ADR-0007 (Debug-first instrumentation), SCEN-007, SCEN-003
 
+> **Note (superseded figures):** the baseline numbers below (100% `gpt-4.1-mini`, 48% trivial) reflect the original pre-modernization dataset. The workshop now defaults to `gpt-5.1` and measures trivial via the classifier's `model_tier == "trivial"` (~23% in the current sample data). This ADR is kept as a historical record; see SCEN-007 for current figures.
+
 ## Context
 
 The analytics vision requires not just *observing* agent behavior but **closing the loop**:

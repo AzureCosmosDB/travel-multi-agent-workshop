@@ -101,7 +101,7 @@ Learning objectives:
 - Understand the **risk model**: prompt/workflow/code changes are human-governed (ceiling L3);
   memory/routing/**model-selection**/tool policies are lower-risk and can be autonomous (L4/L5).
 - **Detect** an optimization from your own captured data (run `optimization_mining.py`; read the
-  SCEN-007 card: ~48% of turns are trivial yet use the full model).
+  SCEN-007 card: ~23% of turns are trivial (short greetings/acks) yet use the full model).
 - **Build the decision layer**: implement `classify_turn_tier` (trivial/routine/complex) — the
   learner's judgment about what each tier means.
 - **Apply** the policy (one click via the dashboard / REST) and observe live per-turn model routing.

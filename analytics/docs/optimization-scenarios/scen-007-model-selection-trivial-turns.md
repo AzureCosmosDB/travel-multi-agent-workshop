@@ -1,6 +1,6 @@
 # SCEN-007 — Full model used for trivial turns (model-selection policy)
 
-- **Status:** Documented (data-validated on the `v2_analytics` baseline)
+- **Status:** Documented (data-validated on the `analytics_demo` sample data)
 - **Category:** Model selection / cost efficiency
 - **Vision questions it serves:** *"Which models drive the highest costs?"*, *"What is the cost per successful outcome?"*, *"Which optimizations can be automated safely?"*
 - **Optimization dimensions:** model selection · cost efficiency
@@ -12,47 +12,52 @@
 
 > **This app is single-model today.** `services/azure_open_ai.py` builds **one** shared chat model
 > (`AzureChatOpenAI`) that the supervisor and *every* sub-agent (find_places selector, itinerary
-> ReAct agent) use. There is **no** per-turn or per-agent model selection — 100% of baseline turns
-> ran on `gpt-4.1-mini`. So this scenario is about **introducing** model selection, not tuning an
-> existing behavior.
+> ReAct agent) use. With no policy applied, the app defaults to `gpt-5.1`; there is **no**
+> task-based model selection until the routing policy is applied. So this scenario is about
+> **introducing** model selection, not tuning an existing behavior.
 
 Every turn — trivial or complex — runs on the same full chat model. Greetings, acknowledgements,
 and one-line clarifications cost the same model as a multi-tool itinerary build.
 
-## Evidence (baseline, tenant `v2_analytics`)
+## Evidence (sample data, tenant `analytics_demo`)
 
-- **All 291 turns** ran on `gpt-4.1-mini` — there is **no task-based model selection**.
-- **140/291 turns (48%)** were **trivial**: no sub-agent delegation (`handoff_count = 0`) **and**
-  `< 60 output tokens`. Nearly half of all turns are cheap-to-serve yet use the full model.
-- Prompt caching is already doing its job (**86% cache-hit** on input tokens), so the remaining
-  lever is **not** more caching — it is **routing trivial turns to a smaller/cheaper model**.
+- With no policy applied, turns use the `gpt-5.1` default — there is **no task-based model selection**
+  until the policy is applied.
+- **~23% of turns (90/395)** are **trivial** by the canonical classifier signal:
+  `model_tier = "trivial"` (short greeting/acknowledgement, ≤6 words plus a greeting/ack pattern,
+  and no delegation).
+- Prompt caching is already doing its job (**~74% cache-hit** on input tokens), so the remaining
+  lever is **not** more caching — it is **routing trivial turns to `gpt-5-nano`**.
 
 ## Detection (from data we already capture — ADR-0007 Debug)
 
-Signal is entirely in the `Debug` log: `model_name`, `handoff_count`, `output_tokens`,
-`total_tokens`. A turn is a **model-downgrade candidate** when it did not delegate and produced a
-short response.
+Signal is entirely in the `Debug` log: `model_tier`, `model_deployment`, `handoff_count`,
+`output_tokens`, `total_tokens`. The canonical trivial signal is the classifier's
+`model_tier = 'trivial'`; the original baseline used `handoff_count = 0 AND output_tokens < 60`
+as a pre-apply proxy on the old pre-modernization data.
 
 ```sql
 -- share of turns that are trivial yet run on the full model
 SELECT
   COUNT(*)                                                   AS total_turns,
-  SUM(CASE WHEN handoff_count = 0 AND output_tokens < 60
-           THEN 1 ELSE 0 END)                                AS downgrade_candidates,
-  SUM(CASE WHEN handoff_count = 0 AND output_tokens < 60
-           THEN total_tokens ELSE 0 END)                     AS candidate_tokens
+  SUM(CASE WHEN model_tier = 'trivial'
+           THEN 1 ELSE 0 END)                                AS trivial_turns,
+  SUM(CASE WHEN model_tier = 'trivial'
+           THEN total_tokens ELSE 0 END)                     AS trivial_tokens
 FROM Debug
-WHERE tenantId = 'v2_analytics';
+WHERE tenantId = 'analytics_demo';
+-- Before the policy/classifier is active, use the old proxy only as a detection fallback:
+-- handoff_count = 0 AND output_tokens < 60
 ```
 
-The dashboard turns `candidate_tokens × (full_price − cheap_price)` into a projected monthly saving.
+The dashboard turns `trivial_tokens × (full_price − cheap_price)` into a projected monthly saving.
 
 ## Candidate-optimization card (dashboard)
 
-> **48% of turns are trivial but run on the full model.**
-> 140 turns · projected saving *≈ $X/mo* at current volume.
-> **Proposed policy:** route turns predicted trivial (greeting / acknowledgement / clarification,
-> no tool need) to `gpt-4.1-nano`/a smaller model; keep the full model for delegating turns.
+> **~23% of turns are trivial (90/395 in the sample data) and can avoid the full model.**
+> Projected saving varies with traffic and model prices.
+> **Proposed policy:** route turns classified trivial (short greeting / acknowledgement,
+> ≤6 words plus a greeting/ack pattern, no delegation) to `gpt-5-nano`; keep `gpt-5.1` for complex turns.
 > **[Apply policy]** · **[Enable auto-tune]**
 
 ## The fix — and why it reaches L4/L5
@@ -81,8 +86,8 @@ This scenario is a clean example of the **two-step path to autonomy**:
 
 ## Close the loop (before/after)
 
-After enabling the policy, recompute `candidate_tokens` and the blended cost per successful outcome
-(SCEN-003), and watch the evaluation score hold. Expected: large drop in trivial-turn cost with no
+After enabling the policy, recompute `trivial_tokens` and the blended cost per successful outcome
+(SCEN-003), and watch the evaluation score hold. Expected: meaningful drop in trivial-turn cost with no
 quality regression — the self-improving result the vision targets.
 
 ## Lab exercise framing
