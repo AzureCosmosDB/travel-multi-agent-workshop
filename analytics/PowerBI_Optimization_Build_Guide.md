@@ -151,13 +151,16 @@ Answers: **What are our agents doing, and what does it cost?**
 - **Line — Turns over time:** Axis `[TurnMinute]` (see note), Values `[Total Turns]`. Set the X-axis
   **Type = Continuous** (Format visual → X axis). *(This is the visual that visibly moves as the traffic
   simulator runs.)*
-  > ⚠️ **`timeStamp` is stored as text**, so it won't bin by time. Add a real datetime column first
-  > from the Cosmos epoch column **`_ts`** (bigint, seconds):
+  > ⚠️ **`timeStamp` is stored as text**, so it won't bin by time. Use the numeric **`turn_epoch`**
+  > column (bigint, epoch **seconds** of the turn) for the time axis — it is the real turn time and
+  > works for both live traffic and the pre-baked seed:
   > ```DAX
-  > TurnTime = DATE(1970,1,1) + 'TravelAssistant OptimizationTurns'[_ts] / 86400.0
+  > TurnTime = DATE(1970,1,1) + 'TravelAssistant OptimizationTurns'[turn_epoch] / 86400.0
   > ```
   > Set its **Data type = Date/time**, then use `[TurnTime]` on every time axis (this line chart and the
   > Page 3 stacked column). `TurnTime` is UTC.
+  > - **Don't use Cosmos `_ts`** for the axis: for the offline seed every row is written at once, so `_ts`
+  >   collapses all turns into one minute (a single point). `turn_epoch` carries the actual per-turn time.
   > - **Use `86400.0`, not `86400`.** In DirectQuery this folds to T-SQL, and `bigint / bigint` is
   >   *integer* division — it truncates the time-of-day and collapses every turn to **midnight**, so
   >   time filters show nothing. The `.0` forces float division and preserves the time.
@@ -165,7 +168,7 @@ Answers: **What are our agents doing, and what does it cost?**
   >   ≈ 1 at every point — a flat line). Add a minute-bucket **column** (DAX division is float, so floor
   >   it explicitly):
   >   ```DAX
-  >   TurnMinute = DATE(1970,1,1) + ROUNDDOWN('TravelAssistant OptimizationTurns'[_ts] / 60, 0) / 1440
+  >   TurnMinute = DATE(1970,1,1) + ROUNDDOWN('TravelAssistant OptimizationTurns'[turn_epoch] / 60, 0) / 1440
   >   ```
   >   Set **Data type = Date/time**, put `TurnMinute` on the time axis, and make sure the axis field is
   >   the plain field (not the auto **Date Hierarchy**) with **X-axis Type = Continuous**.
@@ -196,13 +199,15 @@ Answers: **Where does spend go once tiering is applied?**
 
 Answers: **Which turns are wasteful, and what's the recommended fix?**
 
-- **Gauge / KPI — Trivial %** with a target (~48% observed).
+- **Gauge / KPI — Trivial %** (~20–25% in the sample data; it depends on how many short greeting/ack
+  turns your traffic has — set the gauge target to taste).
 - **Stacked column — turns by tier over time:** Axis `[TurnMinute]` (the minute-bucket column from the
   Page 1 note), Legend `model_tier`, Values `[Total Turns]`.
 - **Text box** describing the SCEN-007 model-selection recommendation. Suggested copy:
   > **The Optimization Opportunity — Model Selection (SCEN-007)**
-  > About half of all agent turns are *trivial* — greetings, acknowledgements, and short confirmations
-  > that need no reasoning. Today every turn runs on the same mid-tier model, so we pay the same for
+  > A meaningful share of agent turns are *trivial* — greetings, acknowledgements, and short
+  > confirmations that need no reasoning (~a quarter of turns in the sample data; it varies with your
+  > traffic). Today every turn runs on the same premium model, so we pay the same for
   > "thanks!" as for "plan my 5-day trip to Tokyo."
   > **Recommendation:** route trivial turns to a cheaper model (`gpt-5-nano`) and reserve the larger
   > model for complex requests. Trivial turns cost ~25× less on `gpt-5-nano` than the default `gpt-5.1`
@@ -220,9 +225,9 @@ This closes the loop — the earlier pages show the *opportunity*; this shows th
   `proposed_by`, `PolicyUpdated`. Each row is a policy the optimization loop proposed/applied/reverted
   (e.g., SCEN-007 *Capability-tiered model selection*, SCEN-001 *Active-trip city context*).
   > Use the **`PolicyUpdated` calculated column** for the "updated" column, **not** the raw `updated_at`
-  > (which is ISO-8601 **text** and displays ugly). Add it as a **column**:
+  > (which is ISO-8601 **text** and displays ugly). Use the numeric **`updated_epoch`** column:
   > ```DAX
-  > PolicyUpdated = DATE(1970,1,1) + 'TravelAssistant OptimizationPolicies'[_ts] / 86400.0
+  > PolicyUpdated = DATE(1970,1,1) + 'TravelAssistant OptimizationPolicies'[updated_epoch] / 86400.0
   > ```
   > Set **Data type = Date/time**. Also turn the visual's **Totals row Off** (Format → Totals) — summing
   > versions/dates is meaningless here.
@@ -235,12 +240,12 @@ This closes the loop — the earlier pages show the *opportunity*; this shows th
 Add these two measures (Step 3) for the cards:
 ```DAX
 Active Policies      = CALCULATE(COUNTROWS('TravelAssistant OptimizationPolicies'), 'TravelAssistant OptimizationPolicies'[status] = "active")
-Latest Policy Change = DATE(1970,1,1) + MAX('TravelAssistant OptimizationPolicies'[_ts]) / 86400.0
+Latest Policy Change = DATE(1970,1,1) + MAX('TravelAssistant OptimizationPolicies'[updated_epoch]) / 86400.0
 ```
 
 > `updated_at` is stored as **text** (ISO-8601), so `MAX(updated_at)` returns an ugly raw string — use
-> the `_ts` epoch column (as above) and set the measure's **Format = Date time**. Same reason
-> `TurnTime` uses `_ts` instead of `timeStamp`.
+> the `updated_epoch` epoch column (as above) and set the measure's **Format = Date time**. Same reason
+> `TurnTime` uses `turn_epoch` instead of `timeStamp`.
 
 > This page tells the workshop's punchline: analytics surfaced the opportunity → the optimization loop
 > proposed a policy (SCEN-007) → here's its audit trail. It's optional but ties the narrative together.
@@ -276,11 +281,12 @@ The `.pbit`:
 ## Table reference (mirrored columns)
 
 **`OptimizationTurns`** — `tenantId`, `userId`, `sessionId`, `model_tier`, `model_deployment`,
-`model_name`, `input_tokens`, `output_tokens`, `total_tokens`, `cached_tokens`, `timeStamp` *(text,
-ISO-8601 — do not use directly on a time axis)*, `_ts` *(bigint, Cosmos epoch **seconds** — use this for
-the `TurnTime` datetime column)*.
+`model_name`, `input_tokens`, `output_tokens`, `total_tokens`, `cached_tokens`, `handoff_count`,
+`timeStamp` *(text, ISO-8601 — do not use directly on a time axis)*, `turn_epoch` *(bigint, epoch
+**seconds** of the turn — use this for the `TurnTime`/`TurnMinute` columns)*.
 
 **`Trips`** — `tenantId`, `userId`, `tripId`, `status` (planning/confirmed/completed), `destination`, …
 
 **`OptimizationPolicies`** — `scenario_id`, `title`, `status` (proposed/active/staged/reverted),
-`apply_mode`, `params`, `proposed_change`, `version`, `proposed_by`, `created_at`, `updated_at`.
+`apply_mode`, `params`, `proposed_change`, `version`, `proposed_by`, `created_at`, `updated_at`,
+`created_epoch`, `updated_epoch` *(bigint epoch seconds — use `updated_epoch` for `PolicyUpdated`)*.
