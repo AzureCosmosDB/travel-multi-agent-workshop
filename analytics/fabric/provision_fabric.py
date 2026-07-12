@@ -407,7 +407,13 @@ def get_or_create_mirror(tok: Tokens, ws_id: str, connection_id: str, db_name: s
     for m in r.json().get("value", []):
         if m.get("displayName") == name:
             log(f"mirror exists: {m['id']}")
-            _start_mirroring_when_ready(tok, ws_id, m["id"])
+            changed = update_mirror_tables(tok, ws_id, m["id"], db_name)
+            if changed:
+                # A running Cosmos mirror only picks up newly-mounted tables after a
+                # stop/start cycle, so restart when we actually added tables.
+                _restart_mirroring(tok, ws_id, m["id"])
+            else:
+                _start_mirroring_when_ready(tok, ws_id, m["id"])
             return m["id"]
     mirroring = {
         "properties": {
@@ -440,6 +446,63 @@ def get_or_create_mirror(tok: Tokens, ws_id: str, connection_id: str, db_name: s
     log(f"mirror created: {mid}; waiting for it to initialize before starting...")
     _start_mirroring_when_ready(tok, ws_id, mid)
     return mid
+
+
+def update_mirror_tables(tok: Tokens, ws_id: str, mid: str, db_name: str) -> bool:
+    """Add any MIRROR_TABLES missing from an existing mirror's definition.
+
+    Fetches the current mirroring.json, appends tables not already mounted, and
+    calls updateDefinition (preserving the other definition parts, e.g. .platform).
+    A running Cosmos mirror picks the new tables up and begins replicating them;
+    if it was stopped, the caller's _start_mirroring_when_ready restarts it.
+    Returns True if the definition was changed.
+    """
+    hdr = tok.headers(FABRIC_SCOPE)
+    resp = req("POST", f"{FABRIC_API}/workspaces/{ws_id}/mirroredDatabases/{mid}/getDefinition",
+               hdr, json_body={}, ok=(200, 202))
+    res = poll_lro(resp, hdr) or (resp.json() if resp.text else {})
+    parts = res.get("definition", {}).get("parts", [])
+    part = next((p for p in parts if p.get("path") == "mirroring.json"), None)
+    if part is None:
+        log("mirror has no mirroring.json part; cannot update tables")
+        return False
+
+    mirroring = json.loads(base64.b64decode(part["payload"]).decode("utf-8"))
+    mounted = mirroring["properties"].setdefault("mountedTables", [])
+    current = {t.get("source", {}).get("typeProperties", {}).get("tableName") for t in mounted}
+    missing = [t for t in MIRROR_TABLES if t not in current]
+    if not missing:
+        log(f"mirror tables up to date ({', '.join(sorted(current))})")
+        return False
+
+    for t in missing:
+        mounted.append({"source": {"typeProperties": {"schemaName": db_name, "tableName": t}}})
+    part["payload"] = b64(mirroring)
+
+    log(f"adding table(s) to mirror: {', '.join(missing)}")
+    r = req("POST", f"{FABRIC_API}/workspaces/{ws_id}/mirroredDatabases/{mid}/updateDefinition",
+            hdr, json_body={"definition": {"parts": parts}}, ok=(200, 202))
+    poll_lro(r, hdr)
+    log("mirror definition updated")
+    return True
+
+
+def _restart_mirroring(tok: Tokens, ws_id: str, mid: str, timeout: int = 300) -> None:
+    """Stop then start mirroring so a running mirror picks up newly-mounted tables."""
+    hdr = tok.headers(FABRIC_SCOPE)
+    base = f"{FABRIC_API}/workspaces/{ws_id}/mirroredDatabases/{mid}"
+    status = (req("POST", f"{base}/getMirroringStatus", hdr, json_body={}, ok=(200,)).json() or {}).get("status")
+    if status in ("Running", "Starting"):
+        log("stopping mirroring to pick up new tables...")
+        req("POST", f"{base}/stopMirroring", hdr, ok=(200, 202))
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            status = (req("POST", f"{base}/getMirroringStatus", hdr, json_body={}, ok=(200,)).json() or {}).get("status")
+            if status in ("Stopped", "Initialized"):
+                break
+            log(f"mirror status={status}; waiting to stop...")
+            time.sleep(10)
+    _start_mirroring_when_ready(tok, ws_id, mid, timeout)
 
 
 def _start_mirroring_when_ready(tok: Tokens, ws_id: str, mid: str, timeout: int = 300) -> None:

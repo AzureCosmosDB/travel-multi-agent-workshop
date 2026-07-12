@@ -45,3 +45,28 @@ humans and agents can find it later without cluttering the learning content.
 - A Microsoft Purview sensitivity label (inherited from the Fabric source) can be applied to the
   `.pbix`. Before **Save As → .pbit**, set it to a non-encrypting/public label (Home → Sensitivity) or
   remove it, or external users may be unable to open the template.
+
+## Adding a table to an already-running mirror (e.g. `Configuration`)
+- The mirror's mounted-table list is fixed at creation. `provision_fabric.update_mirror_tables()`
+  adds any missing `MIRROR_TABLES` to the definition (`updateDefinition`), but a **running** Cosmos
+  mirror does **not** pick up a newly-mounted table until mirroring is **stopped and started** —
+  `get_or_create_mirror` now calls `_restart_mirroring()` when it adds tables. Symptom if you skip
+  the restart: `getTablesMirroringStatus` keeps showing only the original tables.
+- After the restart, all tables re-snapshot (`Snapshotting` → `Replicating`); `Configuration` shows
+  4 rows (3 `model_pricing` + 1 `model_selection_defaults`).
+- The mirror's **SQL analytics endpoint** surfaces the new table automatically, but its metadata can
+  lag — hit **Refresh** on the SQL endpoint in the Fabric portal if `Configuration` isn't yet visible
+  in Power BI's navigator.
+
+## Pointing an existing report at `Configuration` pricing (migrating off the old CSV)
+An earlier build loaded pricing from `model_pricing.csv` as a `ModelPricing` table. To switch a
+report that already has that:
+1. **Add the table:** Home → **Transform data** (or **Get data** → your mirror SQL endpoint) →
+   Navigator → schema `TravelAssistant` → check **`Configuration`** → Load. It arrives as
+   `'TravelAssistant Configuration'`.
+2. **Replace `Est Cost USD`** with the `LOOKUPVALUE(... 'TravelAssistant Configuration' ... [type],
+   "model_pricing" ...)` version in `PowerBI_Optimization_Build_Guide.md` (Step 3). No relationship
+   is needed — `LOOKUPVALUE` doesn't require one.
+3. **Remove** the old `ModelPricing` CSV query (Transform data → right-click → Delete) so there's no
+   stale second source.
+4. **Refresh**. `Est Cost USD` should be unchanged (same numbers, now from the mirror).
