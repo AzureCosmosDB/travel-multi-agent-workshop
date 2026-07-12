@@ -83,10 +83,29 @@ def _int(v: Any) -> int:
         return 0
 
 
+def _epoch(iso: Any) -> int:
+    """Convert an ISO-8601 timeStamp to epoch seconds (0 if unparseable).
+
+    OptimizationTurns time-series visuals should key off this real turn time, NOT the
+    Cosmos ``_ts`` (which for the offline seed is the single moment the rows were written,
+    so it collapses every turn into one minute).
+    """
+    if not iso:
+        return 0
+    try:
+        from datetime import datetime, timezone
+
+        return int(datetime.fromisoformat(str(iso).replace("Z", "+00:00"))
+                   .astimezone(timezone.utc).timestamp())
+    except (ValueError, TypeError):
+        return 0
+
+
 def derive_optimization_turn(doc: dict[str, Any]) -> dict[str, Any]:
     """Flatten one Debug telemetry doc into an OptimizationTurns record (authentic)."""
     bag = _bag(doc)
     base_id = doc.get("debugLogId") or doc.get("id") or uuid.uuid4().hex
+    ts = doc.get("timeStamp")
     return {
         "id": f"turn-{base_id}",
         "type": "optimization_turn",
@@ -100,8 +119,10 @@ def derive_optimization_turn(doc: dict[str, Any]) -> dict[str, Any]:
         "output_tokens": _int(bag.get("output_tokens")),
         "total_tokens": _int(bag.get("total_tokens")),
         "cached_tokens": _int(bag.get("cached_tokens")),
+        "handoff_count": _int(bag.get("handoff_count")),
         "agent_path": bag.get("agent_path"),
-        "timeStamp": doc.get("timeStamp"),
+        "timeStamp": ts,
+        "turn_epoch": _epoch(ts),
     }
 
 

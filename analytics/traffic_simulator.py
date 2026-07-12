@@ -34,15 +34,17 @@ from dotenv import load_dotenv
 
 load_dotenv(Path(__file__).resolve().parents[1] / "02_completed" / "python" / ".env")
 
-# Realistic tier mix + per-tier token/model profile (matches observed baselines).
-# weight = share of turns; in/out = (min,max) token ranges; model = deployment.
+# Realistic tier mix + per-tier token/model profile. Kept consistent with the canonical
+# trivial definition used everywhere (handoff_count == 0 AND output_tokens < 60): only the
+# trivial tier has 0 handoffs and <60 output tokens. Trivial share ~10% matches the real
+# opportunity measured on the seeded conversations (not an inflated demo number).
 TIERS = [
-    {"tier": "trivial", "weight": 0.48, "deployment": "gpt-5-nano",
-     "model": "gpt-5-nano-2025-08-07", "in": (2800, 3600), "out": (250, 520)},
-    {"tier": "routine", "weight": 0.40, "deployment": "gpt-4.1-mini",
-     "model": "gpt-4.1-mini-2025-04-14", "in": (6000, 16000), "out": (200, 450)},
-    {"tier": "complex", "weight": 0.12, "deployment": "gpt-5.1",
-     "model": "gpt-5.1-2025-11-13", "in": (28000, 33000), "out": (1400, 1900)},
+    {"tier": "trivial", "weight": 0.10, "deployment": "gpt-5-nano",
+     "model": "gpt-5-nano-2025-08-07", "in": (2800, 3600), "out": (20, 55), "handoffs": 0},
+    {"tier": "routine", "weight": 0.55, "deployment": "gpt-5-mini",
+     "model": "gpt-5-mini-2025-08-07", "in": (6000, 16000), "out": (200, 450), "handoffs": 1},
+    {"tier": "complex", "weight": 0.35, "deployment": "gpt-5.1",
+     "model": "gpt-5.1-2025-11-13", "in": (28000, 33000), "out": (1400, 1900), "handoffs": 2},
 ]
 CITIES = ["Amsterdam", "Paris", "Tokyo", "Rome", "Barcelona", "London", "New York"]
 
@@ -60,6 +62,7 @@ def _pick_tier() -> dict:
 def _turn_doc(tenant: str, user: str, session: str, tier: dict) -> dict:
     it = random.randint(*tier["in"])
     ot = random.randint(*tier["out"])
+    now = datetime.now(timezone.utc)
     return {
         "id": str(uuid.uuid4()),
         "type": "optimization_turn",
@@ -68,7 +71,9 @@ def _turn_doc(tenant: str, user: str, session: str, tier: dict) -> dict:
         "model_name": tier["model"],
         "input_tokens": it, "output_tokens": ot, "total_tokens": it + ot,
         "cached_tokens": int(it * random.uniform(0.6, 0.9)),
-        "timeStamp": datetime.now(timezone.utc).isoformat(),
+        "handoff_count": tier["handoffs"],
+        "timeStamp": now.isoformat(),
+        "turn_epoch": int(now.timestamp()),
     }
 
 

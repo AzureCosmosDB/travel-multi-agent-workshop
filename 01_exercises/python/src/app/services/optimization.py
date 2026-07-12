@@ -80,10 +80,12 @@ PROPOSED_MODEL_SELECTION_PARAMS: dict[str, Any] = {
 }
 
 _DEFAULT_TRIVIAL_PATTERNS = [
-    r"^(hi|hello|hey|yo|greetings)\b",
-    r"^(thanks|thank you|thx|ty)\b",
-    r"^(ok|okay|k|sure|yes|yep|yeah|no|nope|nah)\b",
-    r"^(great|cool|awesome|perfect|nice|got it|sounds good|good|fine)\b",
+    r"^(hi|hello|hey|yo|greetings|good (morning|afternoon|evening))\b",
+    r"^(thanks|thank you|thx|ty|cheers|much appreciated|appreciate it|appreciated)\b",
+    r"^(ok|okay|k|kk|sure|yes|yep|yeah|yup|no|nope|nah|alright|right|fine)\b",
+    r"^(great|cool|awesome|perfect|nice|good|wonderful|excellent|fantastic|lovely|brilliant)\b",
+    r"^(got it|sounds good|sounds great|looks good|that works|works for me|makes sense|will do|no worries|no problem)\b",
+    r"^(bye|goodbye|see you|see ya|later|take care)\b",
 ]
 _DEFAULT_COMPLEX_PATTERNS = [
     r"itinerary",
@@ -219,8 +221,11 @@ def upsert_policy(doc: dict[str, Any]) -> Optional[dict[str, Any]]:
         return None
     scenario = doc["scenario"]
     doc["id"] = scenario
-    doc.setdefault("created_at", _now_iso())
-    doc["updated_at"] = _now_iso()
+    now = datetime.now(timezone.utc)
+    doc.setdefault("created_at", now.isoformat())
+    doc["updated_at"] = now.isoformat()
+    doc.setdefault("created_epoch", int(now.timestamp()))
+    doc["updated_epoch"] = int(now.timestamp())
     saved = container.upsert_item(doc)
     _invalidate(scenario)
     return saved
@@ -374,16 +379,23 @@ def record_optimization_turn(
     deployment: str,
     usage: Optional[dict[str, Any]] = None,
     model_name: str = "Unknown",
+    handoff_count: int = 0,
 ) -> None:
     """Record one turn's tier + token usage for the detect/verify steps.
 
     `usage` is the per-turn token dict your completion handler already builds,
     e.g. {"input_tokens", "output_tokens", "total_tokens", "cached_tokens"}.
+    `handoff_count` is how many specialist handoffs the turn took (0 == the
+    orchestrator answered directly) — with output_tokens it defines a *trivial*
+    turn (handoff_count == 0 AND output_tokens < 60), the model-selection signal.
+    `turn_epoch` (epoch seconds of the turn) is recorded so time-series analytics
+    key off the real turn time, not Cosmos `_ts`.
     """
     container = _turns_container()
     if container is None:
         return
     usage = usage or {}
+    now = datetime.now(timezone.utc)
     doc = {
         "id": str(uuid.uuid4()),
         "type": "optimization_turn",
@@ -397,7 +409,9 @@ def record_optimization_turn(
         "output_tokens": int(usage.get("output_tokens") or 0),
         "total_tokens": int(usage.get("total_tokens") or 0),
         "cached_tokens": int(usage.get("cached_tokens") or 0),
-        "timeStamp": _now_iso(),
+        "handoff_count": int(handoff_count or 0),
+        "timeStamp": now.isoformat(),
+        "turn_epoch": int(now.timestamp()),
     }
     try:
         container.upsert_item(doc)

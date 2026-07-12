@@ -132,8 +132,11 @@ def upsert_policy(doc: dict[str, Any]) -> Optional[dict[str, Any]]:
         return None
     scenario = doc["scenario"]
     doc["id"] = scenario
-    doc.setdefault("created_at", _now_iso())
-    doc["updated_at"] = _now_iso()
+    now = datetime.now(timezone.utc)
+    doc.setdefault("created_at", now.isoformat())
+    doc["updated_at"] = now.isoformat()
+    doc.setdefault("created_epoch", int(now.timestamp()))
+    doc["updated_epoch"] = int(now.timestamp())
     saved = container.upsert_item(doc)
     _invalidate(scenario)
     return saved

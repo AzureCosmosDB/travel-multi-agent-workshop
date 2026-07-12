@@ -343,10 +343,12 @@ _supervisor_by_deployment: dict[str, Any] = {}
 _supervisor_build_ctx: dict[str, Any] | None = None
 
 _DEFAULT_TRIVIAL_PATTERNS = [
-    r"^(hi|hello|hey|yo|greetings)\b",
-    r"^(thanks|thank you|thx|ty)\b",
-    r"^(ok|okay|k|sure|yes|yep|yeah|no|nope|nah)\b",
-    r"^(great|cool|awesome|perfect|nice|got it|sounds good|good|fine)\b",
+    r"^(hi|hello|hey|yo|greetings|good (morning|afternoon|evening))\b",
+    r"^(thanks|thank you|thx|ty|cheers|much appreciated|appreciate it|appreciated)\b",
+    r"^(ok|okay|k|kk|sure|yes|yep|yeah|yup|no|nope|nah|alright|right|fine)\b",
+    r"^(great|cool|awesome|perfect|nice|good|wonderful|excellent|fantastic|lovely|brilliant)\b",
+    r"^(got it|sounds good|sounds great|looks good|that works|works for me|makes sense|will do|no worries|no problem)\b",
+    r"^(bye|goodbye|see you|see ya|later|take care)\b",
 ]
 _DEFAULT_COMPLEX_PATTERNS = [
     r"itinerary",

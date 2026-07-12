@@ -12147,5 +12147,3490 @@
       "depending"
     ],
     "superseded": false
+  },
+  {
+    "id": "msg_618aeb417921",
+    "messageId": "msg_618aeb417921",
+    "sessionId": "session_4e33f2cde46f",
+    "tenantId": "analytics_demo",
+    "userId": "aisha_rahman",
+    "role": "user",
+    "content": "hi",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:32:56.631664+00:00",
+    "keywords": [],
+    "superseded": false
+  },
+  {
+    "id": "msg_debd117ec6c9",
+    "messageId": "msg_debd117ec6c9",
+    "sessionId": "session_4e33f2cde46f",
+    "tenantId": "analytics_demo",
+    "userId": "aisha_rahman",
+    "role": "assistant",
+    "content": "Hi there! Nice to meet you. What would you like help with first: finding a place to stay, things to do, dining recommendations, or planning a full trip/itinerary? Do you have a destination and dates in mind?",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:32:56.694123+00:00",
+    "keywords": [
+      "nice",
+      "meet",
+      "first",
+      "finding",
+      "place"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_2750e02e9235",
+    "messageId": "msg_2750e02e9235",
+    "sessionId": "session_4e33f2cde46f",
+    "tenantId": "analytics_demo",
+    "userId": "aisha_rahman",
+    "role": "user",
+    "content": "cool",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:33:00.456327+00:00",
+    "keywords": [
+      "cool"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_5a050862bf5a",
+    "messageId": "msg_5a050862bf5a",
+    "sessionId": "session_4e33f2cde46f",
+    "tenantId": "analytics_demo",
+    "userId": "aisha_rahman",
+    "role": "assistant",
+    "content": "Great to hear! What city are you visiting, and would you like help with hotels, activities, dining, or a full itinerary?",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:33:00.466024+00:00",
+    "keywords": [
+      "great",
+      "hear",
+      "city",
+      "visiting",
+      "hotels"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_b17d1f4d2748",
+    "messageId": "msg_b17d1f4d2748",
+    "sessionId": "session_4e33f2cde46f",
+    "tenantId": "analytics_demo",
+    "userId": "aisha_rahman",
+    "role": "user",
+    "content": "awesome",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:33:03.946598+00:00",
+    "keywords": [
+      "awesome"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_427b7cc404cd",
+    "messageId": "msg_427b7cc404cd",
+    "sessionId": "session_4e33f2cde46f",
+    "tenantId": "analytics_demo",
+    "userId": "aisha_rahman",
+    "role": "assistant",
+    "content": "Awesome—great to hear. What would you like help with first: hotels, activities/attractions, dining, or a full day-by-day itinerary for a city? If you have a destination and dates, share them and I’ll tailor the next step.",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:33:03.958152+00:00",
+    "keywords": [
+      "awesome",
+      "great",
+      "hear",
+      "first",
+      "hotels"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_55e79a827e93",
+    "messageId": "msg_55e79a827e93",
+    "sessionId": "session_8aa4517b9557",
+    "tenantId": "analytics_demo",
+    "userId": "aisha_rahman",
+    "role": "user",
+    "content": "nice",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:34:47.709073+00:00",
+    "keywords": [
+      "nice"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_b5631f6f6955",
+    "messageId": "msg_b5631f6f6955",
+    "sessionId": "session_8aa4517b9557",
+    "tenantId": "analytics_demo",
+    "userId": "aisha_rahman",
+    "role": "assistant",
+    "content": "Nice to meet you! Which city are you thinking about, and would you like to start with hotels, things to do, dining, or a full day-by-day plan?",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:34:47.719948+00:00",
+    "keywords": [
+      "nice",
+      "meet",
+      "city",
+      "thinking",
+      "start"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_ad57944dc8db",
+    "messageId": "msg_ad57944dc8db",
+    "sessionId": "session_8aa4517b9557",
+    "tenantId": "analytics_demo",
+    "userId": "aisha_rahman",
+    "role": "user",
+    "content": "got it",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:34:51.076624+00:00",
+    "keywords": [
+      "got"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_5684dc836137",
+    "messageId": "msg_5684dc836137",
+    "sessionId": "session_8aa4517b9557",
+    "tenantId": "analytics_demo",
+    "userId": "aisha_rahman",
+    "role": "assistant",
+    "content": "Nice to meet you! Which city are you visiting, and what would you like help with first: hotels, things to do, dining, or a full itinerary?",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:34:51.086026+00:00",
+    "keywords": [
+      "nice",
+      "meet",
+      "city",
+      "visiting",
+      "first"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_8d8107cef5d9",
+    "messageId": "msg_8d8107cef5d9",
+    "sessionId": "session_8aa4517b9557",
+    "tenantId": "analytics_demo",
+    "userId": "aisha_rahman",
+    "role": "user",
+    "content": "perfect",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:34:53.941031+00:00",
+    "keywords": [
+      "perfect"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_7fd099877c18",
+    "messageId": "msg_7fd099877c18",
+    "sessionId": "session_8aa4517b9557",
+    "tenantId": "analytics_demo",
+    "userId": "aisha_rahman",
+    "role": "assistant",
+    "content": "Great to hear! What would you like help with first—hotels, things to do, dining, or a full itinerary? Which city are you thinking about, and do you have dates in mind?",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:34:53.952132+00:00",
+    "keywords": [
+      "great",
+      "hear",
+      "first",
+      "hotels",
+      "dining"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_b695f806ff8b",
+    "messageId": "msg_b695f806ff8b",
+    "sessionId": "session_a63636f24c51",
+    "tenantId": "analytics_demo",
+    "userId": "alex_brennan",
+    "role": "user",
+    "content": "hi",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:34:56.966036+00:00",
+    "keywords": [],
+    "superseded": false
+  },
+  {
+    "id": "msg_c0f28ef5d1f6",
+    "messageId": "msg_c0f28ef5d1f6",
+    "sessionId": "session_a63636f24c51",
+    "tenantId": "analytics_demo",
+    "userId": "alex_brennan",
+    "role": "assistant",
+    "content": "Hi there! Nice to meet you. What destination and dates are you considering, and would you like help with hotels, activities, dining, or a full itinerary to start?",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:34:56.976816+00:00",
+    "keywords": [
+      "nice",
+      "meet",
+      "destination",
+      "dates",
+      "considering"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_e7307ff62be3",
+    "messageId": "msg_e7307ff62be3",
+    "sessionId": "session_a63636f24c51",
+    "tenantId": "analytics_demo",
+    "userId": "alex_brennan",
+    "role": "user",
+    "content": "thank you",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:34:59.740911+00:00",
+    "keywords": [
+      "thank"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_490587076838",
+    "messageId": "msg_490587076838",
+    "sessionId": "session_a63636f24c51",
+    "tenantId": "analytics_demo",
+    "userId": "alex_brennan",
+    "role": "assistant",
+    "content": "You're welcome! What would you like help with first: hotels, things to do, dining, or a day-by-day itinerary for your trip? Also, do you have dates or a city in mind to start with?",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:34:59.751428+00:00",
+    "keywords": [
+      "welcome",
+      "first",
+      "hotels",
+      "dining",
+      "day-by-day"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_d8f9ed9435a2",
+    "messageId": "msg_d8f9ed9435a2",
+    "sessionId": "session_a63636f24c51",
+    "tenantId": "analytics_demo",
+    "userId": "alex_brennan",
+    "role": "user",
+    "content": "great, thanks",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:35:02.733780+00:00",
+    "keywords": [
+      "great",
+      "thanks"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_2104fe61007b",
+    "messageId": "msg_2104fe61007b",
+    "sessionId": "session_a63636f24c51",
+    "tenantId": "analytics_demo",
+    "userId": "alex_brennan",
+    "role": "assistant",
+    "content": "You're welcome! Which city are you planning for, and would you like to start with a hotel, activities, dining, or a full day-by-day itinerary?",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:35:02.743853+00:00",
+    "keywords": [
+      "welcome",
+      "city",
+      "planning",
+      "start",
+      "hotel"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_84bb92cae33d",
+    "messageId": "msg_84bb92cae33d",
+    "sessionId": "session_fc4b46e89c0a",
+    "tenantId": "analytics_demo",
+    "userId": "david_okafor",
+    "role": "user",
+    "content": "great, thanks",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:35:05.764424+00:00",
+    "keywords": [
+      "great",
+      "thanks"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_ce0330089e03",
+    "messageId": "msg_ce0330089e03",
+    "sessionId": "session_fc4b46e89c0a",
+    "tenantId": "analytics_demo",
+    "userId": "david_okafor",
+    "role": "assistant",
+    "content": "You’re welcome! What would you like help with first—hotels, things to do, dining, or a full day-by-day itinerary for a destination? Do you have a city and travel dates in mind?",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:35:05.776087+00:00",
+    "keywords": [
+      "welcome",
+      "first",
+      "hotels",
+      "dining",
+      "full"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_b7daf0fdfa03",
+    "messageId": "msg_b7daf0fdfa03",
+    "sessionId": "session_fc4b46e89c0a",
+    "tenantId": "analytics_demo",
+    "userId": "david_okafor",
+    "role": "user",
+    "content": "okay",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:35:08.715538+00:00",
+    "keywords": [
+      "okay"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_45fd88deb5bc",
+    "messageId": "msg_45fd88deb5bc",
+    "sessionId": "session_fc4b46e89c0a",
+    "tenantId": "analytics_demo",
+    "userId": "david_okafor",
+    "role": "assistant",
+    "content": "Hi there! Happy to help plan your trip. What would you like to start with: hotels, things to do, dining, or a full day-by-day itinerary? If you have a destination or dates in mind, share them too.",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:35:08.726666+00:00",
+    "keywords": [
+      "happy",
+      "start",
+      "hotels",
+      "dining",
+      "full"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_155cad2124bc",
+    "messageId": "msg_155cad2124bc",
+    "sessionId": "session_fc4b46e89c0a",
+    "tenantId": "analytics_demo",
+    "userId": "david_okafor",
+    "role": "user",
+    "content": "hi",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:35:11.518305+00:00",
+    "keywords": [],
+    "superseded": false
+  },
+  {
+    "id": "msg_984322473cca",
+    "messageId": "msg_984322473cca",
+    "sessionId": "session_fc4b46e89c0a",
+    "tenantId": "analytics_demo",
+    "userId": "david_okafor",
+    "role": "assistant",
+    "content": "Hi there! Nice to meet you. What would you like help with first — a full trip plan, hotels, things to do, or dining ideas? Do you already have a destination and dates in mind?",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:35:11.528715+00:00",
+    "keywords": [
+      "nice",
+      "meet",
+      "first",
+      "full",
+      "hotels"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_d11c8e624d58",
+    "messageId": "msg_d11c8e624d58",
+    "sessionId": "session_eadf40876514",
+    "tenantId": "analytics_demo",
+    "userId": "elena_vasquez",
+    "role": "user",
+    "content": "thanks!",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:35:14.641657+00:00",
+    "keywords": [
+      "thanks"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_afedbad33d81",
+    "messageId": "msg_afedbad33d81",
+    "sessionId": "session_eadf40876514",
+    "tenantId": "analytics_demo",
+    "userId": "elena_vasquez",
+    "role": "assistant",
+    "content": "You’re welcome! What would you like help with first—hotels, activities, dining in a city, or a full day-by-day itinerary? If you have a destination in mind, tell me and I’ll tailor the next step.",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:35:14.656700+00:00",
+    "keywords": [
+      "welcome",
+      "first",
+      "hotels",
+      "activities",
+      "dining"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_9553ba234a37",
+    "messageId": "msg_9553ba234a37",
+    "sessionId": "session_eadf40876514",
+    "tenantId": "analytics_demo",
+    "userId": "elena_vasquez",
+    "role": "user",
+    "content": "makes sense",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:35:18.186479+00:00",
+    "keywords": [
+      "makes",
+      "sense"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_3af5a8fb3aa6",
+    "messageId": "msg_3af5a8fb3aa6",
+    "sessionId": "session_eadf40876514",
+    "tenantId": "analytics_demo",
+    "userId": "elena_vasquez",
+    "role": "assistant",
+    "content": "Great — glad that helped. What would you like me to do next: find hotels, recommend restaurants, list things to do, or build a day-by-day itinerary? If you already have a destination and dates, tell me those and any must-haves (budget, dietary or accessibility needs, pace).",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:35:18.196785+00:00",
+    "keywords": [
+      "great",
+      "glad",
+      "helped",
+      "next",
+      "hotels"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_580e9a8a71f0",
+    "messageId": "msg_580e9a8a71f0",
+    "sessionId": "session_47a029b61341",
+    "tenantId": "analytics_demo",
+    "userId": "isabelle_dupont",
+    "role": "user",
+    "content": "appreciate it",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:35:21.804524+00:00",
+    "keywords": [
+      "appreciate"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_d3f5d1ce57c0",
+    "messageId": "msg_d3f5d1ce57c0",
+    "sessionId": "session_47a029b61341",
+    "tenantId": "analytics_demo",
+    "userId": "isabelle_dupont",
+    "role": "assistant",
+    "content": "You're welcome — glad to help. Anything else I can do for your trip (dates, places to stay, things to do, or restaurants)?",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:35:21.815407+00:00",
+    "keywords": [
+      "welcome",
+      "glad",
+      "anything",
+      "dates",
+      "places"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_d9fc15b3e8b9",
+    "messageId": "msg_d9fc15b3e8b9",
+    "sessionId": "session_47a029b61341",
+    "tenantId": "analytics_demo",
+    "userId": "isabelle_dupont",
+    "role": "user",
+    "content": "sounds good",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:35:24.720051+00:00",
+    "keywords": [
+      "sounds",
+      "good"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_849f3796e484",
+    "messageId": "msg_849f3796e484",
+    "sessionId": "session_47a029b61341",
+    "tenantId": "analytics_demo",
+    "userId": "isabelle_dupont",
+    "role": "assistant",
+    "content": "Great to hear. What would you like to start with: hotels, things to do, dining, or a full itinerary for your trip? If you have a city or dates in mind, share those too and I’ll tailor the options.",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:35:24.730652+00:00",
+    "keywords": [
+      "great",
+      "hear",
+      "start",
+      "hotels",
+      "dining"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_729176c846be",
+    "messageId": "msg_729176c846be",
+    "sessionId": "session_47a029b61341",
+    "tenantId": "analytics_demo",
+    "userId": "isabelle_dupont",
+    "role": "user",
+    "content": "sure",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:35:27.641790+00:00",
+    "keywords": [
+      "sure"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_2072d7df6bfe",
+    "messageId": "msg_2072d7df6bfe",
+    "sessionId": "session_47a029b61341",
+    "tenantId": "analytics_demo",
+    "userId": "isabelle_dupont",
+    "role": "assistant",
+    "content": "Great—glad to help. What would you like to start with: hotels, things to do, dining, or a full day-by-day itinerary? Do you have a destination and dates in mind?",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:35:27.654053+00:00",
+    "keywords": [
+      "great",
+      "glad",
+      "start",
+      "hotels",
+      "dining"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_841a857ff9ba",
+    "messageId": "msg_841a857ff9ba",
+    "sessionId": "session_b5256f2d2625",
+    "tenantId": "analytics_demo",
+    "userId": "james_mitchell",
+    "role": "user",
+    "content": "sounds good",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:35:30.728683+00:00",
+    "keywords": [
+      "sounds",
+      "good"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_74b6d08c7c81",
+    "messageId": "msg_74b6d08c7c81",
+    "sessionId": "session_b5256f2d2625",
+    "tenantId": "analytics_demo",
+    "userId": "james_mitchell",
+    "role": "assistant",
+    "content": "Great to hear! to get started, what would you like help with first: finding hotels, planning activities, finding dining options, or building a day-by-day itinerary? If you have a destination and dates in mind, share them too.",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:35:30.739921+00:00",
+    "keywords": [
+      "great",
+      "hear",
+      "started",
+      "first",
+      "finding"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_93e7e1e0f4eb",
+    "messageId": "msg_93e7e1e0f4eb",
+    "sessionId": "session_b5256f2d2625",
+    "tenantId": "analytics_demo",
+    "userId": "james_mitchell",
+    "role": "user",
+    "content": "perfect",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:35:33.713727+00:00",
+    "keywords": [
+      "perfect"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_0da53f67e998",
+    "messageId": "msg_0da53f67e998",
+    "sessionId": "session_b5256f2d2625",
+    "tenantId": "analytics_demo",
+    "userId": "james_mitchell",
+    "role": "assistant",
+    "content": "Great to hear! What would you like to start with — hotels, activities, dining, or a full day-by-day itinerary for a destination? If you have a city and rough dates in mind, share them and I’ll tailor picks.",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:35:33.724589+00:00",
+    "keywords": [
+      "great",
+      "hear",
+      "start",
+      "hotels",
+      "activities"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_b50e578f99f6",
+    "messageId": "msg_b50e578f99f6",
+    "sessionId": "session_b5256f2d2625",
+    "tenantId": "analytics_demo",
+    "userId": "james_mitchell",
+    "role": "user",
+    "content": "thanks so much",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:35:36.635171+00:00",
+    "keywords": [
+      "thanks",
+      "much"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_4c50c99daa12",
+    "messageId": "msg_4c50c99daa12",
+    "sessionId": "session_b5256f2d2625",
+    "tenantId": "analytics_demo",
+    "userId": "james_mitchell",
+    "role": "assistant",
+    "content": "You’re welcome! I’m glad to help. What would you like to start with: hotel stays, things to do, dining recommendations, or a full day-by-day itinerary for your trip? If you have a city in mind, share it and we can tailor from there.",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:35:36.645542+00:00",
+    "keywords": [
+      "welcome",
+      "glad",
+      "start",
+      "hotel",
+      "stays"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_22ec02dbccd6",
+    "messageId": "msg_22ec02dbccd6",
+    "sessionId": "session_741b2ccafafa",
+    "tenantId": "analytics_demo",
+    "userId": "jordan_taylor",
+    "role": "user",
+    "content": "ok",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:35:39.773090+00:00",
+    "keywords": [],
+    "superseded": false
+  },
+  {
+    "id": "msg_ecba9f663990",
+    "messageId": "msg_ecba9f663990",
+    "sessionId": "session_741b2ccafafa",
+    "tenantId": "analytics_demo",
+    "userId": "jordan_taylor",
+    "role": "assistant",
+    "content": "Great—thanks for the thumbs up! What would you like to start with: plan a trip to a destination, find hotels, find things to do and dining, or build a day-by-day itinerary? Any destination and dates in mind?",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:35:39.782890+00:00",
+    "keywords": [
+      "great",
+      "thanks",
+      "thumbs",
+      "start",
+      "destination"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_681f1608418d",
+    "messageId": "msg_681f1608418d",
+    "sessionId": "session_741b2ccafafa",
+    "tenantId": "analytics_demo",
+    "userId": "jordan_taylor",
+    "role": "user",
+    "content": "thanks so much",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:35:42.592381+00:00",
+    "keywords": [
+      "thanks",
+      "much"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_76f5adcdb3a2",
+    "messageId": "msg_76f5adcdb3a2",
+    "sessionId": "session_741b2ccafafa",
+    "tenantId": "analytics_demo",
+    "userId": "jordan_taylor",
+    "role": "assistant",
+    "content": "You’re very welcome! What would you like help with first—finding hotels, picking activities, choosing dining, or putting together a day-by-day itinerary for your trip?",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:35:42.602866+00:00",
+    "keywords": [
+      "welcome",
+      "first",
+      "finding",
+      "hotels",
+      "picking"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_44342856ae17",
+    "messageId": "msg_44342856ae17",
+    "sessionId": "session_952633b81e81",
+    "tenantId": "analytics_demo",
+    "userId": "marco_rossi",
+    "role": "user",
+    "content": "cool",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:35:45.839771+00:00",
+    "keywords": [
+      "cool"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_0698743df387",
+    "messageId": "msg_0698743df387",
+    "sessionId": "session_952633b81e81",
+    "tenantId": "analytics_demo",
+    "userId": "marco_rossi",
+    "role": "assistant",
+    "content": "Nice to meet you! Which city are you thinking of, and would you like to start with hotels, things to do, dining, or a day-by-day plan?",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:35:45.849672+00:00",
+    "keywords": [
+      "nice",
+      "meet",
+      "city",
+      "thinking",
+      "start"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_da3b4c8ab2a1",
+    "messageId": "msg_da3b4c8ab2a1",
+    "sessionId": "session_952633b81e81",
+    "tenantId": "analytics_demo",
+    "userId": "marco_rossi",
+    "role": "user",
+    "content": "ok",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:35:48.922479+00:00",
+    "keywords": [],
+    "superseded": false
+  },
+  {
+    "id": "msg_04cc6784812e",
+    "messageId": "msg_04cc6784812e",
+    "sessionId": "session_952633b81e81",
+    "tenantId": "analytics_demo",
+    "userId": "marco_rossi",
+    "role": "assistant",
+    "content": "Hi there! Happy to help. What would you like to start with—hotels, things to do, dining, or a full itinerary? Do you have a city in mind and any dates you’re aiming for?",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:35:48.932607+00:00",
+    "keywords": [
+      "happy",
+      "start",
+      "hotels",
+      "dining",
+      "full"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_fb9a00519072",
+    "messageId": "msg_fb9a00519072",
+    "sessionId": "session_952633b81e81",
+    "tenantId": "analytics_demo",
+    "userId": "marco_rossi",
+    "role": "user",
+    "content": "appreciate it",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:35:52.379415+00:00",
+    "keywords": [
+      "appreciate"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_2b803999d4c5",
+    "messageId": "msg_2b803999d4c5",
+    "sessionId": "session_952633b81e81",
+    "tenantId": "analytics_demo",
+    "userId": "marco_rossi",
+    "role": "assistant",
+    "content": "You're welcome — anything else I can help with for your trip right now (dates, a place to stay, restaurants, or a day-by-day itinerary)?",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:35:52.389841+00:00",
+    "keywords": [
+      "welcome",
+      "anything",
+      "right",
+      "now",
+      "dates"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_ae127238f7ce",
+    "messageId": "msg_ae127238f7ce",
+    "sessionId": "session_974861efd931",
+    "tenantId": "analytics_demo",
+    "userId": "maya_chen",
+    "role": "user",
+    "content": "sure",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:35:56.148679+00:00",
+    "keywords": [
+      "sure"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_82cb9e964cc7",
+    "messageId": "msg_82cb9e964cc7",
+    "sessionId": "session_974861efd931",
+    "tenantId": "analytics_demo",
+    "userId": "maya_chen",
+    "role": "assistant",
+    "content": "Great—happy to help. Which city would you like to plan, and would you like a full itinerary with hotels, activities, and dining, or start with just one aspect (hotels, things to do, or dining) to begin?",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:35:56.158343+00:00",
+    "keywords": [
+      "great",
+      "happy",
+      "city",
+      "full",
+      "itinerary"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_cbe34c2fbd49",
+    "messageId": "msg_cbe34c2fbd49",
+    "sessionId": "session_974861efd931",
+    "tenantId": "analytics_demo",
+    "userId": "maya_chen",
+    "role": "user",
+    "content": "thank you",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:35:58.977174+00:00",
+    "keywords": [
+      "thank"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_3c30a9e9212d",
+    "messageId": "msg_3c30a9e9212d",
+    "sessionId": "session_974861efd931",
+    "tenantId": "analytics_demo",
+    "userId": "maya_chen",
+    "role": "assistant",
+    "content": "You’re welcome! What would you like help with first? Options: plan a trip, find hotels, dining, and activities in a city, or save an itinerary. Do you have a destination and dates in mind?",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:35:58.986507+00:00",
+    "keywords": [
+      "welcome",
+      "first",
+      "options",
+      "hotels",
+      "dining"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_b3b5f5dfc9fa",
+    "messageId": "msg_b3b5f5dfc9fa",
+    "sessionId": "session_974861efd931",
+    "tenantId": "analytics_demo",
+    "userId": "maya_chen",
+    "role": "user",
+    "content": "thanks so much",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:36:02.087644+00:00",
+    "keywords": [
+      "thanks",
+      "much"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_08ef17874dd1",
+    "messageId": "msg_08ef17874dd1",
+    "sessionId": "session_974861efd931",
+    "tenantId": "analytics_demo",
+    "userId": "maya_chen",
+    "role": "assistant",
+    "content": "You’re welcome! What would you like to start with—hotels, things to do, dining, or a day-by-day itinerary for your trip? If you have a destination in mind and any dates, share those to tailor suggestions.",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:36:02.097687+00:00",
+    "keywords": [
+      "welcome",
+      "start",
+      "hotels",
+      "dining",
+      "day-by-day"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_bedd1345bae6",
+    "messageId": "msg_bedd1345bae6",
+    "sessionId": "session_beddde362ba8",
+    "tenantId": "analytics_demo",
+    "userId": "priya_sharma",
+    "role": "user",
+    "content": "yep",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:36:05.326522+00:00",
+    "keywords": [
+      "yep"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_bdfca3333b39",
+    "messageId": "msg_bdfca3333b39",
+    "sessionId": "session_beddde362ba8",
+    "tenantId": "analytics_demo",
+    "userId": "priya_sharma",
+    "role": "assistant",
+    "content": "Great—happy to help. What would you like to start with: plan a trip, find hotels, restaurants, or activities? If you have a destination and dates in mind, share them and I’ll tailor recommendations.",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:36:05.337578+00:00",
+    "keywords": [
+      "great",
+      "happy",
+      "start",
+      "hotels",
+      "restaurants"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_306a9664876b",
+    "messageId": "msg_306a9664876b",
+    "sessionId": "session_beddde362ba8",
+    "tenantId": "analytics_demo",
+    "userId": "priya_sharma",
+    "role": "user",
+    "content": "thank you",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:36:08.086163+00:00",
+    "keywords": [
+      "thank"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_5cec70ff4824",
+    "messageId": "msg_5cec70ff4824",
+    "sessionId": "session_beddde362ba8",
+    "tenantId": "analytics_demo",
+    "userId": "priya_sharma",
+    "role": "assistant",
+    "content": "You’re welcome! What would you like help with next—hotels, activities, dining in a city, or a full itinerary planning? If you have a destination in mind, I can tailor options right away.",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:36:08.096608+00:00",
+    "keywords": [
+      "welcome",
+      "next",
+      "hotels",
+      "activities",
+      "dining"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_3ff26a071b82",
+    "messageId": "msg_3ff26a071b82",
+    "sessionId": "session_beddde362ba8",
+    "tenantId": "analytics_demo",
+    "userId": "priya_sharma",
+    "role": "user",
+    "content": "great",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:36:10.796690+00:00",
+    "keywords": [
+      "great"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_7b9ac3e650df",
+    "messageId": "msg_7b9ac3e650df",
+    "sessionId": "session_beddde362ba8",
+    "tenantId": "analytics_demo",
+    "userId": "priya_sharma",
+    "role": "assistant",
+    "content": "Nice to meet you! What would you like help with first: hotels, activities, dining, or a full day-by-day itinerary for your trip? If you have a city and dates in mind, that helps me tailor options right away.",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:36:10.807669+00:00",
+    "keywords": [
+      "nice",
+      "meet",
+      "first",
+      "hotels",
+      "activities"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_6b4af10d3046",
+    "messageId": "msg_6b4af10d3046",
+    "sessionId": "session_0c3f0fd4e879",
+    "tenantId": "analytics_demo",
+    "userId": "robert_williams",
+    "role": "user",
+    "content": "ok thanks",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:36:13.885369+00:00",
+    "keywords": [
+      "thanks"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_5cd66c93dbdc",
+    "messageId": "msg_5cd66c93dbdc",
+    "sessionId": "session_0c3f0fd4e879",
+    "tenantId": "analytics_demo",
+    "userId": "robert_williams",
+    "role": "assistant",
+    "content": "You’re welcome! What would you like help with first—hotels, activities, dining, or a full itinerary? Do you have a destination and dates in mind?",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:36:13.895801+00:00",
+    "keywords": [
+      "welcome",
+      "first",
+      "hotels",
+      "activities",
+      "dining"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_24cfad35bc80",
+    "messageId": "msg_24cfad35bc80",
+    "sessionId": "session_0c3f0fd4e879",
+    "tenantId": "analytics_demo",
+    "userId": "robert_williams",
+    "role": "user",
+    "content": "hello",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:36:16.701068+00:00",
+    "keywords": [],
+    "superseded": false
+  },
+  {
+    "id": "msg_c9148c55c74d",
+    "messageId": "msg_c9148c55c74d",
+    "sessionId": "session_0c3f0fd4e879",
+    "tenantId": "analytics_demo",
+    "userId": "robert_williams",
+    "role": "assistant",
+    "content": "Hello! Nice to meet you. What would you like help with first—hotels, things to do, dining, or a full itinerary planning? Do you have a city in mind and dates you’re aiming for?",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:36:16.711895+00:00",
+    "keywords": [
+      "nice",
+      "meet",
+      "first",
+      "hotels",
+      "dining"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_eb843cdf2dc6",
+    "messageId": "msg_eb843cdf2dc6",
+    "sessionId": "session_701b13bacbc4",
+    "tenantId": "analytics_demo",
+    "userId": "sarah_johnson",
+    "role": "user",
+    "content": "ok",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:36:20.004366+00:00",
+    "keywords": [],
+    "superseded": false
+  },
+  {
+    "id": "msg_8e6fd775e89e",
+    "messageId": "msg_8e6fd775e89e",
+    "sessionId": "session_701b13bacbc4",
+    "tenantId": "analytics_demo",
+    "userId": "sarah_johnson",
+    "role": "assistant",
+    "content": "Awesome—happy to help. Which city are you visiting, and would you like a full itinerary plan or separate picks for hotels, activities, and dining? If you have dates, share them too and I’ll tailor suggestions.",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:36:20.013679+00:00",
+    "keywords": [
+      "awesome",
+      "happy",
+      "city",
+      "visiting",
+      "full"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_ced970a1a772",
+    "messageId": "msg_ced970a1a772",
+    "sessionId": "session_701b13bacbc4",
+    "tenantId": "analytics_demo",
+    "userId": "sarah_johnson",
+    "role": "user",
+    "content": "hi",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:36:22.985993+00:00",
+    "keywords": [],
+    "superseded": false
+  },
+  {
+    "id": "msg_87ac58608774",
+    "messageId": "msg_87ac58608774",
+    "sessionId": "session_701b13bacbc4",
+    "tenantId": "analytics_demo",
+    "userId": "sarah_johnson",
+    "role": "assistant",
+    "content": "Hi there! Nice to meet you. What would you like help with first: hotels, things to do, dining, or a full day-by-day itinerary? Do you have a destination and dates in mind?",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:36:22.996048+00:00",
+    "keywords": [
+      "nice",
+      "meet",
+      "first",
+      "hotels",
+      "dining"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_da6cf6134efd",
+    "messageId": "msg_da6cf6134efd",
+    "sessionId": "session_701b13bacbc4",
+    "tenantId": "analytics_demo",
+    "userId": "sarah_johnson",
+    "role": "user",
+    "content": "nice",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:36:25.928904+00:00",
+    "keywords": [
+      "nice"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_7e7c75a8f5e7",
+    "messageId": "msg_7e7c75a8f5e7",
+    "sessionId": "session_701b13bacbc4",
+    "tenantId": "analytics_demo",
+    "userId": "sarah_johnson",
+    "role": "assistant",
+    "content": "Nice to hear! What would you like help with today—planning a trip, finding hotels, things to do, or dining suggestions? If you have a city in mind, tell me which one and whether you want a full itinerary or stand-alone recommendations.",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:36:25.938681+00:00",
+    "keywords": [
+      "nice",
+      "hear",
+      "today",
+      "planning",
+      "finding"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_a1f56ed30926",
+    "messageId": "msg_a1f56ed30926",
+    "sessionId": "session_b13f88c74625",
+    "tenantId": "analytics_demo",
+    "userId": "aisha_rahman",
+    "role": "user",
+    "content": "that works",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:36:29.436279+00:00",
+    "keywords": [
+      "works"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_53740d1d4c88",
+    "messageId": "msg_53740d1d4c88",
+    "sessionId": "session_b13f88c74625",
+    "tenantId": "analytics_demo",
+    "userId": "aisha_rahman",
+    "role": "assistant",
+    "content": "Great — glad that works. What would you like to do next: pick hotels, find restaurants, plan daily activities, or build a full itinerary? Any dates, length of stay, or must-haves I should know?",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:36:29.447082+00:00",
+    "keywords": [
+      "great",
+      "glad",
+      "works",
+      "next",
+      "pick"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_4a53d4bb9e2f",
+    "messageId": "msg_4a53d4bb9e2f",
+    "sessionId": "session_b13f88c74625",
+    "tenantId": "analytics_demo",
+    "userId": "aisha_rahman",
+    "role": "user",
+    "content": "appreciate it",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:36:32.996452+00:00",
+    "keywords": [
+      "appreciate"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_4ff37b2b2324",
+    "messageId": "msg_4ff37b2b2324",
+    "sessionId": "session_b13f88c74625",
+    "tenantId": "analytics_demo",
+    "userId": "aisha_rahman",
+    "role": "assistant",
+    "content": "You're welcome — glad to help. Would you like me to start finding places (hotels, activities, restaurants) or build a day-by-day itinerary for your trip?",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:36:33.008155+00:00",
+    "keywords": [
+      "welcome",
+      "glad",
+      "start",
+      "finding",
+      "places"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_b85ea89a7aa6",
+    "messageId": "msg_b85ea89a7aa6",
+    "sessionId": "session_024277290f66",
+    "tenantId": "analytics_demo",
+    "userId": "alex_brennan",
+    "role": "user",
+    "content": "hi",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:36:35.996612+00:00",
+    "keywords": [],
+    "superseded": false
+  },
+  {
+    "id": "msg_fbb47482cce2",
+    "messageId": "msg_fbb47482cce2",
+    "sessionId": "session_024277290f66",
+    "tenantId": "analytics_demo",
+    "userId": "alex_brennan",
+    "role": "assistant",
+    "content": "Hi there! Welcome aboard. What would you like help with first: hotels, activities, dining, or a full itinerary? Do you have a city and dates in mind?",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:36:36.005968+00:00",
+    "keywords": [
+      "welcome",
+      "aboard",
+      "first",
+      "hotels",
+      "activities"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_d33606b1257b",
+    "messageId": "msg_d33606b1257b",
+    "sessionId": "session_024277290f66",
+    "tenantId": "analytics_demo",
+    "userId": "alex_brennan",
+    "role": "user",
+    "content": "hi",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:36:39.050423+00:00",
+    "keywords": [],
+    "superseded": false
+  },
+  {
+    "id": "msg_499765e349a0",
+    "messageId": "msg_499765e349a0",
+    "sessionId": "session_024277290f66",
+    "tenantId": "analytics_demo",
+    "userId": "alex_brennan",
+    "role": "assistant",
+    "content": "Hi there! Happy to help. What would you like to start with—hotels, activities, dining, or a full itinerary—and which city and dates are you planning?",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:36:39.061731+00:00",
+    "keywords": [
+      "happy",
+      "start",
+      "hotels",
+      "activities",
+      "dining"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_8a7dace6abd0",
+    "messageId": "msg_8a7dace6abd0",
+    "sessionId": "session_024277290f66",
+    "tenantId": "analytics_demo",
+    "userId": "alex_brennan",
+    "role": "user",
+    "content": "got it",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:36:42.018403+00:00",
+    "keywords": [
+      "got"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_5a93abc79214",
+    "messageId": "msg_5a93abc79214",
+    "sessionId": "session_024277290f66",
+    "tenantId": "analytics_demo",
+    "userId": "alex_brennan",
+    "role": "assistant",
+    "content": "Great to hear. What would you like to start with: hotels, things to do, dining, or a full itinerary? Do you have a city and dates in mind, or should we start with a destination and vibe you’re after?",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:36:42.030374+00:00",
+    "keywords": [
+      "great",
+      "hear",
+      "start",
+      "hotels",
+      "dining"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_7a30f3866d54",
+    "messageId": "msg_7a30f3866d54",
+    "sessionId": "session_15917ec972dd",
+    "tenantId": "analytics_demo",
+    "userId": "david_okafor",
+    "role": "user",
+    "content": "thanks!",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:36:44.990666+00:00",
+    "keywords": [
+      "thanks"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_c882f197701e",
+    "messageId": "msg_c882f197701e",
+    "sessionId": "session_15917ec972dd",
+    "tenantId": "analytics_demo",
+    "userId": "david_okafor",
+    "role": "assistant",
+    "content": "You’re welcome! What would you like help with first—hotels, things to do, dining, or a full itinerary for your trip? If you have a destination in mind, share it and any dates or vibes you’re aiming for.",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:36:45.001685+00:00",
+    "keywords": [
+      "welcome",
+      "first",
+      "hotels",
+      "dining",
+      "full"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_6b003b9c638f",
+    "messageId": "msg_6b003b9c638f",
+    "sessionId": "session_15917ec972dd",
+    "tenantId": "analytics_demo",
+    "userId": "david_okafor",
+    "role": "user",
+    "content": "okay",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:36:47.779872+00:00",
+    "keywords": [
+      "okay"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_18e39a080e41",
+    "messageId": "msg_18e39a080e41",
+    "sessionId": "session_15917ec972dd",
+    "tenantId": "analytics_demo",
+    "userId": "david_okafor",
+    "role": "assistant",
+    "content": "Great—happy to help. What would you like to start with: a destination and dates, hotels, restaurants, activities, or a full itinerary plan?",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:36:47.790871+00:00",
+    "keywords": [
+      "great",
+      "happy",
+      "start",
+      "destination",
+      "dates"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_3bbe9d42c4e0",
+    "messageId": "msg_3bbe9d42c4e0",
+    "sessionId": "session_880dad985a7c",
+    "tenantId": "analytics_demo",
+    "userId": "elena_vasquez",
+    "role": "user",
+    "content": "hello",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:36:50.945894+00:00",
+    "keywords": [],
+    "superseded": false
+  },
+  {
+    "id": "msg_3e80cb8999e6",
+    "messageId": "msg_3e80cb8999e6",
+    "sessionId": "session_880dad985a7c",
+    "tenantId": "analytics_demo",
+    "userId": "elena_vasquez",
+    "role": "assistant",
+    "content": "Hi there! Nice to meet you. Which city are you thinking about, and would you like to start with hotels, things to do, dining, or a day-by-day itinerary?",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:36:50.956467+00:00",
+    "keywords": [
+      "nice",
+      "meet",
+      "city",
+      "thinking",
+      "start"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_5bc4d3d7bd14",
+    "messageId": "msg_5bc4d3d7bd14",
+    "sessionId": "session_880dad985a7c",
+    "tenantId": "analytics_demo",
+    "userId": "elena_vasquez",
+    "role": "user",
+    "content": "okay",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:36:53.727801+00:00",
+    "keywords": [
+      "okay"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_9ee41c2c7a06",
+    "messageId": "msg_9ee41c2c7a06",
+    "sessionId": "session_880dad985a7c",
+    "tenantId": "analytics_demo",
+    "userId": "elena_vasquez",
+    "role": "assistant",
+    "content": "Great to have you back! What would you like to start with—hotels, activities, dining, or a full day-by-day plan for a trip? Do you have a destination and dates in mind?",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:36:53.738166+00:00",
+    "keywords": [
+      "great",
+      "back",
+      "start",
+      "hotels",
+      "activities"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_b584926b9e9f",
+    "messageId": "msg_b584926b9e9f",
+    "sessionId": "session_880dad985a7c",
+    "tenantId": "analytics_demo",
+    "userId": "elena_vasquez",
+    "role": "user",
+    "content": "thank you",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:36:56.497514+00:00",
+    "keywords": [
+      "thank"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_8335f161cca6",
+    "messageId": "msg_8335f161cca6",
+    "sessionId": "session_880dad985a7c",
+    "tenantId": "analytics_demo",
+    "userId": "elena_vasquez",
+    "role": "assistant",
+    "content": "You’re welcome! What would you like help with first—hotels, dining, activities, or a full itinerary for a city? Do you have a destination and dates in mind?",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:36:56.508420+00:00",
+    "keywords": [
+      "welcome",
+      "first",
+      "hotels",
+      "dining",
+      "activities"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_9da4db3e28e0",
+    "messageId": "msg_9da4db3e28e0",
+    "sessionId": "session_d323446159f9",
+    "tenantId": "analytics_demo",
+    "userId": "isabelle_dupont",
+    "role": "user",
+    "content": "thanks so much",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:36:59.553761+00:00",
+    "keywords": [
+      "thanks",
+      "much"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_c8e7dea9e5c7",
+    "messageId": "msg_c8e7dea9e5c7",
+    "sessionId": "session_d323446159f9",
+    "tenantId": "analytics_demo",
+    "userId": "isabelle_dupont",
+    "role": "assistant",
+    "content": "You’re welcome! What would you like to work on next—hotels, things to do, dining ideas, or a full itinerary? Do you have a destination and dates in mind?",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:36:59.564565+00:00",
+    "keywords": [
+      "welcome",
+      "work",
+      "next",
+      "hotels",
+      "dining"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_b2bbcb070b8b",
+    "messageId": "msg_b2bbcb070b8b",
+    "sessionId": "session_d323446159f9",
+    "tenantId": "analytics_demo",
+    "userId": "isabelle_dupont",
+    "role": "user",
+    "content": "great",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:37:02.497960+00:00",
+    "keywords": [
+      "great"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_9c2cbff6a918",
+    "messageId": "msg_9c2cbff6a918",
+    "sessionId": "session_d323446159f9",
+    "tenantId": "analytics_demo",
+    "userId": "isabelle_dupont",
+    "role": "assistant",
+    "content": "Fantastic—where are you planning to go, and would you like to start with a place to stay, things to do, or a full day-by-day plan?",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:37:02.508298+00:00",
+    "keywords": [
+      "fantastic",
+      "planning",
+      "start",
+      "place",
+      "stay"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_28cd8deec076",
+    "messageId": "msg_28cd8deec076",
+    "sessionId": "session_d323446159f9",
+    "tenantId": "analytics_demo",
+    "userId": "isabelle_dupont",
+    "role": "user",
+    "content": "appreciate it",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:37:05.615025+00:00",
+    "keywords": [
+      "appreciate"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_56d2f342392e",
+    "messageId": "msg_56d2f342392e",
+    "sessionId": "session_d323446159f9",
+    "tenantId": "analytics_demo",
+    "userId": "isabelle_dupont",
+    "role": "assistant",
+    "content": "You're welcome — glad to help! Anything else you'd like me to plan or recommend for your trip?",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:37:05.626071+00:00",
+    "keywords": [
+      "welcome",
+      "glad",
+      "anything"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_68f0e6386dfc",
+    "messageId": "msg_68f0e6386dfc",
+    "sessionId": "session_a72c9419c74b",
+    "tenantId": "analytics_demo",
+    "userId": "james_mitchell",
+    "role": "user",
+    "content": "yep",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:37:08.684553+00:00",
+    "keywords": [
+      "yep"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_33bed9fdcdf7",
+    "messageId": "msg_33bed9fdcdf7",
+    "sessionId": "session_a72c9419c74b",
+    "tenantId": "analytics_demo",
+    "userId": "james_mitchell",
+    "role": "assistant",
+    "content": "Great to hear. What would you like to start with: hotels, activities, dining, or a full day-by-day plan? Do you have a destination and dates in mind?",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:37:08.695269+00:00",
+    "keywords": [
+      "great",
+      "hear",
+      "start",
+      "hotels",
+      "activities"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_d11ea1bdf3fd",
+    "messageId": "msg_d11ea1bdf3fd",
+    "sessionId": "session_a72c9419c74b",
+    "tenantId": "analytics_demo",
+    "userId": "james_mitchell",
+    "role": "user",
+    "content": "great",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:37:11.638658+00:00",
+    "keywords": [
+      "great"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_7e71f5a058cb",
+    "messageId": "msg_7e71f5a058cb",
+    "sessionId": "session_a72c9419c74b",
+    "tenantId": "analytics_demo",
+    "userId": "james_mitchell",
+    "role": "assistant",
+    "content": "Great to hear! What would you like to start with: plan a trip to a city, find hotels, activities, and dining, or craft a day-by-day itinerary? If you have a city in mind and dates, share those too and I’ll tailor the next steps.",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:37:11.648027+00:00",
+    "keywords": [
+      "great",
+      "hear",
+      "start",
+      "city",
+      "hotels"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_d66bd830f59d",
+    "messageId": "msg_d66bd830f59d",
+    "sessionId": "session_ecf1bfaf9b8c",
+    "tenantId": "analytics_demo",
+    "userId": "jordan_taylor",
+    "role": "user",
+    "content": "that works",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:37:15.050117+00:00",
+    "keywords": [
+      "works"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_46a459d38499",
+    "messageId": "msg_46a459d38499",
+    "sessionId": "session_ecf1bfaf9b8c",
+    "tenantId": "analytics_demo",
+    "userId": "jordan_taylor",
+    "role": "assistant",
+    "content": "Great — glad that works. Would you like me to save this plan, make any changes (dates, pace, budget), or start booking/searching for specific hotels, restaurants, or activities?",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:37:15.061140+00:00",
+    "keywords": [
+      "great",
+      "glad",
+      "works",
+      "save",
+      "any"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_dbb3db5893ec",
+    "messageId": "msg_dbb3db5893ec",
+    "sessionId": "session_ecf1bfaf9b8c",
+    "tenantId": "analytics_demo",
+    "userId": "jordan_taylor",
+    "role": "user",
+    "content": "great",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:37:18.069479+00:00",
+    "keywords": [
+      "great"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_23dbd803a17b",
+    "messageId": "msg_23dbd803a17b",
+    "sessionId": "session_ecf1bfaf9b8c",
+    "tenantId": "analytics_demo",
+    "userId": "jordan_taylor",
+    "role": "assistant",
+    "content": "Great to hear! What would you like help with first—hotels, activities, dining, or a full itinerary for a city? Do you have a destination and dates in mind?",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:37:18.079296+00:00",
+    "keywords": [
+      "great",
+      "hear",
+      "first",
+      "hotels",
+      "activities"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_8121fdd5a057",
+    "messageId": "msg_8121fdd5a057",
+    "sessionId": "session_9cb683d59700",
+    "tenantId": "analytics_demo",
+    "userId": "marco_rossi",
+    "role": "user",
+    "content": "perfect",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:37:21.266294+00:00",
+    "keywords": [
+      "perfect"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_4270403e8490",
+    "messageId": "msg_4270403e8490",
+    "sessionId": "session_9cb683d59700",
+    "tenantId": "analytics_demo",
+    "userId": "marco_rossi",
+    "role": "assistant",
+    "content": "Great to hear! What would you like to start with—hotel options, things to do, dining, or a day-by-day itinerary for your destination? If you have a city or dates in mind, share them and I’ll tailor the plan.",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:37:21.278347+00:00",
+    "keywords": [
+      "great",
+      "hear",
+      "start",
+      "hotel",
+      "options"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_6782c3d90f10",
+    "messageId": "msg_6782c3d90f10",
+    "sessionId": "session_9cb683d59700",
+    "tenantId": "analytics_demo",
+    "userId": "marco_rossi",
+    "role": "user",
+    "content": "ok thanks",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:37:23.961854+00:00",
+    "keywords": [
+      "thanks"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_44a44e96f19f",
+    "messageId": "msg_44a44e96f19f",
+    "sessionId": "session_9cb683d59700",
+    "tenantId": "analytics_demo",
+    "userId": "marco_rossi",
+    "role": "assistant",
+    "content": "You're welcome! What would you like help with first—hotels, activities, dining in a city, or a full itinerary?",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:37:23.972133+00:00",
+    "keywords": [
+      "welcome",
+      "first",
+      "hotels",
+      "activities",
+      "dining"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_ba3416ba72bf",
+    "messageId": "msg_ba3416ba72bf",
+    "sessionId": "session_9ca43c80ed58",
+    "tenantId": "analytics_demo",
+    "userId": "maya_chen",
+    "role": "user",
+    "content": "ok",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:37:27.017245+00:00",
+    "keywords": [],
+    "superseded": false
+  },
+  {
+    "id": "msg_0fff99afbc3f",
+    "messageId": "msg_0fff99afbc3f",
+    "sessionId": "session_9ca43c80ed58",
+    "tenantId": "analytics_demo",
+    "userId": "maya_chen",
+    "role": "assistant",
+    "content": "Great—happy to help. What would you like to start with: hotels, things to do, dining, or a full itinerary? Do you have a destination in mind and any dates or trip length?",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:37:27.029494+00:00",
+    "keywords": [
+      "great",
+      "happy",
+      "start",
+      "hotels",
+      "dining"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_e88631ebabae",
+    "messageId": "msg_e88631ebabae",
+    "sessionId": "session_9ca43c80ed58",
+    "tenantId": "analytics_demo",
+    "userId": "maya_chen",
+    "role": "user",
+    "content": "sure",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:37:29.839964+00:00",
+    "keywords": [
+      "sure"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_0b9c36ea09ee",
+    "messageId": "msg_0b9c36ea09ee",
+    "sessionId": "session_9ca43c80ed58",
+    "tenantId": "analytics_demo",
+    "userId": "maya_chen",
+    "role": "assistant",
+    "content": "Wonderful—happy to help. What would you like to start with: hotels, activities, dining, or a full day-by-day itinerary? And which city or destination are you thinking of (plus any dates if you have them)?",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:37:29.849138+00:00",
+    "keywords": [
+      "wonderful",
+      "happy",
+      "start",
+      "hotels",
+      "activities"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_9395dd90b2c0",
+    "messageId": "msg_9395dd90b2c0",
+    "sessionId": "session_9ca43c80ed58",
+    "tenantId": "analytics_demo",
+    "userId": "maya_chen",
+    "role": "user",
+    "content": "cool",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:37:32.745143+00:00",
+    "keywords": [
+      "cool"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_514163652256",
+    "messageId": "msg_514163652256",
+    "sessionId": "session_9ca43c80ed58",
+    "tenantId": "analytics_demo",
+    "userId": "maya_chen",
+    "role": "assistant",
+    "content": "Nice to meet you! What would you like help with first: hotels, things to do, dining, or a full itinerary for a destination? If you have a city or dates in mind, share one detail and I’ll tailor recommendations.",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:37:32.754073+00:00",
+    "keywords": [
+      "nice",
+      "meet",
+      "first",
+      "hotels",
+      "dining"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_71d7d2469034",
+    "messageId": "msg_71d7d2469034",
+    "sessionId": "session_31549af1300f",
+    "tenantId": "analytics_demo",
+    "userId": "priya_sharma",
+    "role": "user",
+    "content": "thanks so much",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:37:35.734425+00:00",
+    "keywords": [
+      "thanks",
+      "much"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_dd75c55d9817",
+    "messageId": "msg_dd75c55d9817",
+    "sessionId": "session_31549af1300f",
+    "tenantId": "analytics_demo",
+    "userId": "priya_sharma",
+    "role": "assistant",
+    "content": "You're welcome! What would you like to work on next—hotels, activities, dining, or a full itinerary? Do you have a city and dates in mind to start with.",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:37:35.745670+00:00",
+    "keywords": [
+      "welcome",
+      "work",
+      "next",
+      "hotels",
+      "activities"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_32aeec5cdc43",
+    "messageId": "msg_32aeec5cdc43",
+    "sessionId": "session_31549af1300f",
+    "tenantId": "analytics_demo",
+    "userId": "priya_sharma",
+    "role": "user",
+    "content": "got it",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:37:38.648269+00:00",
+    "keywords": [
+      "got"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_321fc1a5c1d5",
+    "messageId": "msg_321fc1a5c1d5",
+    "sessionId": "session_31549af1300f",
+    "tenantId": "analytics_demo",
+    "userId": "priya_sharma",
+    "role": "assistant",
+    "content": "Great to have you here! What city or destination are you thinking about, and would you like help with hotels, activities, dining, or a full day-by-day itinerary?",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:37:38.659428+00:00",
+    "keywords": [
+      "great",
+      "city",
+      "destination",
+      "thinking",
+      "hotels"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_da0ed262d634",
+    "messageId": "msg_da0ed262d634",
+    "sessionId": "session_bbebec66f4e0",
+    "tenantId": "analytics_demo",
+    "userId": "robert_williams",
+    "role": "user",
+    "content": "thank you",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:37:41.414550+00:00",
+    "keywords": [
+      "thank"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_dc7cb12ea686",
+    "messageId": "msg_dc7cb12ea686",
+    "sessionId": "session_bbebec66f4e0",
+    "tenantId": "analytics_demo",
+    "userId": "robert_williams",
+    "role": "assistant",
+    "content": "You’re welcome! What would you like help with first: plan a trip, find hotels, activities, or dining in a city?",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:37:41.425336+00:00",
+    "keywords": [
+      "welcome",
+      "first",
+      "hotels",
+      "activities",
+      "dining"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_a21205740238",
+    "messageId": "msg_a21205740238",
+    "sessionId": "session_bbebec66f4e0",
+    "tenantId": "analytics_demo",
+    "userId": "robert_williams",
+    "role": "user",
+    "content": "great",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:37:44.309600+00:00",
+    "keywords": [
+      "great"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_aa81b0a9e1e6",
+    "messageId": "msg_aa81b0a9e1e6",
+    "sessionId": "session_bbebec66f4e0",
+    "tenantId": "analytics_demo",
+    "userId": "robert_williams",
+    "role": "assistant",
+    "content": "Awesome—what city are you considering, and would you like help with hotels, activities, dining, or a full day-by-day plan?",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:37:44.320275+00:00",
+    "keywords": [
+      "awesome",
+      "city",
+      "considering",
+      "hotels",
+      "activities"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_b6f57b5a3458",
+    "messageId": "msg_b6f57b5a3458",
+    "sessionId": "session_ea16206b2fdd",
+    "tenantId": "analytics_demo",
+    "userId": "sarah_johnson",
+    "role": "user",
+    "content": "got it",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:37:47.544867+00:00",
+    "keywords": [
+      "got"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_9d50df86b645",
+    "messageId": "msg_9d50df86b645",
+    "sessionId": "session_ea16206b2fdd",
+    "tenantId": "analytics_demo",
+    "userId": "sarah_johnson",
+    "role": "assistant",
+    "content": "Awesome—what city are we planning for, and would you like to start with hotels, activities, dining, or a full itinerary?",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:37:47.555084+00:00",
+    "keywords": [
+      "awesome",
+      "city",
+      "planning",
+      "start",
+      "hotels"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_6d9db4a0c8c5",
+    "messageId": "msg_6d9db4a0c8c5",
+    "sessionId": "session_ea16206b2fdd",
+    "tenantId": "analytics_demo",
+    "userId": "sarah_johnson",
+    "role": "user",
+    "content": "thanks!",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:37:50.413137+00:00",
+    "keywords": [
+      "thanks"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_d704ecd146ee",
+    "messageId": "msg_d704ecd146ee",
+    "sessionId": "session_ea16206b2fdd",
+    "tenantId": "analytics_demo",
+    "userId": "sarah_johnson",
+    "role": "assistant",
+    "content": "You’re welcome! Which city are we planning for, and what would you like to start with—hotels, activities, dining, or a full day-by-day itinerary?",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:37:50.424102+00:00",
+    "keywords": [
+      "welcome",
+      "city",
+      "planning",
+      "start",
+      "hotels"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_1607790ddb47",
+    "messageId": "msg_1607790ddb47",
+    "sessionId": "session_ea16206b2fdd",
+    "tenantId": "analytics_demo",
+    "userId": "sarah_johnson",
+    "role": "user",
+    "content": "awesome",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:37:53.259597+00:00",
+    "keywords": [
+      "awesome"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_4ba0f007a12c",
+    "messageId": "msg_4ba0f007a12c",
+    "sessionId": "session_ea16206b2fdd",
+    "tenantId": "analytics_demo",
+    "userId": "sarah_johnson",
+    "role": "assistant",
+    "content": "Nice to hear! What would you like help with first—hotels, activities, dining, or a full day-by-day itinerary—and which city and dates are you thinking about?",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:37:53.270218+00:00",
+    "keywords": [
+      "nice",
+      "hear",
+      "first",
+      "hotels",
+      "activities"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_3fc8c9643519",
+    "messageId": "msg_3fc8c9643519",
+    "sessionId": "session_60ad92a6ef31",
+    "tenantId": "analytics_demo",
+    "userId": "aisha_rahman",
+    "role": "user",
+    "content": "great, thanks",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:37:56.408567+00:00",
+    "keywords": [
+      "great",
+      "thanks"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_12189dd090e1",
+    "messageId": "msg_12189dd090e1",
+    "sessionId": "session_60ad92a6ef31",
+    "tenantId": "analytics_demo",
+    "userId": "aisha_rahman",
+    "role": "assistant",
+    "content": "You’re welcome! What would you like to plan first—hotels, activities, dining, or a day-by-day itinerary for a city? If you have a destination and dates in mind, share them and I’ll tailor recommendations.",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:37:56.417876+00:00",
+    "keywords": [
+      "welcome",
+      "first",
+      "hotels",
+      "activities",
+      "dining"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_7c648d392906",
+    "messageId": "msg_7c648d392906",
+    "sessionId": "session_60ad92a6ef31",
+    "tenantId": "analytics_demo",
+    "userId": "aisha_rahman",
+    "role": "user",
+    "content": "makes sense",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:38:00.524643+00:00",
+    "keywords": [
+      "makes",
+      "sense"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_551d15714c81",
+    "messageId": "msg_551d15714c81",
+    "sessionId": "session_60ad92a6ef31",
+    "tenantId": "analytics_demo",
+    "userId": "aisha_rahman",
+    "role": "assistant",
+    "content": "Great — glad that helps. What would you like me to do next: find hotels, recommend activities, suggest restaurants, or build a day-by-day itinerary? Any dates, city, or preferences I should know?",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:38:00.534876+00:00",
+    "keywords": [
+      "great",
+      "glad",
+      "helps",
+      "next",
+      "hotels"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_27f6ba1fce06",
+    "messageId": "msg_27f6ba1fce06",
+    "sessionId": "session_60ad92a6ef31",
+    "tenantId": "analytics_demo",
+    "userId": "aisha_rahman",
+    "role": "user",
+    "content": "makes sense",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:38:03.988696+00:00",
+    "keywords": [
+      "makes",
+      "sense"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_fa5619f6a891",
+    "messageId": "msg_fa5619f6a891",
+    "sessionId": "session_60ad92a6ef31",
+    "tenantId": "analytics_demo",
+    "userId": "aisha_rahman",
+    "role": "assistant",
+    "content": "Great — glad that helped. What would you like me to do next: find hotels, suggest things to do, recommend restaurants, or build a day-by-day itinerary? Any city and dates (or length of trip)?",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:38:03.999275+00:00",
+    "keywords": [
+      "great",
+      "glad",
+      "helped",
+      "next",
+      "hotels"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_93f3d33a674a",
+    "messageId": "msg_93f3d33a674a",
+    "sessionId": "session_9031b8265a99",
+    "tenantId": "analytics_demo",
+    "userId": "alex_brennan",
+    "role": "user",
+    "content": "that works",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:38:07.725885+00:00",
+    "keywords": [
+      "works"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_63ca16e8902c",
+    "messageId": "msg_63ca16e8902c",
+    "sessionId": "session_9031b8265a99",
+    "tenantId": "analytics_demo",
+    "userId": "alex_brennan",
+    "role": "assistant",
+    "content": "Great — glad to hear it! What would you like me to do next: save this as a trip, make changes to the plan, find places to book (hotels/restaurants/activities), or something else?",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:38:07.736085+00:00",
+    "keywords": [
+      "great",
+      "glad",
+      "hear",
+      "next",
+      "save"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_3dae7764d36f",
+    "messageId": "msg_3dae7764d36f",
+    "sessionId": "session_9031b8265a99",
+    "tenantId": "analytics_demo",
+    "userId": "alex_brennan",
+    "role": "user",
+    "content": "perfect",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:38:10.628557+00:00",
+    "keywords": [
+      "perfect"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_2d116cc3529c",
+    "messageId": "msg_2d116cc3529c",
+    "sessionId": "session_9031b8265a99",
+    "tenantId": "analytics_demo",
+    "userId": "alex_brennan",
+    "role": "assistant",
+    "content": "Great to hear! What would you like help with first: hotel options, things to do, dining ideas, or a day-by-day itinerary? Do you have a city and dates in mind?",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:38:10.639889+00:00",
+    "keywords": [
+      "great",
+      "hear",
+      "first",
+      "hotel",
+      "options"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_805b040dff89",
+    "messageId": "msg_805b040dff89",
+    "sessionId": "session_6dc692e1656b",
+    "tenantId": "analytics_demo",
+    "userId": "david_okafor",
+    "role": "user",
+    "content": "hello",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:38:13.688774+00:00",
+    "keywords": [],
+    "superseded": false
+  },
+  {
+    "id": "msg_bf2905ef214c",
+    "messageId": "msg_bf2905ef214c",
+    "sessionId": "session_6dc692e1656b",
+    "tenantId": "analytics_demo",
+    "userId": "david_okafor",
+    "role": "assistant",
+    "content": "Hi there! Great to meet you. What would you like help with first—hotels, dining, activities, or a full itinerary for a city? If you have a destination in mind, tell me which city and any dates or vibe you’re aiming for.",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:38:13.699028+00:00",
+    "keywords": [
+      "great",
+      "meet",
+      "first",
+      "hotels",
+      "dining"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_89001e39e1b3",
+    "messageId": "msg_89001e39e1b3",
+    "sessionId": "session_6dc692e1656b",
+    "tenantId": "analytics_demo",
+    "userId": "david_okafor",
+    "role": "user",
+    "content": "ok thanks",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:38:16.562812+00:00",
+    "keywords": [
+      "thanks"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_842dfe0a50ef",
+    "messageId": "msg_842dfe0a50ef",
+    "sessionId": "session_6dc692e1656b",
+    "tenantId": "analytics_demo",
+    "userId": "david_okafor",
+    "role": "assistant",
+    "content": "You're welcome! What would you like help with first—hotels, activities, dining in a city, or a full day-by-day itinerary?",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:38:16.572841+00:00",
+    "keywords": [
+      "welcome",
+      "first",
+      "hotels",
+      "activities",
+      "dining"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_68bea5be18be",
+    "messageId": "msg_68bea5be18be",
+    "sessionId": "session_6dc692e1656b",
+    "tenantId": "analytics_demo",
+    "userId": "david_okafor",
+    "role": "user",
+    "content": "thank you",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:38:19.392958+00:00",
+    "keywords": [
+      "thank"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_c4bedaa75f89",
+    "messageId": "msg_c4bedaa75f89",
+    "sessionId": "session_6dc692e1656b",
+    "tenantId": "analytics_demo",
+    "userId": "david_okafor",
+    "role": "assistant",
+    "content": "You’re welcome! What would you like help with next — hotels, activities, dining, or a full day-by-day itinerary for a destination? If you have a city in mind, I can start pulling tailored options.",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:38:19.404691+00:00",
+    "keywords": [
+      "welcome",
+      "next",
+      "hotels",
+      "activities",
+      "dining"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_b5361f7c68d2",
+    "messageId": "msg_b5361f7c68d2",
+    "sessionId": "session_2f6a3d11b1d3",
+    "tenantId": "analytics_demo",
+    "userId": "elena_vasquez",
+    "role": "user",
+    "content": "sure",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:38:22.945053+00:00",
+    "keywords": [
+      "sure"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_f6060617dd2c",
+    "messageId": "msg_f6060617dd2c",
+    "sessionId": "session_2f6a3d11b1d3",
+    "tenantId": "analytics_demo",
+    "userId": "elena_vasquez",
+    "role": "assistant",
+    "content": "Great to hear! What would you like help with first—hotels, activities, dining, or planning a full day-by-day itinerary for a city? If you have a destination and dates in mind, share them and we can start there.",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:38:22.955024+00:00",
+    "keywords": [
+      "great",
+      "hear",
+      "first",
+      "hotels",
+      "activities"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_b3df8f550a43",
+    "messageId": "msg_b3df8f550a43",
+    "sessionId": "session_2f6a3d11b1d3",
+    "tenantId": "analytics_demo",
+    "userId": "elena_vasquez",
+    "role": "user",
+    "content": "ok",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:38:25.876864+00:00",
+    "keywords": [],
+    "superseded": false
+  },
+  {
+    "id": "msg_90ee44425503",
+    "messageId": "msg_90ee44425503",
+    "sessionId": "session_2f6a3d11b1d3",
+    "tenantId": "analytics_demo",
+    "userId": "elena_vasquez",
+    "role": "assistant",
+    "content": "Great to hear from you! Which city are you planning, and would you like me to plan a full day-by-day itinerary or just gather hotels, activities, and dining options?",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:38:25.887940+00:00",
+    "keywords": [
+      "great",
+      "hear",
+      "city",
+      "planning",
+      "full"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_c1a85fae6864",
+    "messageId": "msg_c1a85fae6864",
+    "sessionId": "session_e81d5d1678ab",
+    "tenantId": "analytics_demo",
+    "userId": "isabelle_dupont",
+    "role": "user",
+    "content": "got it",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:38:28.863449+00:00",
+    "keywords": [
+      "got"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_720f97bbf49d",
+    "messageId": "msg_720f97bbf49d",
+    "sessionId": "session_e81d5d1678ab",
+    "tenantId": "analytics_demo",
+    "userId": "isabelle_dupont",
+    "role": "assistant",
+    "content": "Great to have you here! What would you like help with first: hotels, things to do, dining, or a full day-by-day itinerary? Do you have a destination and your travel dates in mind?",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:38:28.874428+00:00",
+    "keywords": [
+      "great",
+      "first",
+      "hotels",
+      "dining",
+      "full"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_914e2e484385",
+    "messageId": "msg_914e2e484385",
+    "sessionId": "session_e81d5d1678ab",
+    "tenantId": "analytics_demo",
+    "userId": "isabelle_dupont",
+    "role": "user",
+    "content": "sure",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:38:31.674861+00:00",
+    "keywords": [
+      "sure"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_c9c302174171",
+    "messageId": "msg_c9c302174171",
+    "sessionId": "session_e81d5d1678ab",
+    "tenantId": "analytics_demo",
+    "userId": "isabelle_dupont",
+    "role": "assistant",
+    "content": "Great—happy to help. What would you like to start with: a place to stay, activities/attractions, dining, or a full day-by-day plan for a trip? Do you have a destination and rough dates in mind?",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:38:31.684611+00:00",
+    "keywords": [
+      "great",
+      "happy",
+      "start",
+      "place",
+      "stay"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_a1ea0847422c",
+    "messageId": "msg_a1ea0847422c",
+    "sessionId": "session_73ea79e85f95",
+    "tenantId": "analytics_demo",
+    "userId": "james_mitchell",
+    "role": "user",
+    "content": "great, thanks",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:38:34.603947+00:00",
+    "keywords": [
+      "great",
+      "thanks"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_c07f49e44320",
+    "messageId": "msg_c07f49e44320",
+    "sessionId": "session_73ea79e85f95",
+    "tenantId": "analytics_demo",
+    "userId": "james_mitchell",
+    "role": "assistant",
+    "content": "You're welcome! What would you like help with first—hotels, activities, and dining in a city, or a full day-by-day itinerary? Do you have a destination and dates in mind?",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:38:34.613642+00:00",
+    "keywords": [
+      "welcome",
+      "first",
+      "hotels",
+      "activities",
+      "dining"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_3ce5778f195d",
+    "messageId": "msg_3ce5778f195d",
+    "sessionId": "session_73ea79e85f95",
+    "tenantId": "analytics_demo",
+    "userId": "james_mitchell",
+    "role": "user",
+    "content": "ok thanks",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:38:37.947405+00:00",
+    "keywords": [
+      "thanks"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_d4c640b6d648",
+    "messageId": "msg_d4c640b6d648",
+    "sessionId": "session_73ea79e85f95",
+    "tenantId": "analytics_demo",
+    "userId": "james_mitchell",
+    "role": "assistant",
+    "content": "You’re welcome! What city are you planning, and would you like me to start with hotels, activities, or dining?",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:38:37.960131+00:00",
+    "keywords": [
+      "welcome",
+      "city",
+      "planning",
+      "start",
+      "hotels"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_cfc96460b495",
+    "messageId": "msg_cfc96460b495",
+    "sessionId": "session_73ea79e85f95",
+    "tenantId": "analytics_demo",
+    "userId": "james_mitchell",
+    "role": "user",
+    "content": "okay",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:38:40.793066+00:00",
+    "keywords": [
+      "okay"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_fc8bea45391e",
+    "messageId": "msg_fc8bea45391e",
+    "sessionId": "session_73ea79e85f95",
+    "tenantId": "analytics_demo",
+    "userId": "james_mitchell",
+    "role": "assistant",
+    "content": "Nice to meet you. What would you like help with first—hotels, activities, dining, or a full day-by-day itinerary for a city? If you have a city in mind (and dates, if you have them), tell me and I’ll tailor suggestions.",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:38:40.802909+00:00",
+    "keywords": [
+      "nice",
+      "meet",
+      "first",
+      "hotels",
+      "activities"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_cf545716dd96",
+    "messageId": "msg_cf545716dd96",
+    "sessionId": "session_fc4fa8dd4819",
+    "tenantId": "analytics_demo",
+    "userId": "jordan_taylor",
+    "role": "user",
+    "content": "thanks so much",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:38:44.021204+00:00",
+    "keywords": [
+      "thanks",
+      "much"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_4be052f8bbaa",
+    "messageId": "msg_4be052f8bbaa",
+    "sessionId": "session_fc4fa8dd4819",
+    "tenantId": "analytics_demo",
+    "userId": "jordan_taylor",
+    "role": "assistant",
+    "content": "You’re welcome! Which city are you thinking about, and would you like help with hotels, activities, dining, or a day-by-day itinerary?",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:38:44.030726+00:00",
+    "keywords": [
+      "welcome",
+      "city",
+      "thinking",
+      "hotels",
+      "activities"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_afba2b2f5c39",
+    "messageId": "msg_afba2b2f5c39",
+    "sessionId": "session_fc4fa8dd4819",
+    "tenantId": "analytics_demo",
+    "userId": "jordan_taylor",
+    "role": "user",
+    "content": "cool",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:38:47.368516+00:00",
+    "keywords": [
+      "cool"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_4d805dc87e45",
+    "messageId": "msg_4d805dc87e45",
+    "sessionId": "session_fc4fa8dd4819",
+    "tenantId": "analytics_demo",
+    "userId": "jordan_taylor",
+    "role": "assistant",
+    "content": "Sounds good! What city are you visiting, and would you like help with hotels, things to do, dining, or a full day-by-day itinerary?",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:38:47.379804+00:00",
+    "keywords": [
+      "sounds",
+      "good",
+      "city",
+      "visiting",
+      "hotels"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_08cef930372b",
+    "messageId": "msg_08cef930372b",
+    "sessionId": "session_fc4fa8dd4819",
+    "tenantId": "analytics_demo",
+    "userId": "jordan_taylor",
+    "role": "user",
+    "content": "great, thanks",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:38:50.439286+00:00",
+    "keywords": [
+      "great",
+      "thanks"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_b85e34ddcdda",
+    "messageId": "msg_b85e34ddcdda",
+    "sessionId": "session_fc4fa8dd4819",
+    "tenantId": "analytics_demo",
+    "userId": "jordan_taylor",
+    "role": "assistant",
+    "content": "You're welcome! Which city are you planning for, and would you like to start with hotels, things to do, dining, or a complete itinerary (with dates) to plan day by day?",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:38:50.449109+00:00",
+    "keywords": [
+      "welcome",
+      "city",
+      "planning",
+      "start",
+      "hotels"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_abdbfb79d206",
+    "messageId": "msg_abdbfb79d206",
+    "sessionId": "session_364d199b5960",
+    "tenantId": "analytics_demo",
+    "userId": "marco_rossi",
+    "role": "user",
+    "content": "thanks so much",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:38:53.920405+00:00",
+    "keywords": [
+      "thanks",
+      "much"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_37379869dd0f",
+    "messageId": "msg_37379869dd0f",
+    "sessionId": "session_364d199b5960",
+    "tenantId": "analytics_demo",
+    "userId": "marco_rossi",
+    "role": "assistant",
+    "content": "You're welcome! What would you like to start with—hotels, things to do, dining, or a day-by-day itinerary—and which city and dates are you thinking about?",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:38:53.931010+00:00",
+    "keywords": [
+      "welcome",
+      "start",
+      "hotels",
+      "dining",
+      "day-by-day"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_dd4103b0a7a2",
+    "messageId": "msg_dd4103b0a7a2",
+    "sessionId": "session_364d199b5960",
+    "tenantId": "analytics_demo",
+    "userId": "marco_rossi",
+    "role": "user",
+    "content": "appreciate it",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:38:57.384307+00:00",
+    "keywords": [
+      "appreciate"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_2702a267254a",
+    "messageId": "msg_2702a267254a",
+    "sessionId": "session_364d199b5960",
+    "tenantId": "analytics_demo",
+    "userId": "marco_rossi",
+    "role": "assistant",
+    "content": "You're welcome — happy to help. What would you like next: find places (hotels/activities/restaurants) for a destination, or build a day-by-day itinerary? Any city or dates in mind?",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:38:57.396443+00:00",
+    "keywords": [
+      "welcome",
+      "happy",
+      "next",
+      "places",
+      "hotels"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_8876e11bb1db",
+    "messageId": "msg_8876e11bb1db",
+    "sessionId": "session_364d199b5960",
+    "tenantId": "analytics_demo",
+    "userId": "marco_rossi",
+    "role": "user",
+    "content": "awesome",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:39:00.299793+00:00",
+    "keywords": [
+      "awesome"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_23fe58aeb9be",
+    "messageId": "msg_23fe58aeb9be",
+    "sessionId": "session_364d199b5960",
+    "tenantId": "analytics_demo",
+    "userId": "marco_rossi",
+    "role": "assistant",
+    "content": "Great to hear! What would you like help with first—hotels, activities, dining, or a full itinerary for a city? Do you have a destination and dates in mind?",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:39:00.310527+00:00",
+    "keywords": [
+      "great",
+      "hear",
+      "first",
+      "hotels",
+      "activities"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_59a41959368b",
+    "messageId": "msg_59a41959368b",
+    "sessionId": "session_de6079691b50",
+    "tenantId": "analytics_demo",
+    "userId": "maya_chen",
+    "role": "user",
+    "content": "cool",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:39:03.448856+00:00",
+    "keywords": [
+      "cool"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_784eecf1919e",
+    "messageId": "msg_784eecf1919e",
+    "sessionId": "session_de6079691b50",
+    "tenantId": "analytics_demo",
+    "userId": "maya_chen",
+    "role": "assistant",
+    "content": "Nice to hear it. What would you like help with first: plan an itinerary, find hotels, restaurants, or activities in a city? Do you have a destination and dates in mind?",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:39:03.459479+00:00",
+    "keywords": [
+      "nice",
+      "hear",
+      "first",
+      "itinerary",
+      "hotels"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_974acc40729a",
+    "messageId": "msg_974acc40729a",
+    "sessionId": "session_de6079691b50",
+    "tenantId": "analytics_demo",
+    "userId": "maya_chen",
+    "role": "user",
+    "content": "makes sense",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:39:06.762140+00:00",
+    "keywords": [
+      "makes",
+      "sense"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_410d2f2d95ae",
+    "messageId": "msg_410d2f2d95ae",
+    "sessionId": "session_de6079691b50",
+    "tenantId": "analytics_demo",
+    "userId": "maya_chen",
+    "role": "assistant",
+    "content": "Great — glad that worked. What would you like to do next: pick a destination and dates, look for hotels, find things to do or restaurants, or build a day-by-day itinerary?",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:39:06.773079+00:00",
+    "keywords": [
+      "great",
+      "glad",
+      "worked",
+      "next",
+      "pick"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_fc4e16811152",
+    "messageId": "msg_fc4e16811152",
+    "sessionId": "session_e77bdf2f93d4",
+    "tenantId": "analytics_demo",
+    "userId": "priya_sharma",
+    "role": "user",
+    "content": "that works",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:39:10.515622+00:00",
+    "keywords": [
+      "works"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_42690a15f04c",
+    "messageId": "msg_42690a15f04c",
+    "sessionId": "session_e77bdf2f93d4",
+    "tenantId": "analytics_demo",
+    "userId": "priya_sharma",
+    "role": "assistant",
+    "content": "Great — glad that works. What would you like me to do next: find hotels, restaurants, things to do, or build a day-by-day itinerary? If you have a destination and dates (or trip length), please include them.",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:39:10.527177+00:00",
+    "keywords": [
+      "great",
+      "glad",
+      "works",
+      "next",
+      "hotels"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_9c19c317b060",
+    "messageId": "msg_9c19c317b060",
+    "sessionId": "session_e77bdf2f93d4",
+    "tenantId": "analytics_demo",
+    "userId": "priya_sharma",
+    "role": "user",
+    "content": "hey there",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:39:13.291641+00:00",
+    "keywords": [
+      "hey"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_7522e518b923",
+    "messageId": "msg_7522e518b923",
+    "sessionId": "session_e77bdf2f93d4",
+    "tenantId": "analytics_demo",
+    "userId": "priya_sharma",
+    "role": "assistant",
+    "content": "Hi there! Welcome aboard. What would you like help with first: a place to stay, things to do, dining, or a full day-by-day plan? And which city (and roughly when) are you thinking about?",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:39:13.306937+00:00",
+    "keywords": [
+      "welcome",
+      "aboard",
+      "first",
+      "place",
+      "stay"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_8a7df1ef959e",
+    "messageId": "msg_8a7df1ef959e",
+    "sessionId": "session_c56dd6e0b21d",
+    "tenantId": "analytics_demo",
+    "userId": "robert_williams",
+    "role": "user",
+    "content": "hey there",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:39:16.309911+00:00",
+    "keywords": [
+      "hey"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_f512c2a39802",
+    "messageId": "msg_f512c2a39802",
+    "sessionId": "session_c56dd6e0b21d",
+    "tenantId": "analytics_demo",
+    "userId": "robert_williams",
+    "role": "assistant",
+    "content": "Hi there! Great to meet you. What city are you thinking about, and would you like to start with hotels, things to do, dining, or a full itinerary? If you have dates in mind, feel free to share them too.",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:39:16.320427+00:00",
+    "keywords": [
+      "great",
+      "meet",
+      "city",
+      "thinking",
+      "start"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_1302c720d517",
+    "messageId": "msg_1302c720d517",
+    "sessionId": "session_c56dd6e0b21d",
+    "tenantId": "analytics_demo",
+    "userId": "robert_williams",
+    "role": "user",
+    "content": "thanks!",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:39:19.473963+00:00",
+    "keywords": [
+      "thanks"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_f69c533f80dd",
+    "messageId": "msg_f69c533f80dd",
+    "sessionId": "session_c56dd6e0b21d",
+    "tenantId": "analytics_demo",
+    "userId": "robert_williams",
+    "role": "assistant",
+    "content": "You’re welcome! Which city are you visiting, and would you like help with hotels, activities, dining, or a full itinerary?",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:39:19.484413+00:00",
+    "keywords": [
+      "welcome",
+      "city",
+      "visiting",
+      "hotels",
+      "activities"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_8f00d6b81d89",
+    "messageId": "msg_8f00d6b81d89",
+    "sessionId": "session_c56dd6e0b21d",
+    "tenantId": "analytics_demo",
+    "userId": "robert_williams",
+    "role": "user",
+    "content": "hey there",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:39:22.288600+00:00",
+    "keywords": [
+      "hey"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_a6f024337b04",
+    "messageId": "msg_a6f024337b04",
+    "sessionId": "session_c56dd6e0b21d",
+    "tenantId": "analytics_demo",
+    "userId": "robert_williams",
+    "role": "assistant",
+    "content": "Hi there! Nice to meet you. What would you like help with first—hotel, things to do, dining, or a full itinerary for a destination? Do you have a city and dates in mind?",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:39:22.299293+00:00",
+    "keywords": [
+      "nice",
+      "meet",
+      "first",
+      "hotel",
+      "dining"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_143ab3eedd8a",
+    "messageId": "msg_143ab3eedd8a",
+    "sessionId": "session_4bf1d42e03ff",
+    "tenantId": "analytics_demo",
+    "userId": "sarah_johnson",
+    "role": "user",
+    "content": "thanks so much",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:39:25.222221+00:00",
+    "keywords": [
+      "thanks",
+      "much"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_5363e4e04906",
+    "messageId": "msg_5363e4e04906",
+    "sessionId": "session_4bf1d42e03ff",
+    "tenantId": "analytics_demo",
+    "userId": "sarah_johnson",
+    "role": "assistant",
+    "content": "You’re very welcome! What would you like help with first—planning a trip, finding hotels, restaurants, and activities, or building a day-by-day itinerary? If you have a destination and dates in mind, share them and I’ll tailor options.",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:39:25.233371+00:00",
+    "keywords": [
+      "welcome",
+      "first",
+      "planning",
+      "finding",
+      "hotels"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_9fd935889e65",
+    "messageId": "msg_9fd935889e65",
+    "sessionId": "session_4bf1d42e03ff",
+    "tenantId": "analytics_demo",
+    "userId": "sarah_johnson",
+    "role": "user",
+    "content": "hello",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:39:27.961708+00:00",
+    "keywords": [],
+    "superseded": false
+  },
+  {
+    "id": "msg_16dc4ab0dec4",
+    "messageId": "msg_16dc4ab0dec4",
+    "sessionId": "session_4bf1d42e03ff",
+    "tenantId": "analytics_demo",
+    "userId": "sarah_johnson",
+    "role": "assistant",
+    "content": "Hi there! Welcome aboard. What would you like help with first—hotels, things to do, dining, or a full itinerary for a city? Do you have a destination and dates in mind?",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:39:27.972418+00:00",
+    "keywords": [
+      "welcome",
+      "aboard",
+      "first",
+      "hotels",
+      "dining"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_15e880d5bb6b",
+    "messageId": "msg_15e880d5bb6b",
+    "sessionId": "session_4bf1d42e03ff",
+    "tenantId": "analytics_demo",
+    "userId": "sarah_johnson",
+    "role": "user",
+    "content": "thank you",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:39:30.834518+00:00",
+    "keywords": [
+      "thank"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_1105a22d56cd",
+    "messageId": "msg_1105a22d56cd",
+    "sessionId": "session_4bf1d42e03ff",
+    "tenantId": "analytics_demo",
+    "userId": "sarah_johnson",
+    "role": "assistant",
+    "content": "Great to hear! Which city are you visiting, and would you like to start with hotels, things to do, dining, or a full itinerary?",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:39:30.844266+00:00",
+    "keywords": [
+      "great",
+      "hear",
+      "city",
+      "visiting",
+      "start"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_1228aff18f92",
+    "messageId": "msg_1228aff18f92",
+    "sessionId": "session_0b2acccd77e9",
+    "tenantId": "analytics_demo",
+    "userId": "aisha_rahman",
+    "role": "user",
+    "content": "thanks!",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:39:33.796458+00:00",
+    "keywords": [
+      "thanks"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_e918be63e15a",
+    "messageId": "msg_e918be63e15a",
+    "sessionId": "session_0b2acccd77e9",
+    "tenantId": "analytics_demo",
+    "userId": "aisha_rahman",
+    "role": "assistant",
+    "content": "You’re welcome! What would you like help with first—hotels, activities, dining, or a day-by-day itinerary for a destination you have in mind? If you share a city (and roughly your dates or trip length), I’ll tailor suggestions.",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:39:33.806299+00:00",
+    "keywords": [
+      "welcome",
+      "first",
+      "hotels",
+      "activities",
+      "dining"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_fa151f4ae726",
+    "messageId": "msg_fa151f4ae726",
+    "sessionId": "session_0b2acccd77e9",
+    "tenantId": "analytics_demo",
+    "userId": "aisha_rahman",
+    "role": "user",
+    "content": "thank you",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:39:36.888494+00:00",
+    "keywords": [
+      "thank"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_94db2102f7e0",
+    "messageId": "msg_94db2102f7e0",
+    "sessionId": "session_0b2acccd77e9",
+    "tenantId": "analytics_demo",
+    "userId": "aisha_rahman",
+    "role": "assistant",
+    "content": "You’re welcome! What would you like help with first: hotels, activities, dining, or a day-by-day itinerary for your trip? If you have a destination and dates in mind, tell me and I’ll tailor the plan.",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:39:36.898341+00:00",
+    "keywords": [
+      "welcome",
+      "first",
+      "hotels",
+      "activities",
+      "dining"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_66c7153184ae",
+    "messageId": "msg_66c7153184ae",
+    "sessionId": "session_b4fb8d6434b7",
+    "tenantId": "analytics_demo",
+    "userId": "alex_brennan",
+    "role": "user",
+    "content": "hey there",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:39:39.581614+00:00",
+    "keywords": [
+      "hey"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_3f2e58a28b7c",
+    "messageId": "msg_3f2e58a28b7c",
+    "sessionId": "session_b4fb8d6434b7",
+    "tenantId": "analytics_demo",
+    "userId": "alex_brennan",
+    "role": "assistant",
+    "content": "Hey there! nice to meet you. What would you like to start with — a place to stay, things to do, great restaurants, or a full itinerary for a destination? Any dates or vibes in mind?",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:39:39.592332+00:00",
+    "keywords": [
+      "hey",
+      "nice",
+      "meet",
+      "start",
+      "place"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_6a3513a3188a",
+    "messageId": "msg_6a3513a3188a",
+    "sessionId": "session_b4fb8d6434b7",
+    "tenantId": "analytics_demo",
+    "userId": "alex_brennan",
+    "role": "user",
+    "content": "hello",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:39:42.230321+00:00",
+    "keywords": [],
+    "superseded": false
+  },
+  {
+    "id": "msg_46e8a7f7877d",
+    "messageId": "msg_46e8a7f7877d",
+    "sessionId": "session_b4fb8d6434b7",
+    "tenantId": "analytics_demo",
+    "userId": "alex_brennan",
+    "role": "assistant",
+    "content": "Hi there! Welcome — happy to help with your travels. What would you like support with first: planning a trip, finding hotels, picking activities, or choosing dining? Do you have a destination or dates in mind?",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:39:42.240235+00:00",
+    "keywords": [
+      "welcome",
+      "happy",
+      "travels",
+      "support",
+      "first"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_cddd7798ec84",
+    "messageId": "msg_cddd7798ec84",
+    "sessionId": "session_f735b4b18771",
+    "tenantId": "analytics_demo",
+    "userId": "david_okafor",
+    "role": "user",
+    "content": "hello",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:39:45.072059+00:00",
+    "keywords": [],
+    "superseded": false
+  },
+  {
+    "id": "msg_2961b2d79aad",
+    "messageId": "msg_2961b2d79aad",
+    "sessionId": "session_f735b4b18771",
+    "tenantId": "analytics_demo",
+    "userId": "david_okafor",
+    "role": "assistant",
+    "content": "Hi there! Nice to meet you. What would you like help with first: a place to stay, things to do, dining recommendations, or a full day-by-day itinerary for a city? If you have dates or a destination in mind, share them and I’ll tailor options.",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:39:45.097421+00:00",
+    "keywords": [
+      "nice",
+      "meet",
+      "first",
+      "place",
+      "stay"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_6bcf6798388f",
+    "messageId": "msg_6bcf6798388f",
+    "sessionId": "session_f735b4b18771",
+    "tenantId": "analytics_demo",
+    "userId": "david_okafor",
+    "role": "user",
+    "content": "okay",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:39:48.464135+00:00",
+    "keywords": [
+      "okay"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_326ad1b6a439",
+    "messageId": "msg_326ad1b6a439",
+    "sessionId": "session_f735b4b18771",
+    "tenantId": "analytics_demo",
+    "userId": "david_okafor",
+    "role": "assistant",
+    "content": "Great — happy to help. What would you like to start with: hotels, things to do, dining, or a full day-by-day itinerary for a city? If you have a city in mind, tell me which one and any dates or constraints you have.",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:39:48.474359+00:00",
+    "keywords": [
+      "great",
+      "happy",
+      "start",
+      "hotels",
+      "dining"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_aa9ea0c61c9b",
+    "messageId": "msg_aa9ea0c61c9b",
+    "sessionId": "session_f735b4b18771",
+    "tenantId": "analytics_demo",
+    "userId": "david_okafor",
+    "role": "user",
+    "content": "thank you",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:39:51.586678+00:00",
+    "keywords": [
+      "thank"
+    ],
+    "superseded": false
+  },
+  {
+    "id": "msg_19656304e8a5",
+    "messageId": "msg_19656304e8a5",
+    "sessionId": "session_f735b4b18771",
+    "tenantId": "analytics_demo",
+    "userId": "david_okafor",
+    "role": "assistant",
+    "content": "You’re welcome! What would you like to start with: hotels, activities, or dining for your destination?",
+    "toolCalls": [],
+    "ts": "2026-07-12T01:39:51.596608+00:00",
+    "keywords": [
+      "welcome",
+      "start",
+      "hotels",
+      "activities",
+      "dining"
+    ],
+    "superseded": false
   }
 ]
