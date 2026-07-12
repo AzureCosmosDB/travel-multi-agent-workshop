@@ -25,12 +25,15 @@ This module assumes they already exist — it never creates them at runtime.
 
 from __future__ import annotations
 
+import json
 import logging
+import os
 import re
 import threading
 import time
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Callable, Optional
 
 from langchain_openai import AzureChatOpenAI
@@ -57,14 +60,51 @@ TURNS_CONTAINER = "OptimizationTurns"
 # API version known to support the gpt-5 / o-series reasoning deployments.
 _REASONING_API_VERSION = "2025-04-01-preview"
 
-# Estimated USD per 1M tokens (input, output). ESTIMATE — verify on the Azure
-# pricing calculator before quoting. Used only for the recommendation card; the
-# measured verify (`optimization_mining.py --verify`) is authoritative.
-ESTIMATED_PRICING: dict[str, dict[str, float]] = {
-    "gpt-4.1-mini": {"input": 0.40, "output": 1.60},
-    "gpt-5-nano": {"input": 0.05, "output": 0.40},
+# Estimated USD per 1M tokens (input, output). Single source of truth is
+# python/data/model_pricing.json (also written to .env as MODEL_PRICING_JSON by the
+# azd post-provision hook, and passed to the reverse-ETL notebook). Resolution order:
+#   1. MODEL_PRICING_JSON env var (what .env / azd provides at runtime)
+#   2. python/data/model_pricing.json (committed default)
+#   3. the built-in dict below (last-resort fallback so the app never breaks)
+_DEFAULT_PRICING: dict[str, dict[str, float]] = {
     "gpt-5.1": {"input": 1.25, "output": 10.00},
+    "gpt-5-mini": {"input": 0.25, "output": 2.00},
+    "gpt-5-nano": {"input": 0.05, "output": 0.40},
 }
+
+
+def _normalize_pricing(data: dict[str, Any]) -> dict[str, dict[str, float]]:
+    out: dict[str, dict[str, float]] = {}
+    for model_name, v in (data or {}).items():
+        if isinstance(v, dict) and "input" in v and "output" in v:
+            out[model_name] = {"input": float(v["input"]), "output": float(v["output"])}
+        elif isinstance(v, (list, tuple)) and len(v) >= 2:
+            out[model_name] = {"input": float(v[0]), "output": float(v[1])}
+    return out
+
+
+def load_pricing() -> dict[str, dict[str, float]]:
+    """Model pricing from env (MODEL_PRICING_JSON) → committed file → built-in default."""
+    raw = os.getenv("MODEL_PRICING_JSON")
+    if raw:
+        try:
+            parsed = _normalize_pricing(json.loads(raw))
+            if parsed:
+                return parsed
+        except (ValueError, TypeError):
+            logger.warning("Invalid MODEL_PRICING_JSON; falling back to the pricing file/default")
+    try:
+        path = Path(__file__).resolve().parents[3] / "data" / "model_pricing.json"
+        if path.exists():
+            parsed = _normalize_pricing(json.loads(path.read_text(encoding="utf-8")))
+            if parsed:
+                return parsed
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Could not read model_pricing.json (%s); using built-in default pricing", exc)
+    return dict(_DEFAULT_PRICING)
+
+
+ESTIMATED_PRICING: dict[str, dict[str, float]] = load_pricing()
 
 # The policy the recommendation proposes. `enabled: True` means: once *applied*
 # (status active), it routes turns. Until applied it is inert.

@@ -15,17 +15,62 @@ naive projection cannot know in advance.
 
 from __future__ import annotations
 
+import json
+import logging
+import os
+from pathlib import Path
 from typing import Any
 
 from src.app.services import azure_cosmos_db as cosmos
 from src.app.services import optimization_policy
 
-# Estimated USD per 1M tokens (input, output). Verified list pricing 2026-07.
-ESTIMATED_PRICING: dict[str, dict[str, float]] = {
+logger = logging.getLogger(__name__)
+
+# Estimated USD per 1M tokens (input, output). Single source of truth is
+# python/data/model_pricing.json (also written to .env as MODEL_PRICING_JSON by the
+# azd post-provision hook, and passed to the reverse-ETL notebook). Resolution order:
+#   1. MODEL_PRICING_JSON env var (what .env / azd provides at runtime)
+#   2. python/data/model_pricing.json (committed default)
+#   3. the built-in dict below (last-resort fallback so the app never breaks)
+_DEFAULT_PRICING: dict[str, dict[str, float]] = {
     "gpt-5.1": {"input": 1.25, "output": 10.00},
     "gpt-5-mini": {"input": 0.25, "output": 2.00},
     "gpt-5-nano": {"input": 0.05, "output": 0.40},
 }
+
+
+def _normalize_pricing(data: dict[str, Any]) -> dict[str, dict[str, float]]:
+    out: dict[str, dict[str, float]] = {}
+    for model, v in (data or {}).items():
+        if isinstance(v, dict) and "input" in v and "output" in v:
+            out[model] = {"input": float(v["input"]), "output": float(v["output"])}
+        elif isinstance(v, (list, tuple)) and len(v) >= 2:
+            out[model] = {"input": float(v[0]), "output": float(v[1])}
+    return out
+
+
+def load_pricing() -> dict[str, dict[str, float]]:
+    """Model pricing from env (MODEL_PRICING_JSON) → committed file → built-in default."""
+    raw = os.getenv("MODEL_PRICING_JSON")
+    if raw:
+        try:
+            parsed = _normalize_pricing(json.loads(raw))
+            if parsed:
+                return parsed
+        except (ValueError, TypeError):
+            logger.warning("Invalid MODEL_PRICING_JSON; falling back to the pricing file/default")
+    try:
+        path = Path(__file__).resolve().parents[3] / "data" / "model_pricing.json"
+        if path.exists():
+            parsed = _normalize_pricing(json.loads(path.read_text(encoding="utf-8")))
+            if parsed:
+                return parsed
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Could not read model_pricing.json (%s); using built-in default pricing", exc)
+    return dict(_DEFAULT_PRICING)
+
+
+ESTIMATED_PRICING: dict[str, dict[str, float]] = load_pricing()
 
 MODEL_SELECTION_SCENARIO = "model-selection"
 

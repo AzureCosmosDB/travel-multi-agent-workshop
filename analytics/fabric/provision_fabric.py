@@ -629,9 +629,20 @@ def main() -> None:
     mirror_id = get_or_create_mirror(tok, ws_id, connection_id, cfg["db_name"])
     persist_env({"FABRIC_MIRROR_ID": mirror_id})
 
+    # Pricing for the notebook: --pricing-json, else MODEL_PRICING_JSON env, else the
+    # committed model_pricing.json in either tree — one source of truth for pricing.
     pricing = None
     if args.pricing_json and os.path.exists(args.pricing_json):
         pricing = open(args.pricing_json, encoding="utf-8").read()
+    elif os.getenv("MODEL_PRICING_JSON"):
+        pricing = os.getenv("MODEL_PRICING_JSON")
+    else:
+        for candidate in ("python/data/model_pricing.json",
+                          "02_completed/python/data/model_pricing.json",
+                          "01_exercises/python/data/model_pricing.json"):
+            if os.path.exists(candidate):
+                pricing = open(candidate, encoding="utf-8").read()
+                break
     nb_params = {
         "COSMOS_ENDPOINT": cfg["cosmos_endpoint"],
         "SOURCE_SCHEMA": cfg["db_name"],

@@ -66,6 +66,8 @@ To find the SQL analytics endpoint:
 
 Add these measures to the **`TravelAssistant OptimizationTurns`** table (right-click → **New measure**). Use the schema-prefixed table names shown below.
 
+**Load the pricing table first:** Get data → **Text/CSV** → `analytics/model_pricing.csv` (the committed single-source pricing file) → **Load**, and name the table **`ModelPricing`** (columns `model_deployment`, `input_price`, `output_price`). `Est Cost USD` looks prices up from it, so changing a price is one edit to that CSV — no DAX. Models are discovered from the data; any model not in `ModelPricing` falls back to the default price in the measure.
+
 ```DAX
 Total Turns   = COUNTROWS('TravelAssistant OptimizationTurns')
 Total Tokens  = SUM('TravelAssistant OptimizationTurns'[total_tokens])
@@ -77,8 +79,8 @@ Est Cost USD =
 SUMX(
     'TravelAssistant OptimizationTurns',
     VAR d    = 'TravelAssistant OptimizationTurns'[model_deployment]
-    VAR pin  = SWITCH(TRUE(), d = "gpt-5-nano", 0.05, d = "gpt-5-mini", 0.25, d = "gpt-5.1", 1.25, 1.25)
-    VAR pout = SWITCH(TRUE(), d = "gpt-5-nano", 0.40, d = "gpt-5-mini", 2.00, d = "gpt-5.1", 10.0, 10.0)
+    VAR pin  = COALESCE(LOOKUPVALUE(ModelPricing[input_price],  ModelPricing[model_deployment], d), 1.25)
+    VAR pout = COALESCE(LOOKUPVALUE(ModelPricing[output_price], ModelPricing[model_deployment], d), 10.0)
     RETURN ('TravelAssistant OptimizationTurns'[input_tokens] * pin + 'TravelAssistant OptimizationTurns'[output_tokens] * pout) / 1000000
 )
 
@@ -92,7 +94,7 @@ Active Policies      = CALCULATE(COUNTROWS('TravelAssistant OptimizationPolicies
 Latest Policy Change = DATE(1970,1,1) + MAX('TravelAssistant OptimizationPolicies'[updated_epoch]) / 86400.0
 ```
 
-> **Token pricing** is a list-price estimate; update the `SWITCH` rates if your tiers/prices differ.
+> **Token pricing** is a list-price estimate; change it in `model_pricing.csv` (the `ModelPricing` table) — no DAX edits.
 > Set **`Latest Policy Change`** Format = **Date time**.
 
 ### Calculated columns

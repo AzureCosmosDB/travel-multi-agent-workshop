@@ -147,9 +147,11 @@ Open <http://localhost:8050>, set the **Tenant** to the one you drove traffic wi
 
 - **Turns & spend** — total turns, total tokens, and estimated cost. *Talking point: cost scales with usage, but not evenly — a few turns dominate.*
 - **Model usage** — a breakdown by model. Right now it's **one model, 100%**. *Talking point: every turn, trivial or complex, pays the same rate — the core inefficiency this lab targets.*
-- **Trivial-turn share** — the fraction of turns that are short, no-delegation answers (greetings, acks, one-line clarifications). *Talking point: these are near-zero-work turns paying full price; commonly ~40–50%.*
+- **Trivial-turn share** — the fraction of turns that are short, no-delegation answers (greetings, acks, one-line clarifications). *Talking point: these are near-zero-work turns paying full price; the share varies by app, but it's usually a meaningful slice worth reclaiming.*
 - **Cost per outcome** — total spend divided by confirmed trips. *Talking point: this is the north-star; a turn that never leads to a booking isn't "cheap," it's waste.*
 - **Recommendation cards** — each card is a detected opportunity with evidence and a proposed change. In this module you *read* them; in Module 08 you *apply* them.
+
+> **Model pricing is config-driven — one edit, everywhere.** The $/1M-token rates behind "estimated cost" live in **`python/data/model_pricing.json`** (also written to `.env` as `MODEL_PRICING_JSON`, which overrides the file at runtime). The app's recommendation card, the Fabric reverse-ETL notebook, and the Power BI report (via the committed `model_pricing.csv`) all read the **same** values. Models are discovered from your data — any model without a listed price falls back to a default, so a production model swap never breaks a report. To change a price or add a model, edit that one file (or the env var); nothing is hardcoded per place. Format: `{"deployment": {"input": x, "output": y}}` (USD per 1M tokens).
 
 Notice what the Console is doing: it turns thousands of individual turns into a handful of **decisions** — which is exactly what a human operator (or, later, the system itself) needs to act.
 
