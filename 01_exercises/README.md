@@ -25,7 +25,7 @@ Set with `azd env set <NAME> <value>` before `azd provision`:
 
 | Flag (env var) | Default (01_exercises) | Effect |
 |---|---|---|
-| `deployAnalytics` (`DEPLOY_ANALYTICS`) | **true** | Provisions the analytics/optimization Cosmos containers (`OptimizationPolicies`, `OptimizationTurns`, `OptimizationInsights`) used by **Modules 07 (Analytics)** and **08 (Optimization)**. Set `false` if you are not doing those modules, for a leaner, cheaper base deployment. |
+| `deployAnalytics` (`DEPLOY_ANALYTICS`) | **true** | Provisions the analytics/optimization Cosmos containers (`OptimizationPolicies`, `OptimizationTurns`, `OptimizationInsights`, `Configuration`) used by **Modules 07 (Analytics)** and **08 (Optimization)**. Set `false` if you are not doing those modules, for a leaner, cheaper base deployment. |
 | `deployHostedApp` (`DEPLOY_HOSTED_APP`) | **false** | Off by default — the workshop runs the app **locally** (`azd provision` + three terminals). To deploy a hosted instance on Azure Container Apps instead: `azd env set DEPLOY_HOSTED_APP true`, **uncomment the `services:` block in `azure.yaml`**, then `azd up`. (The complete solution in `02_completed` ships with hosting enabled by default.) |
 
 ```powershell
@@ -33,6 +33,13 @@ Set with `azd env set <NAME> <value>` before `azd provision`:
 azd env set DEPLOY_ANALYTICS false
 azd provision
 ```
+
+> **AI models & pricing:** `azd up` deploys `gpt-5.1`, `gpt-5-mini`, and `gpt-5-nano`, and
+> seeds their token prices into the Cosmos `Configuration` container so the app, the Fabric
+> notebook, and the Power BI report all cost turns off the same numbers. **If you change the
+> deployed models, add the new model's price** to `python/data/model_pricing.json` — see
+> **[analytics/docs/model-pricing.md](../analytics/docs/model-pricing.md)** for the models used
+> by default, the price format, and how to find a model's price.
 
 ## Project Structure
 

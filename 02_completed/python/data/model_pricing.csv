@@ -1,4 +1,0 @@
-model_deployment,input_price,output_price
-gpt-5.1,1.25,10.0
-gpt-5-mini,0.25,2.0
-gpt-5-nano,0.05,0.4

@@ -27,7 +27,7 @@ Both are azd environment variables set with `azd env set <NAME> <value>` before 
 
 | Flag (env var) | Default (02_completed) | Effect |
 |---|---|---|
-| `deployAnalytics` (`DEPLOY_ANALYTICS`) | **true** | Provisions the analytics/optimization Cosmos containers (`OptimizationPolicies`, `OptimizationTurns`, `OptimizationInsights`) used by **Modules 07 (Analytics)** and **08 (Optimization)**. Set `false` for a leaner base deployment; the app still self-provisions them at runtime if those features are exercised. |
+| `deployAnalytics` (`DEPLOY_ANALYTICS`) | **true** | Provisions the analytics/optimization Cosmos containers (`OptimizationPolicies`, `OptimizationTurns`, `OptimizationInsights`, `Configuration`) used by **Modules 07 (Analytics)** and **08 (Optimization)**. Set `false` for a leaner base deployment; the app still self-provisions them at runtime if those features are exercised. |
 | `deployHostedApp` (`DEPLOY_HOSTED_APP`) | **true** | Deploys the app as **hosted Azure Container Apps** (frontend + API + MCP, with ACR + Container Apps environment + Log Analytics). `azd up` builds the three images and deploys them; the public frontend URL is printed as `FRONTEND_URI`. Set `false` to skip hosting and run the app locally instead (`azd provision` only). |
 
 > This is the **complete/demo** solution, so both flags are **on by default** — `azd up` gives you a
@@ -39,6 +39,13 @@ Both are azd environment variables set with `azd env set <NAME> <value>` before 
 azd env set DEPLOY_ANALYTICS false
 azd provision
 ```
+
+> **AI models & pricing:** `azd up` deploys `gpt-5.1`, `gpt-5-mini`, and `gpt-5-nano`, and
+> seeds their token prices into the Cosmos `Configuration` container so the app, the Fabric
+> notebook, and the Power BI report all cost turns off the same numbers. **If you change the
+> deployed models, add the new model's price** to `python/data/model_pricing.json` — see
+> **[analytics/docs/model-pricing.md](../analytics/docs/model-pricing.md)** for the models used
+> by default, the price format, and how to find a model's price.
 
 ### Local dev (three terminals)
 

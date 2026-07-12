@@ -11,7 +11,7 @@ Use **DirectQuery over the mirrored database SQL endpoint**. Build the report fr
 ## Prerequisites
 
 - **Power BI Desktop** installed (latest version).
-- A **Fabric mirrored database** of your Cosmos analytics is running and replicating (see `analytics/fabric/README.md`). It mirrors at least `OptimizationTurns` and `Trips`.
+- A **Fabric mirrored database** of your Cosmos analytics is running and replicating (see `analytics/fabric/README.md`). It mirrors at least `OptimizationTurns`, `Trips`, and `Configuration`.
 - Your mirror's **SQL analytics endpoint** and **database name**.
 
 To find the SQL analytics endpoint:
@@ -40,6 +40,7 @@ To find the SQL analytics endpoint:
 | `OptimizationTurns` | every KPI, cost-by-tier, model usage, trivial % |
 | `Trips` | confirmed outcomes, cost per outcome |
 | `OptimizationPolicies` | applied-optimizations audit (Page 4) |
+| `Configuration` | model pricing (`type = "model_pricing"`) used by `Est Cost USD` |
 
 8. Click **Load** (not Transform Data).
 
@@ -66,7 +67,7 @@ To find the SQL analytics endpoint:
 
 Add these measures to the **`TravelAssistant OptimizationTurns`** table (right-click → **New measure**). Use the schema-prefixed table names shown below.
 
-**Load the pricing table first:** Get data → **Text/CSV** → `analytics/model_pricing.csv` (the committed single-source pricing file) → **Load**, and name the table **`ModelPricing`** (columns `model_deployment`, `input_price`, `output_price`). `Est Cost USD` looks prices up from it, so changing a price is one edit to that CSV — no DAX. Models are discovered from the data; any model not in `ModelPricing` falls back to the default price in the measure.
+**Pricing comes from the mirrored `Configuration` table** — no CSV to load. `Configuration` is one of the mirrored tables (alongside `OptimizationTurns`, `Trips`, `OptimizationPolicies`), so it's already in the model as **`TravelAssistant Configuration`**. Its `type = "model_pricing"` rows carry `model`, `input_price`, and `output_price` — the same numbers the app and the notebook use. `Est Cost USD` looks prices up from it, so changing a price is done once (at deploy time, from `python/data/model_pricing.json`) and flows everywhere. Models are discovered from the data; any model without a pricing row falls back to the default in the measure.
 
 ```DAX
 Total Turns   = COUNTROWS('TravelAssistant OptimizationTurns')
@@ -79,8 +80,8 @@ Est Cost USD =
 SUMX(
     'TravelAssistant OptimizationTurns',
     VAR d    = 'TravelAssistant OptimizationTurns'[model_deployment]
-    VAR pin  = COALESCE(LOOKUPVALUE(ModelPricing[input_price],  ModelPricing[model_deployment], d), 1.25)
-    VAR pout = COALESCE(LOOKUPVALUE(ModelPricing[output_price], ModelPricing[model_deployment], d), 10.0)
+    VAR pin  = COALESCE(LOOKUPVALUE('TravelAssistant Configuration'[input_price],  'TravelAssistant Configuration'[type], "model_pricing", 'TravelAssistant Configuration'[model], d), 1.25)
+    VAR pout = COALESCE(LOOKUPVALUE('TravelAssistant Configuration'[output_price], 'TravelAssistant Configuration'[type], "model_pricing", 'TravelAssistant Configuration'[model], d), 10.0)
     RETURN ('TravelAssistant OptimizationTurns'[input_tokens] * pin + 'TravelAssistant OptimizationTurns'[output_tokens] * pout) / 1000000
 )
 
@@ -94,7 +95,7 @@ Active Policies      = CALCULATE(COUNTROWS('TravelAssistant OptimizationPolicies
 Latest Policy Change = DATE(1970,1,1) + MAX('TravelAssistant OptimizationPolicies'[updated_epoch]) / 86400.0
 ```
 
-> **Token pricing** is a list-price estimate; change it in `model_pricing.csv` (the `ModelPricing` table) — no DAX edits.
+> **Token pricing** is a list-price estimate stored in the mirrored `Configuration` table; to change it, edit `python/data/model_pricing.json` and re-run the deploy — no DAX edits.
 > Set **`Latest Policy Change`** Format = **Date time**.
 
 ### Calculated columns
@@ -194,3 +195,5 @@ The `.pbit`:
 **`Trips`** — `tenantId`, `userId`, `tripId`, `status` (planning/confirmed/completed), `destination`, …
 
 **`OptimizationPolicies`** — `scenario_id`, `title`, `status` (proposed/active/staged/reverted), `apply_mode`, `params`, `proposed_change`, `version`, `proposed_by`, `created_at`, `updated_at`, `created_epoch`, `updated_epoch` *(bigint epoch seconds — use `updated_epoch` for `PolicyUpdated`)*.
+
+**`Configuration`** — a small multi-entity config store keyed by `type`. Pricing rows have `type = "model_pricing"`, `model`, `input_price`, `output_price` (USD per 1M tokens); the `type = "model_selection_defaults"` doc carries the proposed tier/classifier policy. Filter `type = "model_pricing"` when joining for cost.

@@ -27,7 +27,7 @@ from src.app.services import optimization_policy
 from src.app.services import fabric_capacity
 from src.app.services.optimization_recommendations import (
     build_recommendations,
-    PROPOSED_MODEL_SELECTION_PARAMS,
+    get_proposed_model_selection_params,
     MODEL_SELECTION_SCENARIO,
 )
 
@@ -35,9 +35,10 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/optimizations", tags=["optimizations"])
 
-# Known scenario -> default proposed params, so /propose can seed without a body.
-_SCENARIO_DEFAULTS: dict[str, dict[str, Any]] = {
-    MODEL_SELECTION_SCENARIO: PROPOSED_MODEL_SELECTION_PARAMS,
+# Known scenario -> default proposed params provider, so /propose can seed
+# without a body. Model selection reads the config-driven defaults at call time.
+_SCENARIO_DEFAULT_PROVIDERS: dict[str, Any] = {
+    MODEL_SELECTION_SCENARIO: get_proposed_model_selection_params,
 }
 
 _SCENARIO_META: dict[str, dict[str, str]] = {
@@ -108,7 +109,8 @@ def get_scenario_policy(scenario: str) -> dict[str, Any]:
 @router.post("/{scenario}/propose")
 def propose(scenario: str, body: Optional[ProposeBody] = None) -> dict[str, Any]:
     body = body or ProposeBody()
-    params = body.params or _SCENARIO_DEFAULTS.get(scenario)
+    provider = _SCENARIO_DEFAULT_PROVIDERS.get(scenario)
+    params = body.params or (provider() if provider else None)
     if params is None:
         raise HTTPException(
             status_code=400,

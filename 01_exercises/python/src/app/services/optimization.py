@@ -25,15 +25,12 @@ This module assumes they already exist — it never creates them at runtime.
 
 from __future__ import annotations
 
-import json
 import logging
-import os
 import re
 import threading
 import time
 import uuid
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any, Callable, Optional
 
 from langchain_openai import AzureChatOpenAI
@@ -60,12 +57,12 @@ TURNS_CONTAINER = "OptimizationTurns"
 # API version known to support the gpt-5 / o-series reasoning deployments.
 _REASONING_API_VERSION = "2025-04-01-preview"
 
-# Estimated USD per 1M tokens (input, output). Single source of truth is
-# python/data/model_pricing.json (also written to .env as MODEL_PRICING_JSON by the
-# azd post-provision hook, and passed to the reverse-ETL notebook). Resolution order:
-#   1. MODEL_PRICING_JSON env var (what .env / azd provides at runtime)
-#   2. python/data/model_pricing.json (committed default)
-#   3. the built-in dict below (last-resort fallback so the app never breaks)
+# Estimated USD per 1M tokens (input, output). The runtime single source of truth
+# is the Cosmos **Configuration** container (type="model_pricing"), populated at
+# deploy time by python/data/seed_configuration.py from the models azd actually
+# deployed (see analytics/docs/model-pricing.md). Resolution order:
+#   1. the Configuration container (what the app, notebook, and report all share)
+#   2. the built-in dict below (last-resort fallback so the app never breaks)
 _DEFAULT_PRICING: dict[str, dict[str, float]] = {
     "gpt-5.1": {"input": 1.25, "output": 10.00},
     "gpt-5-mini": {"input": 0.25, "output": 2.00},
@@ -73,42 +70,24 @@ _DEFAULT_PRICING: dict[str, dict[str, float]] = {
 }
 
 
-def _normalize_pricing(data: dict[str, Any]) -> dict[str, dict[str, float]]:
-    out: dict[str, dict[str, float]] = {}
-    for model_name, v in (data or {}).items():
-        if isinstance(v, dict) and "input" in v and "output" in v:
-            out[model_name] = {"input": float(v["input"]), "output": float(v["output"])}
-        elif isinstance(v, (list, tuple)) and len(v) >= 2:
-            out[model_name] = {"input": float(v[0]), "output": float(v[1])}
-    return out
-
-
 def load_pricing() -> dict[str, dict[str, float]]:
-    """Model pricing from env (MODEL_PRICING_JSON) → committed file → built-in default."""
-    raw = os.getenv("MODEL_PRICING_JSON")
-    if raw:
-        try:
-            parsed = _normalize_pricing(json.loads(raw))
-            if parsed:
-                return parsed
-        except (ValueError, TypeError):
-            logger.warning("Invalid MODEL_PRICING_JSON; falling back to the pricing file/default")
+    """Model pricing from the Configuration container → built-in default."""
     try:
-        path = Path(__file__).resolve().parents[3] / "data" / "model_pricing.json"
-        if path.exists():
-            parsed = _normalize_pricing(json.loads(path.read_text(encoding="utf-8")))
-            if parsed:
-                return parsed
+        from src.app.services import configuration_store
+
+        priced = configuration_store.get_model_pricing()
+        if priced:
+            return priced
     except Exception as exc:  # noqa: BLE001
-        logger.warning("Could not read model_pricing.json (%s); using built-in default pricing", exc)
+        logger.warning("Could not read pricing from Configuration (%s); using default pricing", exc)
     return dict(_DEFAULT_PRICING)
 
 
-ESTIMATED_PRICING: dict[str, dict[str, float]] = load_pricing()
-
 # The policy the recommendation proposes. `enabled: True` means: once *applied*
-# (status active), it routes turns. Until applied it is inert.
-PROPOSED_MODEL_SELECTION_PARAMS: dict[str, Any] = {
+# (status active), it routes turns. Until applied it is inert. The authoritative
+# copy is the Configuration container (type="model_selection_defaults", seeded from
+# azd); this code dict is the last-resort fallback.
+_CODE_MODEL_SELECTION_PARAMS: dict[str, Any] = {
     "enabled": True,
     "default_deployment": AZURE_OPENAI_DEPLOYMENT,
     "tiers": {
@@ -118,6 +97,30 @@ PROPOSED_MODEL_SELECTION_PARAMS: dict[str, Any] = {
     },
     "classifier": {"trivial_max_words": 6},
 }
+
+# Backwards-compatible module constant (code default). Prefer
+# get_proposed_model_selection_params() to pick up the config-driven values.
+PROPOSED_MODEL_SELECTION_PARAMS: dict[str, Any] = dict(_CODE_MODEL_SELECTION_PARAMS)
+
+
+def get_proposed_model_selection_params() -> dict[str, Any]:
+    """Proposed tier/classifier policy from the Configuration container → code default."""
+    try:
+        from src.app.services import configuration_store
+
+        doc = configuration_store.get_model_selection_defaults()
+        if doc and isinstance(doc.get("tiers"), dict):
+            return {
+                "enabled": bool(doc.get("enabled", True)),
+                "default_deployment": doc.get(
+                    "default_deployment", _CODE_MODEL_SELECTION_PARAMS["default_deployment"]
+                ),
+                "tiers": doc["tiers"],
+                "classifier": doc.get("classifier", _CODE_MODEL_SELECTION_PARAMS["classifier"]),
+            }
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Could not read model_selection_defaults from Configuration (%s)", exc)
+    return dict(_CODE_MODEL_SELECTION_PARAMS)
 
 _DEFAULT_TRIVIAL_PATTERNS = [
     r"^(hi|hello|hey|yo|greetings|good (morning|afternoon|evening))\b",
@@ -492,8 +495,9 @@ def build_model_selection_recommendation(tenant_id: str) -> dict[str, Any]:
             trivial_in += int(d.get("input_tokens") or 0)
             trivial_out += out
 
-    mini = ESTIMATED_PRICING["gpt-4.1-mini"]
-    nano = ESTIMATED_PRICING["gpt-5-nano"]
+    pricing = load_pricing()
+    mini = pricing.get(AZURE_OPENAI_DEPLOYMENT, pricing.get("gpt-5.1", _DEFAULT_PRICING["gpt-5.1"]))
+    nano = pricing.get("gpt-5-nano", _DEFAULT_PRICING["gpt-5-nano"])
     cost_now = (trivial_in * mini["input"] + trivial_out * mini["output"]) / 1_000_000
     cost_proposed = (trivial_in * nano["input"] + trivial_out * nano["output"]) / 1_000_000
 
@@ -517,7 +521,7 @@ def build_model_selection_recommendation(tenant_id: str) -> dict[str, Any]:
             "reasoning tokens, so trivial turns may not actually be cheaper. The "
             "measured before/after (verify) is authoritative."
         ),
-        "proposed_params": PROPOSED_MODEL_SELECTION_PARAMS,
+        "proposed_params": get_proposed_model_selection_params(),
     }
 
 
@@ -651,10 +655,12 @@ def stage_prompt_change(scenario: str, by: str = "dashboard") -> Optional[dict[s
 def _price_for(deployment: str) -> tuple[float, float]:
     """(input, output) USD per 1M tokens for a deployment/model name. ESTIMATE."""
     name = (deployment or "").lower()
-    for key, p in ESTIMATED_PRICING.items():
+    pricing = load_pricing()
+    for key, p in pricing.items():
         if name.startswith(key):
             return p["input"], p["output"]
-    return ESTIMATED_PRICING["gpt-4.1-mini"]["input"], ESTIMATED_PRICING["gpt-4.1-mini"]["output"]
+    default = pricing.get("gpt-5.1", _DEFAULT_PRICING["gpt-5.1"])
+    return default["input"], default["output"]
 
 
 def _confirmed_outcomes(tenant_id: str) -> int:

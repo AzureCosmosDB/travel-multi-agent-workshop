@@ -14,9 +14,11 @@ Fabric + Power BI + Azure REST APIs:
   Phase 2 (needs the manual OAuth2 Cosmos connection — the one un-automatable step):
     - (interactive) you create the Cosmos connection once in the Fabric portal and paste
       its id (WorkspaceIdentity connections are still DMTS-blocked in many tenants)
-    - create the mirrored database (OptimizationTurns / Trips / OptimizationPolicies) + start
+    - create the mirrored database (OptimizationTurns / Trips / OptimizationPolicies /
+      Configuration) + start
     - create the Direct Lake semantic model over the mirror
-    - upload the parameterized reverse-ETL notebook (endpoints + model pricing) + schedule it
+    - upload the parameterized reverse-ETL notebook (endpoints only; pricing comes from
+      the mirrored Configuration table) + schedule it
 
   Phase 3 (optional):
     - import a .pbit and set its MirrorSQLEndpoint / MirrorDatabase parameters
@@ -57,7 +59,7 @@ ARM_SCOPE = "https://management.azure.com/.default"
 COSMOS_DATA_CONTRIBUTOR = "00000000-0000-0000-0000-000000000002"
 
 # Tables to mirror (schema name == Cosmos DB name; set at runtime).
-MIRROR_TABLES = ["OptimizationTurns", "Trips", "OptimizationPolicies"]
+MIRROR_TABLES = ["OptimizationTurns", "Trips", "OptimizationPolicies", "Configuration"]
 
 
 # --------------------------------------------------------------------------- creds
@@ -585,7 +587,6 @@ def main() -> None:
     p.add_argument("--connection-id", help="pre-created OAuth2 Cosmos connection id (skips the interactive prompt)")
     p.add_argument("--notebook", default=os.path.join(os.path.dirname(__file__), "TravelAssistantOptimizationInsights.ipynb"))
     p.add_argument("--pbit", help="path to a .pbit to import (optional)")
-    p.add_argument("--pricing-json", help="path to a JSON file with model pricing to pass to the notebook")
     p.add_argument("--phase", choices=["1", "2", "3", "all"], default="all",
                    help="1=workspace+identity+rbac, 2=+mirror+notebook, 3=+pbit import")
     args = p.parse_args()
@@ -629,26 +630,12 @@ def main() -> None:
     mirror_id = get_or_create_mirror(tok, ws_id, connection_id, cfg["db_name"])
     persist_env({"FABRIC_MIRROR_ID": mirror_id})
 
-    # Pricing for the notebook: --pricing-json, else MODEL_PRICING_JSON env, else the
-    # committed model_pricing.json in either tree — one source of truth for pricing.
-    pricing = None
-    if args.pricing_json and os.path.exists(args.pricing_json):
-        pricing = open(args.pricing_json, encoding="utf-8").read()
-    elif os.getenv("MODEL_PRICING_JSON"):
-        pricing = os.getenv("MODEL_PRICING_JSON")
-    else:
-        for candidate in ("python/data/model_pricing.json",
-                          "02_completed/python/data/model_pricing.json",
-                          "01_exercises/python/data/model_pricing.json"):
-            if os.path.exists(candidate):
-                pricing = open(candidate, encoding="utf-8").read()
-                break
+    # Model pricing is read by the notebook from the mirrored Configuration table
+    # (type='model_pricing'), seeded by azd — no pricing param needed here.
     nb_params = {
         "COSMOS_ENDPOINT": cfg["cosmos_endpoint"],
         "SOURCE_SCHEMA": cfg["db_name"],
     }
-    if pricing:
-        nb_params["MODEL_PRICING_JSON"] = pricing
     upload_notebook(tok, ws_id, args.notebook, nb_params)
     log(f"PHASE 2 COMPLETE. mirror={mirror_id}")
 

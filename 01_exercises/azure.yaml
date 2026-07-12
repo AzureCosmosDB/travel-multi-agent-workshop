@@ -119,7 +119,6 @@ hooks:
         DEDUP_EVERY_N=1
         THREAD_SUMMARY_EVERY_N=5
         USER_SUMMARY_EVERY_N=5
-        MODEL_PRICING_JSON={\"gpt-5.1\":{\"input\":1.25,\"output\":10.0},\"gpt-5-mini\":{\"input\":0.25,\"output\":2.0},\"gpt-5-nano\":{\"input\":0.05,\"output\":0.4}}
         FABRIC_CAPACITY_NAME=\"$FABRIC_CAPACITY_NAME\"
         AZURE_SUBSCRIPTION_ID=\"$AZURE_SUBSCRIPTION_ID\"
         AZURE_RESOURCE_GROUP=\"$RG_NAME\"
@@ -190,6 +189,11 @@ hooks:
         cd python
         # Load data into Cosmos DB (from python directory)
         python data/seed_data.py
+
+        # Seed the Configuration container (model pricing + selection defaults) from the
+        # models azd actually deployed. Prices come from data/model_pricing.json — if you
+        # swap a model in infra/main.bicep, add its price there (see analytics/docs/model-pricing.md).
+        python data/seed_configuration.py
         cd ..
 
         echo ""
@@ -218,7 +222,6 @@ hooks:
         DEDUP_EVERY_N=1
         THREAD_SUMMARY_EVERY_N=5
         USER_SUMMARY_EVERY_N=5
-        MODEL_PRICING_JSON={""gpt-5.1"":{""input"":1.25,""output"":10.0},""gpt-5-mini"":{""input"":0.25,""output"":2.0},""gpt-5-nano"":{""input"":0.05,""output"":0.4}}
         FABRIC_CAPACITY_NAME=""$env:FABRIC_CAPACITY_NAME""
         AZURE_SUBSCRIPTION_ID=""$env:AZURE_SUBSCRIPTION_ID""
         AZURE_RESOURCE_GROUP=""$env:RG_NAME""
@@ -284,6 +287,11 @@ hooks:
         if (Test-Path "python\data\seed_data.py") {
             Push-Location python
             python data\seed_data.py
+
+            # Seed the Configuration container (model pricing + selection defaults) from the
+            # models azd actually deployed. Prices come from data/model_pricing.json — if you
+            # swap a model in infra/main.bicep, add its price there (see analytics/docs/model-pricing.md).
+            python data\seed_configuration.py
             Pop-Location
         }
 

@@ -15,6 +15,7 @@ param counterContainerName string = 'counter'
 param optimizationPoliciesContainerName string = 'OptimizationPolicies'
 param optimizationTurnsContainerName string = 'OptimizationTurns'
 param optimizationInsightsContainerName string = 'OptimizationInsights'
+param configurationContainerName string = 'Configuration'
 @description('Deploy the optional analytics/optimization containers (Modules 07/08 — OptimizationPolicies/Turns/Insights). Set false for a leaner base deployment; the app still self-provisions them at runtime if the analytics features are used.')
 param deployAnalytics bool = true
 @description('Embedding dimensions for the memories container vector index. Must match the embedding model used by AgentMemoryToolkit (text-embedding-3-small = 1536).')
@@ -879,6 +880,46 @@ resource cosmosContainerOptimizationInsights 'Microsoft.DocumentDB/databaseAccou
       partitionKey: {
         paths: [
           '/tenantId'
+        ]
+        kind: 'Hash'
+        version: 2
+      }
+      indexingPolicy: {
+        indexingMode: 'consistent'
+        automatic: true
+        includedPaths: [
+          {
+            path: '/*'
+          }
+        ]
+        excludedPaths: [
+          {
+            path: '/"_etag"/?'
+          }
+        ]
+      }
+    }
+    options: {
+      autoscaleSettings: {
+        maxThroughput: containerMaxRU
+      }
+    }
+  }
+  tags: tags
+}
+
+
+// Configuration (runtime single-source config: model pricing + selection defaults) — PK /type.
+// Mirrored into Fabric so the Power BI report reads the same pricing rows as the app.
+resource cosmosContainerConfiguration 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2024-12-01-preview' = if (deployAnalytics) {
+  parent: database
+  name: configurationContainerName
+  properties: {
+    resource: {
+      id: configurationContainerName
+      partitionKey: {
+        paths: [
+          '/type'
         ]
         kind: 'Hash'
         version: 2

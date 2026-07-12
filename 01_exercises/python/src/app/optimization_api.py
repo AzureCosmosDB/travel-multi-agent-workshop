@@ -33,8 +33,8 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/optimizations", tags=["optimizations"])
 
-_SCENARIO_DEFAULTS: dict[str, dict[str, Any]] = {
-    optimization.MODEL_SELECTION_SCENARIO: optimization.PROPOSED_MODEL_SELECTION_PARAMS,
+_SCENARIO_DEFAULT_PROVIDERS: dict[str, Any] = {
+    optimization.MODEL_SELECTION_SCENARIO: optimization.get_proposed_model_selection_params,
 }
 _SCENARIO_META: dict[str, dict[str, str]] = {
     optimization.MODEL_SELECTION_SCENARIO: {
@@ -109,7 +109,8 @@ def get_scenario_policy(scenario: str) -> dict[str, Any]:
 @router.post("/{scenario}/propose")
 def propose(scenario: str, body: Optional[ProposeBody] = None) -> dict[str, Any]:
     body = body or ProposeBody()
-    params = body.params or _SCENARIO_DEFAULTS.get(scenario)
+    provider = _SCENARIO_DEFAULT_PROVIDERS.get(scenario)
+    params = body.params or (provider() if provider else None)
     if params is None:
         raise HTTPException(status_code=400, detail=f"No default params for scenario '{scenario}'; supply params.")
     meta = _SCENARIO_META.get(scenario, {})
