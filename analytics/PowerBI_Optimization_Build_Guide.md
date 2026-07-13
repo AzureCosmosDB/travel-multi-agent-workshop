@@ -2,9 +2,7 @@
 
 Build the **Agent Optimization** report in Power BI Desktop against your **Fabric mirrored database** of the Travel Assistant analytics. This companion to `PowerBI_Build_Guide.md` produces a portable **`.pbit`** template that attendees can open and point at their own mirror.
 
-Use **DirectQuery over the mirrored database SQL endpoint**. Build the report from DAX measures over the raw mirrored tables.
-
-> Optional: use the Direct Lake semantic model `TravelAssistantAnalyticsModel` (`analytics/fabric/README.md`) for live-connected reports. Use DirectQuery here for a portable, re-pointable `.pbit`.
+Use **DirectQuery over the mirrored database SQL endpoint**. Build the report from DAX measures over the raw mirrored tables — a portable, re-pointable `.pbit`, with no separate semantic model to create.
 
 ---
 
@@ -211,7 +209,7 @@ Visuals:
 
 ---
 
-## Step 5: Save and Export
+## Step 6: Save and Export
 
 ### Save as .pbix
 **File** → **Save As** → `TravelAssistantAnalyticsReport.pbix`
@@ -230,7 +228,7 @@ The `.pbit`:
 ## Real-time notes
 
 - **DirectQuery** queries the mirror SQL endpoint live. Use **Refresh** on a page, or set a page **auto-refresh** interval (Format → Page refresh) for a hands-free live demo while the traffic simulator runs.
-- **Direct Lake** (via a semantic model over the mirror) is available for reports live-connected to `TravelAssistantAnalyticsModel`.
+- The **Business Impact** page (Page 5) refreshes when the Module 09 reverse-ETL notebook rewrites `OptimizationInsights` and the mirror carries the new rows through.
 
 ## Table reference (mirrored columns)
 
