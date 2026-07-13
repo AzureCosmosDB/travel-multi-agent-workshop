@@ -59,7 +59,7 @@ ARM_SCOPE = "https://management.azure.com/.default"
 COSMOS_DATA_CONTRIBUTOR = "00000000-0000-0000-0000-000000000002"
 
 # Tables to mirror (schema name == Cosmos DB name; set at runtime).
-MIRROR_TABLES = ["OptimizationTurns", "Trips", "OptimizationPolicies", "Configuration"]
+MIRROR_TABLES = ["OptimizationTurns", "Trips", "OptimizationPolicies", "Configuration", "Messages", "OptimizationInsights"]
 
 
 # --------------------------------------------------------------------------- creds
