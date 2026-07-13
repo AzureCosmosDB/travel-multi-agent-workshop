@@ -15,4 +15,5 @@ The workshop follows a progressive learning path with the following Modules
 - Module 6: Evaluating Your Multi-Agent Application (Bonus Module)
 - Module 7: Agent Analytics (Visibility & Insight)
 - Module 8: Agent Optimization (Apply & Autonomy)
-- Module 9: Lessons Learned, Agent and Memory Future, Q&A
+- Module 9: Fabric Analytics & Reverse-ETL (Cosmos + Fabric via Mirroring)
+- Module 10: Lessons Learned, Agent and Memory Future, Q&A

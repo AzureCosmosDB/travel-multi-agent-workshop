@@ -1,355 +1,118 @@
-# Module 09 - Lessons Learned & The Future of Agentic Systems
+# Module 09 - Fabric Analytics & Reverse-ETL
 
-**[< Agent Optimization](./Module-08.md)**
+**[< Agent Optimization](./Module-08.md)** - **[Lessons Learned & The Future >](./Module-10.md)**
 
 ## Introduction
 
-Congratulations! You've built a sophisticated multi-agent travel assistant with intelligent memory, automatic summarization, and full observability. Throughout this workshop, you've progressed from a simple single agent to a production-ready multi-agent system with distributed memory management.
+In Modules 07–08 you instrumented the agent, surfaced recommendations, and applied a reversible optimization — all on **Azure Cosmos DB**, the app's **operational** store. Cosmos is the right home for the live agent: single-digit-millisecond reads/writes on the request path, global distribution, schema-flexible documents.
 
-In this final module, we'll reflect on what you've learned, explore architectural patterns and best practices, discuss the future of agentic AI and memory systems, and address common questions about building production multi-agent applications.
+But the *heavy* analytics — a **conversion funnel** across every session, trends over time, cross-tenant rollups — is a different workload. You should **not** run large aggregations on the transactional path: it doesn't scale, it burns request-unit budget, and a runaway analytical query shouldn't be able to slow the agent that's serving customers.
 
-## What You've Built
+The answer is **two planes, one zero-ETL bridge**:
 
-Let's take a moment to appreciate the complexity of your travel assistant:
+```
+Cosmos (operational) ──mirror──▶ Fabric (analytical) ──reverse-ETL──▶ Cosmos (OptimizationInsights) ──▶ app acts / Power BI
+```
 
-### System Architecture
+- **Microsoft Fabric Mirroring** streams your Cosmos containers into Fabric's OneLake **with no pipeline to build** and near-real-time freshness — and analytics read the *mirror*, never the transactional account.
+- **Reverse-ETL** writes the *computed* result back into Cosmos, small and flat, so the operational app (and, at higher maturity, the agent itself) can act on it in real time.
 
-**Multi-Agent Orchestration:**
+That closed loop is the substrate for the vision's **Level 4 (autonomous)** and **Level 5 (adaptive)** systems: Fabric computes the intelligence; reverse-ETL lands it where the running system can use it.
 
-- **Orchestrator Agent**: Routes user requests, extracts preferences, coordinates responses
-- **Specialist Agents**: Hotel, Dining, Activity agents with domain expertise
-- **Itinerary Generator**: Creates day-by-day travel plans
-- **Summarizer Agent**: Automatically condenses conversation history
+> **Why this module exists.** This is the pattern that makes agent analytics a *product*, not a demo — and it's why Cosmos + Fabric is such a strong pairing for AI applications: Cosmos for the operational agent, Fabric for the analytical brain, Mirroring + reverse-ETL to connect them.
 
-**Intelligent Memory System:**
+## Learning Objectives and Activities
 
-- **Automatic Preference Extraction**: LLM-powered extraction from natural language
-- **Conflict Resolution**: Detects and resolves contradictory preferences
-- **Memory Types**: Declarative (facts), procedural (preferences), episodic (experiences)
-- **Salience Scoring**: Prioritizes important memories over trivial ones
-- **Memory Superseding**: Old preferences are gracefully replaced by new ones
+By the end you will be able to:
 
-**Data Architecture:**
+- Explain the **operational vs analytical plane** split and why analytics doesn't belong on the transactional path.
+- Describe **Mirroring** (zero-ETL Cosmos → Fabric) and **reverse-ETL** (insights back to Cosmos).
+- Compute a **conversion funnel** over the mirror in a Fabric Spark notebook.
+- Implement the **reverse-ETL write** that closes the loop.
+- Connect the pattern to **L4/L5 autonomy**.
 
-- **Cosmos DB**: Scalable NoSQL database with vector search capabilities
-- **Containers**: Sessions, Messages, Summaries, Memories, Places, Trips, Users
-- **Hybrid Search**: Combines semantic search (vectors) + keyword search (RRF)
-- **Partitioning**: Efficient multi-tenant architecture with hierarchical partition keys
+## Module Exercises
 
-**Observability:**
-
-- **LangSmith Integration**: End-to-end tracing of agent decisions
-- **Performance Monitoring**: Track latency, token usage, and costs
-- **Debug Traces**: Visualize execution paths and tool calls
-
-### Key Technical Achievements
-
-1. **Seamless Agent Handoffs**: Users don't need to know which specialist to talk to
-2. **Context-Aware Recommendations**: Every recommendation aligns with stored preferences
-3. **Automatic Summarization**: Long conversations are compressed without losing context
-4. **Conflict-Free Memory**: Contradictory preferences are detected and resolved
-5. **Production-Ready Observability**: Full visibility into system behavior
+1. [Activity 1: The Two Planes and the Mirror](#activity-1-the-two-planes-and-the-mirror)
+2. [Activity 2: Open the Notebook and Read the Mirror](#activity-2-open-the-notebook-and-read-the-mirror)
+3. [Activity 3: Build the Decision (`cause` classification)](#activity-3-build-the-decision-cause-classification)
+4. [Activity 4: Reverse-ETL the Insights Back to Cosmos](#activity-4-reverse-etl-the-insights-back-to-cosmos)
+5. [Activity 5: Watch Power BI Light Up](#activity-5-watch-power-bi-light-up)
 
 ---
 
-## Module Sections
+## Activity 1: The Two Planes and the Mirror
 
-1. [Lessons Learned: Key Takeaways](#lessons-learned-key-takeaways)
-2. [Architectural Best Practices](#architectural-best-practices)
-3. [The Future of Agentic AI](#the-future-of-agentic-ai)
-4. [Memory Systems: What's Next?](#memory-systems-whats-next)
-5. [Common Challenges and Solutions](#common-challenges-and-solutions)
-6. [Production Deployment Considerations](#production-deployment-considerations)
-7. [Resources and Further Learning](#resources-and-further-learning)
+Your `azd`/Fabric provisioning already created a **mirrored database** of the Cosmos analytics containers (see `analytics/fabric/README.md`). The mirror carries the tables this module needs — `OptimizationTurns`, `Trips`, `Messages`, and the reverse-ETL target `OptimizationInsights`.
 
----
+Two things to internalize:
 
-## Lessons Learned: Key Takeaways
+- **The analytical plane reads the mirror, not Cosmos.** The Spark notebook queries the mirror's **SQL analytics endpoint** — the transactional account isn't touched by analytics.
+- **Reverse-ETL is a deliberate, small write back.** You compute a lot in Fabric, then write a **handful of flat rows** back to Cosmos so the app can act cheaply.
 
-### 1. Agent Specialization Beats Generalization
+## Activity 2: Open the Notebook and Read the Mirror
 
-**What We Learned:**
-Single "do-everything" agents struggle with complex tasks. Specialist agents with focused responsibilities perform better because they:
+Import **`analytics/fabric/ConversionFunnelReverseETL.ipynb`** into your Fabric workspace and attach it to the workspace. Fill the parameters cell (your `COSMOS_ENDPOINT`, `TENANT_ID`, the mirror's `SQL_EP`/`SQL_DB`) and set `TENANT = "funnel_demo"`.
 
-- Have targeted prompts optimized for specific domains
-- Can use domain-specific tools and data sources
-- Make faster decisions with less context confusion
+Run the first two cells. The read cell pulls the mirrored tables via the SQL endpoint; the funnel cell (provided) aggregates turns into per-session stages — **engaged → searched → planned → confirmed** — and attaches a friction signal from the assistant `Messages`:
 
-**Example from the Workshop:**
-The Hotel Agent focuses exclusively on accommodations, allowing it to:
+- `searched` — the session delegated to a place search (`handoff_count > 0` / `agent_path` hit `find_places`).
+- `planned` — a turn reached the itinerary step.
+- `confirmed` — the session (or its user) has a booked `Trip`.
+- `city_reask` / `no_results` — friction flags mined from the assistant messages.
 
-- Recall hotel-specific preferences (quiet rooms, proximity to attractions)
-- Query only hotel-related places in Cosmos DB
-- Use specialized prompts for hotel recommendations
+*This is the analysis you would never run on Cosmos directly — it groups and joins across every session.*
 
-**Key Insight**: Design agents around **capabilities**, not just conversational flow.
+## Activity 3: Build the Decision (`cause` classification)
 
-### 2. Memory is Not Just Storage
+**TODO 1** is yours — the analytics decision (the notebook analog of `classify_turn_tier`). For every **non-converting** session, add a `cause` column that explains *why* it leaked, in this order:
 
-**What We Learned:**
-Effective memory systems require intelligent management:
-
-- **Extraction**: Not all messages contain preferences worth storing
-- **Conflict Resolution**: New information might contradict old beliefs
-- **Salience**: Some memories are more important than others
-- **Retrieval**: Hybrid search (semantic + keyword) outperforms vector-only search
-
-**Example from the Workshop:**
-When a user says "I prefer boutique hotels," the system:
-
-1. Extracts the preference with salience scoring
-2. Checks for conflicts (e.g., previously preferred large chain hotels)
-3. Resolves the conflict (update-existing, store-both, or ask-user)
-4. Stores with proper facets for future retrieval
-
-**Key Insight**: Memory is an **active process**, not passive storage.
-
-### 3. Summarization Prevents Context Collapse
-
-**What We Learned:**
-Long conversations exceed LLM context windows and increase costs. Automatic summarization:
-
-- Keeps recent messages fresh (10-message retention window)
-- Compresses older messages into summaries
-- Reduces token usage by ~70% for long sessions
-- Preserves conversation continuity
-
-**Example from the Workshop:**
-After 20 messages, the system:
-
-1. Identifies the oldest 10 non-summarized messages
-2. Generates a summary preserving key decisions
-3. Marks original messages as superseded (with TTL for cleanup)
-4. Stores summary in both Messages (timeline) and Summaries (cross-session queries)
-
-**Key Insight**: Design for **long-running conversations** from day one.
-
-### 4. Observability is Non-Negotiable
-
-**What We Learned:**
-Without tracing, debugging multi-agent systems is nearly impossible:
-
-- Agent routing decisions are non-deterministic (LLM-based)
-- Execution paths are nested and asynchronous
-- Performance bottlenecks are hard to identify
-
-**Example from the Workshop:**
-LangSmith traces show:
-
-- Which agent made each decision and why
-- Exact memories recalled before recommendations
-- Database query performance and results
-- Token usage per agent (cost attribution)
-
-**Key Insight**: Add observability **before** things go wrong.
-
-### 5. Hybrid Search > Vector-Only Search
-
-**What We Learned:**
-Pure vector search misses exact keyword matches. Hybrid retrieval (RRF) combines:
-
-- **Semantic search**: Understands "budget-friendly" ≈ "affordable"
-- **Keyword search**: Matches exact terms like "wheelchair accessible"
-- **Reciprocal Rank Fusion**: Merges results intelligently
-
-**Example from the Workshop:**
-Query: "romantic waterfront dining"
-
-- Vector search: Finds places with romantic ambiance descriptions
-- Keyword search: Matches tags ["waterfront", "romantic", "fine-dining"]
-- RRF: Returns results that score high in both
-
-**Key Insight**: Leverage **multiple retrieval strategies** for better results.
-
-## The Future of Agentic AI
-
-### 1. From Static to Adaptive Agents
-
-**Current State (Your System):**
-Agents have fixed capabilities defined at design time.
-
-**Future:**
-Agents will **learn and adapt** their behavior:
-
-- **Self-improving prompts**: Agents refine their own instructions based on feedback
-- **Dynamic tool creation**: Agents write new tools when existing ones are insufficient
-- **Meta-learning**: Agents learn from interactions across users
-
-### 2. From Single-Model to Multi-Model Systems
-
-**Current State:**
-Your system uses one LLM (GPT-4.1) for all agents.
-
-**Future:**
-Different agents will use **specialized models**:
-
-- **Orchestrator**: Large reasoning model (GPT-4, Claude 3.5)
-- **Specialists**: Fast, focused models (GPT-3.5, fine-tuned models)
-- **Memory Extraction**: Lightweight structured output models
-- **Summarization**: Efficient long-context models
-
-**Benefits:**
-
-- Reduce costs (use expensive models only when needed)
-- Improve latency (fast models for simple tasks)
-- Optimize for specific capabilities
-
-### 3. From Request-Response to Proactive Agents
-
-**Current State:**
-Your system reacts to user messages.
-
-**Future:**
-Agents will **proactively assist**:
-
-- Detect user intent before explicit requests
-- Suggest actions based on context and history
-- Trigger workflows without user prompting
-
-**Example:**
-
-```
-System: "I noticed you're traveling to Barcelona next month.
-Would you like me to start planning your itinerary? I remember
-you prefer boutique hotels and vegetarian restaurants."
-```
-
-### 4. From Text to Multimodal Agents
-
-**Current State:**
-Your system processes text-only inputs.
-
-**Future:**
-Agents will understand **images, voice, and video**:
-
-- Upload hotel photos: "Find similar properties"
-- Voice commands: "Find restaurants near me"
-- Video tours: Analyze ambiance and aesthetics
-
-**Technologies:**
-
-- GPT-4 Vision, Gemini Vision, Claude Vision
-- Whisper for speech-to-text
-- DALL-E for visualization generation
-
-### 5. From Human-in-Loop to Human-on-Loop
-
-**Current State:**
-Users directly interact with agents.
-
-**Future:**
-Agents handle **end-to-end workflows** autonomously:
-
-- Book reservations
-- Modify itineraries based on real-time changes
-- Negotiate with vendors
-- Handle exceptions (flight delays, cancellations)
-
-**Human Role:**
-
-- Approve high-stakes decisions
-- Provide feedback for learning
-- Intervene when needed
-
-## Memory Systems: What's Next?
-
-### 1. Memory Compression and Distillation
-
-**Problem:**
-Storing every conversation message is expensive and slow to retrieve.
-
-**Solution:**
-**Progressive summarization** at multiple levels:
-
-1. **Message-level**: Individual utterances
-2. **Session-level**: Single conversation summaries (your current implementation)
-3. **Topic-level**: Cross-session summaries by theme
-4. **User-level**: Overall user profile/persona
-
-**Example:**
-
-```
-Session 1: "User prefers boutique hotels in quiet neighborhoods"
-Session 2: "User likes rooftop bars with sunset views"
-Session 3: "User is vegetarian"
-
-→ User Profile: "Sarah is a vegetarian traveler who prefers
-boutique accommodations in quiet areas and enjoys rooftop
-dining with scenic views."
-```
-
-### 2. Memory Graphs and Relationships
-
-**Current State:**
-Memories are independent documents.
-
-**Future:**
-**Graph-based memory** with relationships:
-
-```
-[User: Sarah] -[PREFERS]-> [Hotel: Boutique]
-              -[AVOIDS]-> [Food: Shellfish]
-              -[VISITED]-> [City: Paris]
-[City: Paris] -[HAS]-> [Restaurant: Le Jules Verne]
-[Restaurant: Le Jules Verne] -[SERVES]-> [Cuisine: French]
-```
-
-**Benefits:**
-
-- Discover implicit preferences (likes French cuisine → recommend Bordeaux)
-- Explain recommendations (show reasoning paths)
-- Detect contradictions (prefer budget hotels + luxury dining)
-
-**Technologies:**
-
-- Azure Cosmos DB for Apache Gremlin (graph database)
-- Knowledge graphs with vector embeddings
-- Graph neural networks for reasoning
-
-### 3. Federated Memory and Privacy
-
-**Problem:**
-Centralized memory storage raises privacy concerns.
-
-**Solution:**
-**On-device memory** with federated learning:
-
-- User data stays on personal devices
-- Only anonymized insights shared with cloud
-- Memory retrieval happens locally
-
-**Example:**
-
-```
-Device: Stores raw conversation history
-Cloud: Stores only aggregated preference patterns
-```
-
-**Technologies:**
-
-- Federated learning frameworks (TensorFlow Federated)
-- Differential privacy for aggregation
-- Edge LLMs (Llama, Phi-3 on device)
-
-### 4. Memory Replay and Reflection
-
-**Inspired by:** Human memory consolidation during sleep.
-
-**Concept:**
-Agents **replay past interactions** to:
-
-- Extract higher-level patterns
-- Consolidate episodic memories into semantic knowledge
-- Improve future decision-making
-
-**Implementation:**
+| Condition | `cause` |
+|---|---|
+| `planned == 1` | `cart_abandon` — got a plan, never booked |
+| `searched` and `city_reask` | `city_friction` — the agent kept re-asking the city (→ SCEN-001) |
+| `searched` and `no_results` | `no_results` — the search dead-ended |
+| `searched` | `search_stall` |
+| otherwise | `no_engagement` — never searched |
 
 ```python
-async def consolidate_memories(user_id: str):
-    """Nightly job: Replay sessions and extract patterns."""
-    sessions = get_recent_sessions(user_id, days=7)
-    patterns = extract_patterns(sessions)  # LLM analysis
-    update_semantic_memory(user_id, patterns)
+sess = sess.withColumn(
+    "cause",
+    F.when(F.col("confirmed") == 1, F.lit("converted"))
+     .when(F.col("planned") == 1, F.lit("cart_abandon"))
+     .when((F.col("searched") == 1) & (F.col("city_reask") == 1), F.lit("city_friction"))
+     .when((F.col("searched") == 1) & (F.col("no_results") == 1), F.lit("no_results"))
+     .when(F.col("searched") == 1, F.lit("search_stall"))
+     .otherwise(F.lit("no_engagement")))
 ```
 
-### Return to **[Home](./Home.md)**
+The next cell (provided) shapes the results into **flat** `OptimizationInsights` rows — `funnel_stage`, `abandonment_cause`, and a `conversion_kpi` row that even names the **biggest addressable leak**. Flat rows mean the report needs *no* session math.
+
+## Activity 4: Reverse-ETL the Insights Back to Cosmos
+
+**TODO 2** is the pattern this module teaches. Write the three DataFrames (`funnel_df`, `cause_df`, `kpi_df`) back to the Cosmos **`OptimizationInsights`** container using the Spark Cosmos connector (the `cosmos_write` options are provided; Fabric authenticates to Cosmos with your Entra token):
+
+```python
+for df in (funnel_df, cause_df, kpi_df):
+    df.write.format("cosmos.oltp").options(**cosmos_write).mode("append").save()
+```
+
+That's reverse-ETL: Fabric-computed intelligence, landed back in the operational store. The insight now lives where the app can read it — and where the **mirror** will carry it *back* to Fabric for Power BI.
+
+> **The L4/L5 connection.** At Level 2 you *read* this insight. At **Level 4/5**, the system reads it and **acts** — e.g. the agent sees "biggest leak = city_friction" and auto-stages the SCEN-001 prompt fix. Reverse-ETL is the mechanism that makes self-optimizing agents possible: without a path back to the operational store, analytical intelligence just sits in a dashboard.
+
+## Activity 5: Watch Power BI Light Up
+
+Open the provided **Agent Optimization** `.pbit` and go to the **Business Impact** page. Before you ran the notebook it was empty; after your reverse-ETL write (and a mirror refresh), it **lights up** — the conversion funnel, the conversion-rate KPI, the biggest-leak callout, and the "why sessions don't convert" bar. **You didn't touch the report** — the insight flowed Cosmos → Fabric → reverse-ETL → Cosmos → mirror → Power BI.
+
+*Stuck? Compare against `analytics/fabric/ConversionFunnelReverseETL_solution.ipynb`.*
+
+## Test Your Work
+
+- [ ] The read cell prints non-zero counts for `turns`, `trips`, `messages` from the **mirror**.
+- [ ] Your `cause` classification runs and the cause breakdown looks sane (biggest bucket ≈ `city_friction` on `funnel_demo`).
+- [ ] Your reverse-ETL write completes and `OptimizationInsights` has `funnel_stage` / `abandonment_cause` / `conversion_kpi` rows for the tenant.
+- [ ] The Power BI **Business Impact** page populates without any report edits.
+- [ ] You can explain, in your own words, why analytics runs in Fabric (not on Cosmos) and why reverse-ETL is what enables an agent to optimize *itself*.
+
+**[< Agent Optimization](./Module-08.md)** - **[Lessons Learned & The Future >](./Module-10.md)**

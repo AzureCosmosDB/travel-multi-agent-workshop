@@ -1,6 +1,6 @@
 # Module 08 - Agent Optimization (Apply & Autonomy)
 
-**[< Agent Analytics](./Module-07.md)** - **[Lessons Learned & The Future >](./Module-09.md)**
+**[< Agent Analytics](./Module-07.md)** - **[Fabric Analytics & Reverse-ETL >](./Module-09.md)**
 
 ## Introduction
 
@@ -292,8 +292,8 @@ With a gate in place, a cost optimization that quietly degrades answers can neve
 
 ## What You Learned
 
-You closed the optimization loop: you **built** the decision, **applied** a reversible model-selection policy with one click, and **verified** the result honestly (measuring, not guessing). You saw why *policies* — not prompts or code — are the safe surface for automation, contrasted an autonomous change with a human-governed one, and learned how an evaluation **quality gate** turns an assisted optimization into an autonomous, self-correcting one. This is the foundation of agent systems that **continuously improve themselves** — the theme we close on in Module 09.
+You closed the optimization loop: you **built** the decision, **applied** a reversible model-selection policy with one click, and **verified** the result honestly (measuring, not guessing). You saw why *policies* — not prompts or code — are the safe surface for automation, contrasted an autonomous change with a human-governed one, and learned how an evaluation **quality gate** turns an assisted optimization into an autonomous, self-correcting one. This is the foundation of agent systems that **continuously improve themselves** — the analytical substrate we build in **Module 09 (Fabric Analytics & Reverse-ETL)**, and the future we close on in **Module 10**.
 
 ### Return to **[Home](./Home.md)**
 
-**[< Agent Analytics](./Module-07.md)** - **[Lessons Learned & The Future >](./Module-09.md)**
+**[< Agent Analytics](./Module-07.md)** - **[Fabric Analytics & Reverse-ETL >](./Module-09.md)**

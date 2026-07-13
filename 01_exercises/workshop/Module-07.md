@@ -170,8 +170,7 @@ template (built with the `analytics/PowerBI_Optimization_Build_Guide.md` guide):
    python analytics/traffic_simulator.py --tenant DemoLive --rate 120 --forever
    ```
 
-> Building your own mirror + report is the Fabric "scale it out" path (Module 08 / `analytics/fabric/`).
-> You can finish this lab's core detect/measure steps with just the Console + REST, no Fabric workspace.
+> The **Console + REST** are enough for this module's detect/measure steps (they read Cosmos directly). The **Cosmos → Fabric mirror + Power BI + reverse-ETL** is the analytical plane — you build it in **Module 09**, which is where the business-impact analytics and the self-optimizing (L4/L5) loop come together.
 
 ### The raw signal (REST + CLI)
 
@@ -211,7 +210,7 @@ Key ideas to understand (and to talk about):
 - **Fabric does the heavy analysis** — aggregations, trends, and recommendation generation run in notebooks over the lakehouse, not on the request path.
 - **Reverse-ETL closes the loop** — computed insights are written *back* into Cosmos so the app and the Console can act on them in real time. This is why the Console can show recommendations and apply them without a analytics round-trip.
 
-> **You don't need a Fabric workspace to finish this lab.** The Console and REST read `OptimizationTurns`/insights directly from Cosmos. Fabric + Power BI are the "scale it out" layer — inspect the provided `analytics/TravelAssistantNotebook.ipynb` to see how the analysis is expressed.
+> **This module runs on Cosmos alone** — the Console and REST read `OptimizationTurns`/insights directly. The **Cosmos + Fabric via Mirroring** story (the analytical plane, the reverse-ETL loop, and the business-impact conversion funnel) is **Module 09** — that's where you'll see why this pairing is so powerful for AI applications.
 
 ---
 
