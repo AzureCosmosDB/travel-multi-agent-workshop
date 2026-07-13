@@ -14,8 +14,9 @@ def md(text):
     return {"cell_type": "markdown", "metadata": {}, "source": text.splitlines(keepends=True)}
 
 
-def code(text):
-    return {"cell_type": "code", "metadata": {}, "outputs": [], "execution_count": None,
+def code(text, tags=None):
+    meta = {"tags": tags} if tags else {}
+    return {"cell_type": "code", "metadata": meta, "outputs": [], "execution_count": None,
             "source": text.splitlines(keepends=True)}
 
 
@@ -205,7 +206,7 @@ def notebook(solution: bool):
                      "kernelspec": {"name": "synapse_pyspark", "display_name": "Synapse PySpark"}},
         "cells": [
             md(INTRO),
-            code(PARAMS),
+            code(PARAMS, tags=["parameters"]),
             md(READ_MD), code(READ),
             md(FUNNEL_MD), code(FUNNEL),
             md(TODO1_MD), code(TODO1_SOLUTION if solution else TODO1_STUB),

@@ -15,10 +15,10 @@ Fabric + Power BI + Azure REST APIs:
     - (interactive) you create the Cosmos connection once in the Fabric portal and paste
       its id (WorkspaceIdentity connections are still DMTS-blocked in many tenants)
     - create the mirrored database (OptimizationTurns / Trips / OptimizationPolicies /
-      Configuration) + start
-    - create the Direct Lake semantic model over the mirror
-    - upload the parameterized reverse-ETL notebook (endpoints only; pricing comes from
-      the mirrored Configuration table) + schedule it
+      Configuration / Messages / OptimizationInsights) + start
+    - upload the reverse-ETL notebook (Module 09) with its parameters pre-filled
+      (Cosmos + mirror SQL endpoint). The report uses DirectQuery over the mirror SQL
+      endpoint, so no separate Direct Lake semantic model is created.
 
   Phase 3 (optional):
     - import a .pbit and set its MirrorSQLEndpoint / MirrorDatabase parameters
@@ -526,6 +526,14 @@ def _start_mirroring_when_ready(tok: Tokens, ws_id: str, mid: str, timeout: int 
     raise TimeoutError(f"mirror {mid} did not become ready to start within {timeout}s")
 
 
+def get_mirror_sql_endpoint(tok: Tokens, ws_id: str, mid: str) -> str:
+    """The mirror's SQL analytics endpoint host (for the notebook / report params)."""
+    hdr = tok.headers(FABRIC_SCOPE)
+    r = req("GET", f"{FABRIC_API}/workspaces/{ws_id}/mirroredDatabases/{mid}", hdr)
+    props = r.json().get("properties", {})
+    return (props.get("sqlEndpointProperties", {}) or {}).get("connectionString", "")
+
+
 def upload_notebook(tok: Tokens, ws_id: str, nb_path: str, params: dict[str, str]) -> Optional[str]:
     hdr = tok.headers(FABRIC_SCOPE)
     if not os.path.exists(nb_path):
@@ -542,7 +550,9 @@ def upload_notebook(tok: Tokens, ws_id: str, nb_path: str, params: dict[str, str
             ]
             break
     payload = b64(nb)
-    name = "TravelAssistantOptimizationInsights"
+    # Fabric display name derived from the file (the learner TODO and the _solution
+    # variant both land as the same notebook "ConversionFunnelReverseETL").
+    name = os.path.splitext(os.path.basename(nb_path))[0].replace("_solution", "")
     r = req("GET", f"{FABRIC_API}/workspaces/{ws_id}/notebooks", hdr)
     existing = next((n for n in r.json().get("value", []) if n.get("displayName") == name), None)
     body = {
@@ -648,11 +658,19 @@ def main() -> None:
                         "(default from azd MANAGED_IDENTITY_PRINCIPAL_ID)")
     p.add_argument("--database", help="Cosmos database name (default TravelAssistant)")
     p.add_argument("--connection-id", help="pre-created OAuth2 Cosmos connection id (skips the interactive prompt)")
-    p.add_argument("--notebook", default=os.path.join(os.path.dirname(__file__), "TravelAssistantOptimizationInsights.ipynb"))
+    p.add_argument("--notebook", default=os.path.join(os.path.dirname(__file__), "ConversionFunnelReverseETL.ipynb"),
+                   help="notebook to upload (default: the Module 09 learner notebook with TODOs)")
+    p.add_argument("--solution", action="store_true",
+                   help="upload the completed *_solution notebook instead of the learner TODO version "
+                        "(use for 02_completed / the demo)")
     p.add_argument("--pbit", help="path to a .pbit to import (optional)")
     p.add_argument("--phase", choices=["1", "2", "3", "all"], default="all",
                    help="1=workspace+identity+rbac, 2=+mirror+notebook, 3=+pbit import")
     args = p.parse_args()
+    if args.solution:
+        base, ext = os.path.splitext(args.notebook)
+        if not base.endswith("_solution"):
+            args.notebook = f"{base}_solution{ext}"
 
     cfg = resolve_config(args)
     missing = [k for k in ("rg", "sub", "capacity_name", "cosmos_account") if not cfg.get(k)]
@@ -693,11 +711,17 @@ def main() -> None:
     mirror_id = get_or_create_mirror(tok, ws_id, connection_id, cfg["db_name"])
     persist_env({"FABRIC_MIRROR_ID": mirror_id})
 
-    # Model pricing is read by the notebook from the mirrored Configuration table
-    # (type='model_pricing'), seeded by azd — no pricing param needed here.
+    # Pre-fill the Module 09 notebook's parameters (Cosmos + the mirror SQL endpoint);
+    # pricing comes from the mirrored Configuration table, so no pricing param.
+    sql_ep = get_mirror_sql_endpoint(tok, ws_id, mirror_id)
     nb_params = {
         "COSMOS_ENDPOINT": cfg["cosmos_endpoint"],
+        "COSMOS_DATABASE": cfg["db_name"],
+        "INSIGHTS_CONTAINER": "OptimizationInsights",
+        "TENANT_ID": cfg.get("tenant_id", ""),
         "SOURCE_SCHEMA": cfg["db_name"],
+        "SQL_EP": sql_ep,
+        "SQL_DB": f"{cfg['db_name']}Analytics",
     }
     upload_notebook(tok, ws_id, args.notebook, nb_params)
     log(f"PHASE 2 COMPLETE. mirror={mirror_id}")
