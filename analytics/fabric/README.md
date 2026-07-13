@@ -148,21 +148,21 @@ Fully automating the **Cosmos connection** is the known hard part. Findings:
 
 ## Reverse-ETL notebook — WORKING (read via JDBC SQL endpoint)
 
-`analytics/fabric/TravelAssistantOptimizationInsights.ipynb` computes per-tenant KPIs + per-tier cost
-and writes them to Cosmos `OptimizationInsights` via the **Cosmos Spark connector** with Fabric AAD
-(the workspace identity's Data Contributor role) — **no `%pip`, so it is safe in scheduled jobs**.
+`analytics/fabric/ConversionFunnelReverseETL.ipynb` (Module 09) reads the mirrored tables, computes
+the **conversion funnel** + abandonment causes, and writes flat rows to Cosmos `OptimizationInsights`
+via the **Cosmos Spark connector** with Fabric AAD (the workspace identity) — **no `%pip`, so it is
+safe in scheduled jobs**. It ships as a **learner** notebook (two TODOs) with a `*_solution` variant;
+`provision_fabric.py` uploads it during Phase 2 (add `--solution` for the completed one).
 
 **Read method (solved):** the Fabric Spark Delta reader (runtime 1.3) **cannot** read the mirrored
 tables' **deletion vectors** — `spark.read.format("delta").load(path)` *and* a Lakehouse-shortcut
 `spark.read.table(...)` both fail with *"Cannot work with a non-pinned table snapshot"*. The working
 fix is to read through the **SQL analytics endpoint over JDBC** (`spark.read.format("jdbc")` with the
 mirror SQL endpoint + `mssparkutils.credentials.getToken("pbi")` as `accessToken`), which resolves
-deletion vectors at the SQL layer. **Validated:** the notebook wrote 8 insight docs (per-tenant
-metrics + per-tier cost) to `OptimizationInsights`.
+deletion vectors at the SQL layer.
 
-**Scheduled:** every 15 minutes (`POST …/jobs/RunNotebook/schedules`, Cron interval 15) — near-real-time
-reverse-ETL so the Console's computed insights stay fresh. Power BI reads the mirror directly (Direct
-Lake), so it is real-time without the notebook.
+**Power BI** reads the mirror via **DirectQuery over the SQL analytics endpoint** — the Business Impact
+page reads the reverse-ETL'd `OptimizationInsights` rows. No Direct Lake semantic model is created.
 
 ## Real-time demo (works today, no notebook needed)
 
