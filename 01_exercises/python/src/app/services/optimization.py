@@ -889,43 +889,151 @@ def _converting_users(tenant_id: str) -> set:
         return set()
 
 
-def build_cost_per_outcome_diagnostic(tenant_id: str) -> dict[str, Any]:
-    """Wasted spend: tokens burned in sessions whose user never converted (SCEN-003)."""
+_NO_RESULTS_RE = re.compile(
+    r"couldn'?t find|could not find|no (matching )?(results|places|hotels|options)|nothing (found|matched)",
+    re.I,
+)
+
+_ABANDON_FIX = {
+    "city_friction": "the active-trip city-context prompt fix (SCEN-001) — it lifts conversion, not just cost",
+    "cart_abandon": "a proactive 'shall I book it?' confirmation at the itinerary step",
+    "no_results": "better place-search grounding (broaden/relax the query before giving up)",
+    "search_stall": "clearer next-step prompting after a search returns",
+    "no_engagement": "earlier intent clarification so vague sessions reach a search",
+}
+
+
+def _converted_sessions(tenant_id: str) -> set:
+    db = _database()
+    if db is None:
+        return set()
+    try:
+        rows = db.get_container_client("Trips").query_items(
+            query="SELECT d.sessionId, d.status FROM d WHERE d.tenantId=@t",
+            parameters=[{"name": "@t", "value": tenant_id}],
+            enable_cross_partition_query=True,
+        )
+        return {r.get("sessionId") for r in rows
+                if r.get("sessionId") and str(r.get("status", "")).lower() in ("confirmed", "completed")}
+    except Exception:  # noqa: BLE001
+        return set()
+
+
+def _session_friction(tenant_id: str) -> dict[str, dict]:
+    db = _database()
+    if db is None:
+        return {}
+    out: dict[str, dict] = {}
+    try:
+        rows = db.get_container_client("Messages").query_items(
+            query="SELECT d.sessionId, d.role, d.content FROM d WHERE d.tenantId=@t",
+            parameters=[{"name": "@t", "value": tenant_id}],
+            enable_cross_partition_query=True,
+        )
+    except Exception:  # noqa: BLE001
+        return {}
+    for r in rows:
+        if str(r.get("role", "")).lower() != "assistant" or not isinstance(r.get("content"), str):
+            continue
+        f = out.setdefault(r.get("sessionId"), {"city_reask": False, "no_results": False})
+        if _CITY_ASK_RE.search(r["content"]):
+            f["city_reask"] = True
+        if _NO_RESULTS_RE.search(r["content"]):
+            f["no_results"] = True
+    return out
+
+
+def _conversion_funnel(tenant_id: str) -> dict[str, Any]:
     debug = _query_debug(tenant_id)
-    total_tokens = 0
-    by_user: dict[Any, int] = {}
+    sessions: dict[str, dict] = {}
     for d in debug:
-        tok = int(_bag(d).get("total_tokens") or 0)
-        total_tokens += tok
-        by_user[d.get("userId")] = by_user.get(d.get("userId"), 0) + tok
-    converters = _converting_users(tenant_id)
-    wasted = sum(t for u, t in by_user.items() if u not in converters)
-    trips = _trip_count(tenant_id)
+        sid = d.get("sessionId")
+        if not sid:
+            continue
+        b = _bag(d)
+        s = sessions.setdefault(sid, {"searched": False, "planned": False, "tokens": 0, "user": d.get("userId")})
+        path = str(b.get("agent_path") or "")
+        if int(b.get("handoff_count") or 0) > 0 or "find_places" in path:
+            s["searched"] = True
+        if "itinerary" in path:
+            s["planned"] = True
+        s["tokens"] += int(b.get("total_tokens") or 0)
+
+    # Conversion is session-level when trips carry a sessionId (e.g. funnel_demo),
+    # else falls back to user-level (real trips have no sessionId).
+    converted_sessions = _converted_sessions(tenant_id)
+    converting_users = _converting_users(tenant_id)
+    friction = _session_friction(tenant_id)
+    funnel = {"engaged": 0, "searched": 0, "planned": 0, "confirmed": 0}
+    abandon = {"cart_abandon": 0, "city_friction": 0, "no_results": 0, "search_stall": 0, "no_engagement": 0}
+    wasted = total = 0
+    for sid, s in sessions.items():
+        total += s["tokens"]
+        funnel["engaged"] += 1
+        if s["searched"]:
+            funnel["searched"] += 1
+        if s["planned"]:
+            funnel["planned"] += 1
+        if s.get("planned") and (sid in converted_sessions or s.get("user") in converting_users):
+            funnel["confirmed"] += 1
+            continue
+        wasted += s["tokens"]
+        fr = friction.get(sid, {})
+        if s["planned"]:
+            abandon["cart_abandon"] += 1
+        elif s["searched"]:
+            if fr.get("city_reask"):
+                abandon["city_friction"] += 1
+            elif fr.get("no_results"):
+                abandon["no_results"] += 1
+            else:
+                abandon["search_stall"] += 1
+        else:
+            abandon["no_engagement"] += 1
+    return {
+        "sessions": len(sessions), "funnel": funnel, "abandonment": abandon,
+        "wasted_tokens": wasted, "total_tokens": total, "confirmed_sessions": funnel["confirmed"],
+    }
+
+
+def build_cost_per_outcome_diagnostic(tenant_id: str) -> dict[str, Any]:
+    """Cost per outcome upleveled to a conversion funnel (SCEN-003): not just *how
+    much* is wasted, but *where* sessions leak and *why* — pointing at the fix."""
+    f = _conversion_funnel(tenant_id)
+    total_tokens = f["total_tokens"]
+    wasted = f["wasted_tokens"]
+    confirmed = f["confirmed_sessions"]
+    abandon = f["abandonment"]
+    addressable = {k: v for k, v in abandon.items() if k != "no_engagement"}
+    biggest = max(addressable, key=addressable.get) if any(addressable.values()) else None
+    if biggest and abandon[biggest] > 0:
+        note = (f"Biggest addressable leak: {biggest.replace('_', ' ')} "
+                f"({abandon[biggest]} sessions). Fix: {_ABANDON_FIX[biggest]}.")
+    else:
+        note = ("A lens, not a toggle. Once sessions carry a clear abandonment cause, this names "
+                "the leak and the lever; otherwise the levers are spend control and richer instrumentation.")
     return {
         "scenario": "cost-per-outcome",
         "scenario_id": "SCEN-003",
-        "title": "Cost per outcome (wasted spend)",
-        "dimension": "cost efficiency · outcome",
-        "maturity": "diagnostic (informs the budget guardrail + conversion fixes)",
+        "title": "Cost per outcome & conversion funnel",
+        "dimension": "business impact · conversion",
+        "maturity": "diagnostic (points at the conversion fix)",
         "apply_mode": "diagnostic",
         "status": "insight",
         "evidence": {
             "total_tokens": total_tokens,
             "wasted_tokens": wasted,
             "wasted_pct": round(100 * wasted / max(total_tokens, 1), 1),
-            "confirmed_trips": trips,
-            "tokens_per_outcome": round(total_tokens / max(trips, 1)),
+            "confirmed_sessions": confirmed,
+            "tokens_per_outcome": round(total_tokens / max(confirmed, 1)),
+            "funnel": f["funnel"],
+            "abandonment": abandon,
         },
         "rationale": (
-            "A large share of tokens is spent in sessions whose user never confirmed a trip — "
-            "an 'abandoned cart' cost signal. 'Cheaper per turn' is not the goal; 'cheaper per "
-            "confirmed outcome' is."
+            "'Cheaper per turn' is not the goal; 'cheaper per confirmed outcome' is. The funnel "
+            "shows where sessions drop and why — turning a cost signal into a conversion lever."
         ),
-        "note": (
-            "This is a lens, not a toggle. Act on it two ways: spend less on doomed sessions "
-            "(the budget-guardrail policy) and reduce friction that stalls conversion (the "
-            "active-trip-city-context prompt fix)."
-        ),
+        "note": note,
     }
 
 
