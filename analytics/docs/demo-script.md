@@ -36,9 +36,13 @@ You don't need a temporal before/after. You have two better devices:
 2. **Build the conversion-funnel dataset** (the business-impact story):
    ```powershell
    python analytics/funnel_seed.py
+   # populate OptimizationInsights so the Business Impact report page has data:
+   python analytics/fabric/compute_insights.py --tenant funnel_demo
    ```
-   Writes `funnel_demo` — ~120 sessions that encode real **abandonment causes**, so the
-   SCEN-003 diagnostic can show *why* sessions don't convert (not just how much they cost).
+   `funnel_seed.py` writes `funnel_demo` (~120 sessions encoding real **abandonment causes**);
+   `compute_insights.py` is the reverse-ETL reference that computes the funnel and writes flat
+   rows to `OptimizationInsights` (in the workshop, Module 09's Fabric notebook does this). The
+   Business Impact page then lights up.
 
 3. **Report:** open the `.pbit`, point it at your mirror, and (Power BI guide Step 5) add a
    **tenant slicer** and a report-level filter defaulting to `analytics_demo`.
