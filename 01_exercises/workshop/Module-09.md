@@ -52,7 +52,7 @@ Two things to internalize:
 
 ## Activity 2: Open the Notebook and Read the Mirror
 
-Import **`analytics/fabric/ConversionFunnelReverseETL.ipynb`** into your Fabric workspace and attach it to the workspace. Fill the parameters cell (your `COSMOS_ENDPOINT`, `TENANT_ID`, the mirror's `SQL_EP`/`SQL_DB`) and set `TENANT = "funnel_demo"`.
+Provisioning already placed the **`ConversionFunnelReverseETL`** notebook in your Fabric workspace, with its parameters pre-filled from your deployment (Cosmos endpoint/database + the mirror's SQL endpoint). Open it, confirm the parameters look right, and set `TENANT = "funnel_demo"`.
 
 Run the first two cells. The read cell pulls the mirrored tables via the SQL endpoint; the funnel cell (provided) aggregates turns into per-session stages — **engaged → searched → planned → confirmed** — and attaches a friction signal from the assistant `Messages`:
 

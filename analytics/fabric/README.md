@@ -57,9 +57,15 @@ region that has Fabric capacity available to you.
 creates the workspace, assigns it to the F2 capacity, provisions the workspace identity, waits for
 the identity SP to propagate to AAD, and grants Cosmos **`readMetadata` + `readAnalytics`** (a custom
 `FabricMirroringRole`) to the connection identity. `--phase 2 --connection-id <id>` then creates the
-mirror (OptimizationTurns / Trips / OptimizationPolicies), waits for it to initialize, starts it, and
-uploads the parameterized notebook. Idempotent. **Validated live 2026-07-11**: mirror `Running`, all
-tables `Replicating` (642 / 35 / 0 rows).
+mirror (OptimizationTurns / Trips / OptimizationPolicies / Configuration / Messages /
+OptimizationInsights), waits for it to initialize, starts it, and uploads the **Module 09 notebook**
+(`ConversionFunnelReverseETL`, learner TODOs by default) with its parameters pre-filled from the
+deployment. Idempotent.
+
+> **Learner vs solution notebook:** the default upload is the **learner** notebook (TODOs). For
+> `02_completed` / the demo, add **`--solution`** to upload the completed `*_solution` notebook — both
+> land as `ConversionFunnelReverseETL`. No Direct Lake semantic model is created; the report is
+> DirectQuery over the mirror SQL endpoint.
 
 ### Two gotchas that cost real debugging time (now fixed in code)
 
