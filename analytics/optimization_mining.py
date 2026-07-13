@@ -44,14 +44,14 @@ def _bag(doc: dict) -> dict:
 # Estimated USD per 1M tokens (input, output). ESTIMATE — verify on the Azure
 # pricing calculator before quoting. Used only for the SCEN-007 verify report.
 _EST_PRICING = {
-    "gpt-4.1-mini": (0.40, 1.60),
-    "gpt-5-nano": (0.05, 0.40),
     "gpt-5.1": (1.25, 10.00),
+    "gpt-5-mini": (0.25, 2.00),
+    "gpt-5-nano": (0.05, 0.40),
 }
 
 
 def _price_for(deployment: str) -> tuple[float, float]:
-    return _EST_PRICING.get((deployment or "").split("-2025")[0].split("-2024")[0], (0.40, 1.60))
+    return _EST_PRICING.get((deployment or "").split("-2025")[0].split("-2024")[0], (1.25, 10.00))
 
 
 def verify_model_selection(db, tenant: str, container: str = "OptimizationTurns") -> None:

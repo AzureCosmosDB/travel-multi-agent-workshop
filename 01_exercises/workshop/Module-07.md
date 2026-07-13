@@ -233,11 +233,11 @@ That's the **model-selection** opportunity (dimension 6): trivial turns pay full
     "total_turns": 18,
     "trivial_turns": 8,
     "trivial_pct": 44.4,
-    "model_distribution": { "gpt-4.1-mini-...": 18 }
+    "model_distribution": { "gpt-5.1-...": 18 }
   },
   "estimated_saving_usd": 0.13,
   "estimate_caveat": "ESTIMATE only. gpt-5-nano is a reasoning model ...",
-  "proposed_params": { "tiers": { "trivial": "gpt-5-nano", "routine": "gpt-4.1-mini", "complex": "gpt-5.1" } }
+  "proposed_params": { "tiers": { "trivial": "gpt-5-nano", "routine": "gpt-5-mini", "complex": "gpt-5.1" } }
 }
 ```
 
