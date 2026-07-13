@@ -26,6 +26,7 @@ This module assumes they already exist — it never creates them at runtime.
 from __future__ import annotations
 
 import logging
+import os
 import re
 import threading
 import time
@@ -528,11 +529,153 @@ def build_model_selection_recommendation(tenant_id: str) -> dict[str, Any]:
 def build_recommendations(tenant_id: str) -> list[dict[str, Any]]:
     return [
         build_model_selection_recommendation(tenant_id),
+        build_memory_retention_recommendation(tenant_id),
         build_city_context_recommendation(tenant_id),
         build_redundant_tool_recommendation(tenant_id),
         build_cost_per_outcome_diagnostic(tenant_id),
         build_agent_path_diagnostic(tenant_id),
     ]
+
+
+# ---------------------------------------------------------------------------
+# SCEN-004 — memory retention: a lower-risk AUTONOMOUS (L4/L5) policy. Memory
+# accumulates superseded ("stale") entries as preferences change; applying the
+# policy soft-prunes them (a reversible mark), so recall stays cheaper/cleaner.
+# "Superseded" = a memory whose id appears in another memory's supersedes_ids.
+# ---------------------------------------------------------------------------
+
+MEMORY_RETENTION_SCENARIO = "memory-retention"
+_MEMORIES_CONTAINER = os.getenv("COSMOS_MEMORIES_CONTAINER", "memories")
+
+PROPOSED_MEMORY_RETENTION_PARAMS: dict[str, Any] = {
+    "enabled": True,
+    "prune": "superseded",
+}
+
+
+def _memories_container():
+    db = _database()
+    if db is None:
+        return None
+    try:
+        return db.get_container_client(_MEMORIES_CONTAINER)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _superseded_memory_rows() -> list[dict]:
+    container = _memories_container()
+    if container is None:
+        return []
+    try:
+        rows = list(container.query_items(
+            query="SELECT c.id, c.user_id, c.thread_id, c.supersedes_ids, c.retention_status FROM c",
+            enable_cross_partition_query=True,
+        ))
+    except Exception:  # noqa: BLE001
+        return []
+    superseded_ids: set = set()
+    for r in rows:
+        for sid in (r.get("supersedes_ids") or []):
+            superseded_ids.add(sid)
+    return [r for r in rows if r.get("id") in superseded_ids]
+
+
+def build_memory_retention_recommendation(tenant_id: str) -> dict[str, Any]:
+    """Detect stale (superseded) memory accumulation (SCEN-004). Memory is keyed by
+    (user_id, thread_id), not tenant — a global memory-hygiene signal."""
+    container = _memories_container()
+    total = 0
+    if container is not None:
+        try:
+            total = list(container.query_items(
+                query="SELECT VALUE COUNT(1) FROM c", enable_cross_partition_query=True))[0]
+        except Exception:  # noqa: BLE001
+            total = 0
+    superseded = _superseded_memory_rows()
+    n_sup = len(superseded)
+    n_pruned = sum(1 for r in superseded if r.get("retention_status") == "pruned")
+    status = (get_policy(MEMORY_RETENTION_SCENARIO) or {}).get("status", "not_proposed")
+    if get_active_policy(MEMORY_RETENTION_SCENARIO):
+        status = "active"
+    return {
+        "scenario": MEMORY_RETENTION_SCENARIO,
+        "scenario_id": "SCEN-004",
+        "title": "Memory retention (prune stale memories)",
+        "dimension": "memory · cost + quality",
+        "maturity": "L4/L5 (lower-risk autonomous policy)",
+        "apply_mode": "policy",
+        "status": status,
+        "evidence": {
+            "total_memories": total,
+            "superseded_memories": n_sup,
+            "superseded_pct": round(100 * n_sup / max(total, 1), 1),
+            "pruned_memories": n_pruned,
+        },
+        "rationale": (
+            "Preferences change, so memory accumulates superseded entries. A large stale share "
+            "means recall wades through (and pays for) memories that no longer apply."
+        ),
+        "estimate_caveat": (
+            "Applying soft-prunes superseded memories (a reversible mark). Recall excludes pruned "
+            "memories where the memory client surfaces the flag; the mark is always reversible."
+        ),
+        "proposed_params": PROPOSED_MEMORY_RETENTION_PARAMS,
+        "actions": {
+            "apply": f"POST /optimizations/{MEMORY_RETENTION_SCENARIO}/apply",
+            "revert": f"POST /optimizations/{MEMORY_RETENTION_SCENARIO}/revert",
+        },
+    }
+
+
+def apply_memory_retention() -> int:
+    """Soft-prune superseded memories (patch retention_status='pruned'). Reversible.
+    Uses a partial PATCH so the embedding vector is not rewritten."""
+    container = _memories_container()
+    if container is None:
+        return 0
+    pruned = 0
+    for r in _superseded_memory_rows():
+        if r.get("retention_status") == "pruned":
+            continue
+        try:
+            container.patch_item(
+                item=r["id"],
+                partition_key=[r.get("user_id"), r.get("thread_id")],
+                patch_operations=[{"op": "add", "path": "/retention_status", "value": "pruned"}],
+            )
+            pruned += 1
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"Could not prune memory {r.get('id')}: {exc}")
+    logger.info(f"Memory retention applied: pruned {pruned} superseded memories")
+    return pruned
+
+
+def revert_memory_retention() -> int:
+    """Un-prune previously pruned memories. Returns count restored."""
+    container = _memories_container()
+    if container is None:
+        return 0
+    try:
+        rows = list(container.query_items(
+            query="SELECT c.id, c.user_id, c.thread_id FROM c WHERE c.retention_status = 'pruned'",
+            enable_cross_partition_query=True,
+        ))
+    except Exception:  # noqa: BLE001
+        return 0
+    restored = 0
+    for r in rows:
+        try:
+            container.patch_item(
+                item=r["id"],
+                partition_key=[r.get("user_id"), r.get("thread_id")],
+                patch_operations=[{"op": "remove", "path": "/retention_status"}],
+            )
+            restored += 1
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"Could not un-prune memory {r.get('id')}: {exc}")
+    logger.info(f"Memory retention reverted: restored {restored} memories")
+    return restored
 
 
 # ---------------------------------------------------------------------------

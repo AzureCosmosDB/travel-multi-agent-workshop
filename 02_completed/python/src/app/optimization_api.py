@@ -30,9 +30,13 @@ from src.app.services.optimization_recommendations import (
     get_proposed_model_selection_params,
     get_city_context_staged_change,
     get_tool_dedup_staged_change,
+    apply_memory_retention,
+    revert_memory_retention,
+    PROPOSED_MEMORY_RETENTION_PARAMS,
     MODEL_SELECTION_SCENARIO,
     CITY_CONTEXT_SCENARIO,
     TOOL_DEDUP_SCENARIO,
+    MEMORY_RETENTION_SCENARIO,
 )
 
 logger = logging.getLogger(__name__)
@@ -43,12 +47,17 @@ router = APIRouter(prefix="/optimizations", tags=["optimizations"])
 # without a body. Model selection reads the config-driven defaults at call time.
 _SCENARIO_DEFAULT_PROVIDERS: dict[str, Any] = {
     MODEL_SELECTION_SCENARIO: get_proposed_model_selection_params,
+    MEMORY_RETENTION_SCENARIO: lambda: dict(PROPOSED_MEMORY_RETENTION_PARAMS),
 }
 
 _SCENARIO_META: dict[str, dict[str, str]] = {
     MODEL_SELECTION_SCENARIO: {
         "scenario_id": "SCEN-007",
         "title": "Capability-tiered model selection",
+    },
+    MEMORY_RETENTION_SCENARIO: {
+        "scenario_id": "SCEN-004",
+        "title": "Memory retention (prune stale memories)",
     },
     CITY_CONTEXT_SCENARIO: {
         "scenario_id": "SCEN-001",
@@ -166,6 +175,9 @@ def apply(scenario: str, body: Optional[ActionBody] = None) -> dict[str, Any]:
     saved = optimization_policy.apply_policy(scenario, by=body.by)
     if saved is None:
         raise HTTPException(status_code=404, detail=f"No policy to apply for '{scenario}'")
+    # SCEN-004 applies a side effect: soft-prune superseded memories (reversible).
+    if scenario == MEMORY_RETENTION_SCENARIO:
+        saved["pruned_memories"] = apply_memory_retention()
     return saved
 
 
@@ -175,6 +187,8 @@ def revert(scenario: str, body: Optional[ActionBody] = None) -> dict[str, Any]:
     saved = optimization_policy.revert_policy(scenario, by=body.by)
     if saved is None:
         raise HTTPException(status_code=404, detail=f"No policy to revert for '{scenario}'")
+    if scenario == MEMORY_RETENTION_SCENARIO:
+        saved["restored_memories"] = revert_memory_retention()
     return saved
 
 

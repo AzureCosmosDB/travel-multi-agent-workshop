@@ -35,11 +35,16 @@ router = APIRouter(prefix="/optimizations", tags=["optimizations"])
 
 _SCENARIO_DEFAULT_PROVIDERS: dict[str, Any] = {
     optimization.MODEL_SELECTION_SCENARIO: optimization.get_proposed_model_selection_params,
+    optimization.MEMORY_RETENTION_SCENARIO: lambda: dict(optimization.PROPOSED_MEMORY_RETENTION_PARAMS),
 }
 _SCENARIO_META: dict[str, dict[str, str]] = {
     optimization.MODEL_SELECTION_SCENARIO: {
         "scenario_id": "SCEN-007",
         "title": "Capability-tiered model selection",
+    },
+    optimization.MEMORY_RETENTION_SCENARIO: {
+        "scenario_id": "SCEN-004",
+        "title": "Memory retention (prune stale memories)",
     },
 }
 
@@ -143,6 +148,9 @@ def apply(scenario: str, body: Optional[ActionBody] = None) -> dict[str, Any]:
     saved = optimization.apply_policy(scenario, by=body.by)
     if saved is None:
         raise HTTPException(status_code=404, detail=f"No policy to apply for '{scenario}'")
+    # SCEN-004 applies a side effect: soft-prune superseded memories (reversible).
+    if scenario == optimization.MEMORY_RETENTION_SCENARIO:
+        saved["pruned_memories"] = optimization.apply_memory_retention()
     return saved
 
 
@@ -165,4 +173,6 @@ def revert(scenario: str, body: Optional[ActionBody] = None) -> dict[str, Any]:
     saved = optimization.revert_policy(scenario, by=body.by)
     if saved is None:
         raise HTTPException(status_code=404, detail=f"No policy to revert for '{scenario}'")
+    if scenario == optimization.MEMORY_RETENTION_SCENARIO:
+        saved["restored_memories"] = optimization.revert_memory_retention()
     return saved

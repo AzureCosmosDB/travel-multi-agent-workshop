@@ -294,7 +294,12 @@ async def recall_memories(
             top_k=top_k,
             hybrid_search=True,
         ))
-    return [_memory_to_dict(hit) for hit in hits]
+    # Exclude memories soft-pruned by the SCEN-004 retention policy (best-effort:
+    # applies where the memory client surfaces the retention_status field).
+    return [
+        d for hit in hits
+        if (d := _memory_to_dict(hit)).get("retention_status") != "pruned"
+    ]
 
 
 @mcp.tool()
