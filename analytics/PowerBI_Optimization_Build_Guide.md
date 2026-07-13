@@ -11,7 +11,7 @@ Use **DirectQuery over the mirrored database SQL endpoint**. Build the report fr
 ## Prerequisites
 
 - **Power BI Desktop** installed (latest version).
-- A **Fabric mirrored database** of your Cosmos analytics is running and replicating (see `analytics/fabric/README.md`). It mirrors at least `OptimizationTurns`, `Trips`, and `Configuration`.
+- A **Fabric mirrored database** of your Cosmos analytics is running and replicating (see `analytics/fabric/README.md`). It mirrors at least `OptimizationTurns`, `Trips`, `Configuration`, and `OptimizationInsights`.
 - Your mirror's **SQL analytics endpoint** and **database name**.
 
 To find the SQL analytics endpoint:
@@ -41,6 +41,7 @@ To find the SQL analytics endpoint:
 | `Trips` | confirmed outcomes, cost per outcome |
 | `OptimizationPolicies` | applied-optimizations audit (Page 4) |
 | `Configuration` | model pricing (`type = "model_pricing"`) used by `Est Cost USD` |
+| `OptimizationInsights` | reverse-ETL output (funnel, causes, KPIs) — powers the **Business Impact** page |
 
 8. Click **Load** (not Transform Data).
 
@@ -184,6 +185,32 @@ Use the **`OptimizationPolicies`** table (schema-prefixed: `'TravelAssistant Opt
 
 ---
 
+## Page 5: Business Impact — the conversion funnel (reverse-ETL)
+
+Answers: **Are we converting sessions into booked trips — and if not, why?**
+
+This page reads **pre-computed** rows from `'TravelAssistant OptimizationInsights'` — the output of the **reverse-ETL notebook** (Module 09). The heavy session-level analysis runs in Fabric; the report just displays flat rows, so there is **no session math in DAX**. The page is **empty until the notebook runs**, then it *lights up* — that's the Cosmos → Fabric → reverse-ETL loop made visible.
+
+> `OptimizationInsights` holds several row `type`s; **every visual on this page needs a visual-level filter on `type`.**
+
+Measures (add to `'TravelAssistant OptimizationInsights'`):
+
+```DAX
+Funnel Sessions   = CALCULATE(SUM('TravelAssistant OptimizationInsights'[sessions]), 'TravelAssistant OptimizationInsights'[type] = "funnel_stage")
+Cause Sessions     = CALCULATE(SUM('TravelAssistant OptimizationInsights'[sessions]), 'TravelAssistant OptimizationInsights'[type] = "abandonment_cause")
+Conversion Rate %  = CALCULATE(MAX('TravelAssistant OptimizationInsights'[conversion_rate]), 'TravelAssistant OptimizationInsights'[type] = "conversion_kpi")
+Biggest Leak       = CALCULATE(MAX('TravelAssistant OptimizationInsights'[biggest_leak]), 'TravelAssistant OptimizationInsights'[type] = "conversion_kpi")
+```
+
+Visuals:
+- **Funnel visual — the conversion funnel:** use the **Funnel** visual. Category `'…OptimizationInsights'[stage]`, Values `[Funnel Sessions]`. **Sort by** `stage_order` (Visual → … → Sort axis → `stage_order`, ascending) so it reads engaged → searched → planned → confirmed. Visual-level filter `type = "funnel_stage"`.
+- **KPI cards:** `[Conversion Rate %]` and `[Biggest Leak]` (a Card showing *why* the biggest group of sessions leaked — e.g. `city_friction`).
+- **Bar — why sessions don't convert:** Axis `'…OptimizationInsights'[cause]`, Values `[Cause Sessions]`, visual-level filter `type = "abandonment_cause"`. Sort descending.
+
+> **Talking point:** the earlier pages cut *cost*; this page shows *conversion* — the business metric. And it doesn't leave you guessing: it names the biggest addressable leak (e.g. the agent re-asking the city) and points at the fix (SCEN-001). That's the reverse-ETL payoff — Fabric-computed intelligence, landed back where the app can act on it.
+
+---
+
 ## Step 5: Save and Export
 
 ### Save as .pbix
@@ -214,3 +241,5 @@ The `.pbit`:
 **`OptimizationPolicies`** — `scenario_id`, `title`, `status` (proposed/active/staged/reverted), `apply_mode`, `params`, `proposed_change`, `version`, `proposed_by`, `created_at`, `updated_at`, `created_epoch`, `updated_epoch` *(bigint epoch seconds — use `updated_epoch` for `PolicyUpdated`)*.
 
 **`Configuration`** — a small multi-entity config store keyed by `type`. Pricing rows have `type = "model_pricing"`, `model`, `input_price`, `output_price` (USD per 1M tokens); the `type = "model_selection_defaults"` doc carries the proposed tier/classifier policy. Filter `type = "model_pricing"` when joining for cost.
+
+**`OptimizationInsights`** — reverse-ETL output from the Fabric notebook, keyed by `type`: `funnel_stage` (`stage`, `stage_order`, `sessions`), `abandonment_cause` (`cause`, `sessions`), `conversion_kpi` (`engaged`, `confirmed`, `conversion_rate`, `biggest_leak`). Powers the Business Impact page; every visual filters on `type`.
