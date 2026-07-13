@@ -28,7 +28,9 @@ from src.app.services import fabric_capacity
 from src.app.services.optimization_recommendations import (
     build_recommendations,
     get_proposed_model_selection_params,
+    get_city_context_staged_change,
     MODEL_SELECTION_SCENARIO,
+    CITY_CONTEXT_SCENARIO,
 )
 
 logger = logging.getLogger(__name__)
@@ -46,6 +48,16 @@ _SCENARIO_META: dict[str, dict[str, str]] = {
         "scenario_id": "SCEN-007",
         "title": "Capability-tiered model selection",
     },
+    CITY_CONTEXT_SCENARIO: {
+        "scenario_id": "SCEN-001",
+        "title": "Active-trip city context",
+    },
+}
+
+# Scenarios whose "apply" is a STAGED human-governed change (prompt/code), not a
+# runtime toggle -> scenario -> provider of the proposed change (file + text).
+_STAGED_CHANGE_PROVIDERS: dict[str, Any] = {
+    CITY_CONTEXT_SCENARIO: get_city_context_staged_change,
 }
 
 
@@ -134,6 +146,13 @@ def propose(scenario: str, body: Optional[ProposeBody] = None) -> dict[str, Any]
 @router.post("/{scenario}/apply")
 def apply(scenario: str, body: Optional[ActionBody] = None) -> dict[str, Any]:
     body = body or ActionBody()
+    # Human-governed (prompt/code) scenarios cannot be runtime-applied — they must be staged.
+    if scenario in _STAGED_CHANGE_PROVIDERS:
+        raise HTTPException(
+            status_code=400,
+            detail="This is a human-governed prompt change; use POST /optimizations/"
+                   f"{scenario}/stage to produce a reviewable proposal (it is not applied at runtime).",
+        )
     # Auto-seed a proposal if none exists yet, so apply is genuinely one-click.
     if optimization_policy.get_policy(scenario) is None:
         propose(scenario, ProposeBody(by=body.by))
@@ -149,4 +168,30 @@ def revert(scenario: str, body: Optional[ActionBody] = None) -> dict[str, Any]:
     saved = optimization_policy.revert_policy(scenario, by=body.by)
     if saved is None:
         raise HTTPException(status_code=404, detail=f"No policy to revert for '{scenario}'")
+    return saved
+
+
+@router.post("/{scenario}/stage")
+def stage(scenario: str, body: Optional[ActionBody] = None) -> dict[str, Any]:
+    """'Apply' for a human-governed change: record a STAGED proposal (never active).
+
+    Staging a prompt/code optimization produces a reviewable diff for a human to
+    merge via PR — it deliberately does NOT change runtime behavior (maturity L3).
+    """
+    body = body or ActionBody()
+    provider = _STAGED_CHANGE_PROVIDERS.get(scenario)
+    if provider is None:
+        raise HTTPException(status_code=400, detail=f"Scenario '{scenario}' is not a staged change.")
+    meta = _SCENARIO_META.get(scenario, {})
+    doc = {
+        "scenario": scenario,
+        "scenario_id": meta.get("scenario_id"),
+        "title": meta.get("title", scenario),
+        "apply_mode": "staged_change",
+        "proposed_change": provider(),
+        "proposed_by": body.by,
+    }
+    saved = optimization_policy.stage_policy(doc)
+    if saved is None:
+        raise HTTPException(status_code=503, detail="Policy store unavailable")
     return saved

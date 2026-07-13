@@ -16,6 +16,7 @@ naive projection cannot know in advance.
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 from src.app.services import azure_cosmos_db as cosmos
@@ -173,4 +174,104 @@ def build_model_selection_recommendation(tenant_id: str) -> dict[str, Any]:
 
 def build_recommendations(tenant_id: str) -> list[dict[str, Any]]:
     """Return all candidate optimization cards for a tenant."""
-    return [build_model_selection_recommendation(tenant_id)]
+    return [
+        build_model_selection_recommendation(tenant_id),
+        build_city_context_recommendation(tenant_id),
+    ]
+
+
+# ---------------------------------------------------------------------------
+# SCEN-001 — active-trip city context: a HUMAN-GOVERNED (L3) prompt optimization.
+# Unlike model selection, its "apply" does NOT toggle runtime — it STAGES a
+# proposed prompt change for human review (a prompt change is higher-risk, so it
+# caps at maturity L3 and goes through a PR).
+# ---------------------------------------------------------------------------
+
+CITY_CONTEXT_SCENARIO = "active-trip-city-context"
+
+_CITY_ASK_RE = re.compile(
+    r"which city|what city|city (is|are) (it|this|that|you|the hotel)"
+    r"|in which city|which city .* located|what city .* in",
+    re.I,
+)
+
+# The prompt change this scenario recommends (added to supervisor.prompty).
+PROPOSED_CITY_CONTEXT_CHANGE = (
+    "When the user refers to a hotel/place by name and an active trip exists, use the "
+    "active trip's destination city as the search city instead of asking the user which "
+    "city it is in. Only ask for a city when no active trip or destination is known."
+)
+
+
+def get_city_context_staged_change() -> dict[str, Any]:
+    """The proposed prompt change (file + text) staged for human review."""
+    return {
+        "file": "python/src/app/prompts/supervisor.prompty",
+        "add": PROPOSED_CITY_CONTEXT_CHANGE,
+    }
+
+
+def _query_assistant_texts(tenant_id: str) -> list[str]:
+    if cosmos.database is None:
+        cosmos.initialize_cosmos_client()
+    if cosmos.database is None:
+        return []
+    try:
+        rows = cosmos.database.get_container_client("Messages").query_items(
+            query="SELECT d.role, d.content FROM d WHERE d.tenantId=@t",
+            parameters=[{"name": "@t", "value": tenant_id}],
+            enable_cross_partition_query=True,
+        )
+        return [r.get("content", "") for r in rows
+                if str(r.get("role", "")).lower() == "assistant" and isinstance(r.get("content"), str)]
+    except Exception:  # noqa: BLE001
+        return []
+
+
+def _trip_count(tenant_id: str) -> int:
+    if cosmos.database is None:
+        cosmos.initialize_cosmos_client()
+    if cosmos.database is None:
+        return 0
+    try:
+        rows = list(cosmos.database.get_container_client("Trips").query_items(
+            query="SELECT VALUE COUNT(1) FROM d WHERE d.tenantId=@t",
+            parameters=[{"name": "@t", "value": tenant_id}],
+            enable_cross_partition_query=True,
+        ))
+        return int(rows[0]) if rows else 0
+    except Exception:  # noqa: BLE001
+        return 0
+
+
+def build_city_context_recommendation(tenant_id: str) -> dict[str, Any]:
+    """Detect the 'agent re-asks for a city it already knows' pattern (SCEN-001)."""
+    reasks = sum(1 for t in _query_assistant_texts(tenant_id) if _CITY_ASK_RE.search(t))
+    trips = _trip_count(tenant_id)
+
+    doc = optimization_policy.get_policy(CITY_CONTEXT_SCENARIO) or {}
+    status = doc.get("status", "not_proposed")
+
+    return {
+        "scenario": CITY_CONTEXT_SCENARIO,
+        "scenario_id": "SCEN-001",
+        "title": "Active-trip city context",
+        "dimension": "agent quality · prompt",
+        "maturity": "L3 (human-governed)",
+        "apply_mode": "staged_change",  # NOT a runtime toggle
+        "risk": "higher-risk (prompt change → human review / PR)",
+        "status": status,
+        "evidence": {
+            "city_reasks": reasks,
+            "trips": trips,
+        },
+        "rationale": (
+            "The supervisor re-asks which city a hotel is in even when an active trip already "
+            "fixes the destination — a prompt gap, not a policy knob."
+        ),
+        "proposed_change": get_city_context_staged_change(),
+        "note": (
+            "Because this is a prompt change (higher-risk), it cannot be applied at runtime. "
+            "Staging it produces a reviewable proposal for a human to merge via PR (maturity L3)."
+        ),
+    }

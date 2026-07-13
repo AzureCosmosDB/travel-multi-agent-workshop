@@ -174,3 +174,17 @@ def apply_policy(scenario: str, by: str = "dashboard") -> Optional[dict[str, Any
 def revert_policy(scenario: str, by: str = "dashboard") -> Optional[dict[str, Any]]:
     """Roll a scenario's policy back to inactive (one-click revert)."""
     return _transition(scenario, "reverted", by)
+
+
+def stage_policy(doc: dict[str, Any]) -> Optional[dict[str, Any]]:
+    """Register a HUMAN-GOVERNED change as ``staged`` (never ``active`` → no runtime
+    effect). This is the "apply" for a higher-risk prompt/code change: it records a
+    reviewable proposal for a human to merge via PR (maturity L3), not a toggle."""
+    doc = dict(doc)
+    doc["status"] = "staged"
+    doc.setdefault("version", 1)
+    doc.setdefault("audit", [])
+    doc["audit"] = list(doc["audit"]) + [
+        {"ts": _now_iso(), "action": "staged", "by": doc.get("proposed_by", "dashboard")}
+    ]
+    return upsert_policy(doc)
