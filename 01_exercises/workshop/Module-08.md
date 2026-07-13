@@ -231,6 +231,11 @@ This is the **risk model in practice**:
 
 The same analytics loop surfaces both — but the **apply** step respects each one's risk. Never wire a prompt/workflow/code change to auto-apply the way you did the policy.
 
+> **These two aren't the only cards.** The Console surfaces the whole set, and each falls into one of three action-types:
+> - **Apply-able policies** (like model selection): also **memory retention** (SCEN-004) — applying it soft-prunes stale/superseded memories (reversible), the same one-click pattern on a different dimension.
+> - **Staged changes** (like city-context): also **redundant tool calls** (SCEN-008) — a prompt fix to stop re-calling the same tool.
+> - **Diagnostic lenses** (SCEN-003 cost-per-outcome, SCEN-005 agent-path): no apply button. They show *where* the waste is; you act via the policies/staged fixes above. Be honest about this in a demo — a dashboard can flag "these sessions never convert," but converting them is a product problem, not a toggle.
+
 ---
 
 ## Activity 6 (Stretch): Tier the Itinerary Sub-Agent

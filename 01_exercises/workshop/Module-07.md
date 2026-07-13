@@ -247,6 +247,14 @@ Look also for other dimensions in the same data:
 - **Tool utilization** — how often does a place question get answered from model knowledge instead of a `find_places` search?
 - **Cost concentration** — do a few expensive turns (itinerary generation) dominate total spend?
 
+### The Console surfaces more than model selection
+
+`GET /optimizations/<tenant>` (and the Console) returns a **set** of cards — and they're deliberately different *kinds* of action, which is the real lesson: an "optimization" isn't one thing.
+
+- **Apply-able policies** (autonomous, L4/L5): capability-tiered **model selection** (SCEN-007) and **memory retention** (SCEN-004 — prune stale/superseded memories). One-click, reversible toggles.
+- **Staged prompt/code changes** (human-governed, L3): **active-trip city context** (SCEN-001) and **redundant tool calls** (SCEN-008). Recorded as a reviewable proposal — never auto-applied.
+- **Diagnostic lenses** (no toggle): **cost per outcome** (SCEN-003 — wasted spend on sessions that never convert) and **agent-path cost concentration** (SCEN-005). These *tell you where to look*; you act on them via the policies and staged fixes above — a dashboard can't auto-fix a conversion problem.
+
 You're not fixing anything yet — you're building the *insight* that Module 08 will act on.
 
 ---
