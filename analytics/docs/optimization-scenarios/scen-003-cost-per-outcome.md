@@ -52,6 +52,28 @@ that is Pillar 3 (Cost Intelligence) × Pillar 6 (Workflow Intelligence).
 > Trend this monthly; attribute by workflow and agent; set a target. Each applied optimization
 > (SCEN-001/004/005/007/008) is measured by its movement of this KPI.
 
+## The conversion funnel (implemented diagnostic — the "extra mile")
+
+The SCEN-003 card is now more than a cost KPI: it builds a **session-level conversion funnel** and
+names *why* sessions leak, so the analytics reach **business impact**, not just cost.
+
+- **Funnel stages** (from each session's `Debug.agent_path`): Engaged → Searched → Planned → Confirmed.
+- **Abandonment causes** (from telemetry): `city_friction` (agent re-asks the city — the SCEN-001 gap),
+  `no_results` (place search dead-ends), `cart_abandon` (got a plan, never booked), `no_engagement`
+  (never searched). Each maps to a concrete lever; the card's note names the **biggest addressable
+  leak** and the fix.
+- **Conversion** is session-level when a `Trip` carries a `sessionId` (the `funnel_demo` dataset from
+  `analytics/funnel_seed.py`), else falls back to user-level; `confirmed` requires a `planned` session
+  so the funnel is monotonic.
+
+> **Honesty caveat:** the *why* is only as good as the data. On the synthetic golden seed, converting
+> and non-converting sessions look alike (no encoded cause), which is why `funnel_seed.py` generates a
+> dataset that models realistic abandonment. A dashboard can name a likely cause; it can't manufacture
+> one that isn't in the data, and it can't auto-fix conversion (a product problem).
+
+Verified live on `funnel_demo`: 120 engaged → 106 searched → 71 planned → 56 confirmed; biggest leak
+`city_friction` (29 sessions) → the active-trip-city-context prompt fix (SCEN-001).
+
 ## How it improves (composite)
 
 There is no single "apply" button for SCEN-003. It improves when the **contributing** scenarios are

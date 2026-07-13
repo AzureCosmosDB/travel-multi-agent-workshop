@@ -33,14 +33,21 @@ You don't need a temporal before/after. You have two better devices:
    (the *identical* 240-turn workload, tiered to nano/mini/gpt-5.1). Only the model routing
    differs, so the cost delta is the pure saving. Deterministic (seed 42) and re-runnable.
 
-2. **Report:** open the `.pbit`, point it at your mirror, and (Power BI guide Step 5) add a
+2. **Build the conversion-funnel dataset** (the business-impact story):
+   ```powershell
+   python analytics/funnel_seed.py
+   ```
+   Writes `funnel_demo` — ~120 sessions that encode real **abandonment causes**, so the
+   SCEN-003 diagnostic can show *why* sessions don't convert (not just how much they cost).
+
+3. **Report:** open the `.pbit`, point it at your mirror, and (Power BI guide Step 5) add a
    **tenant slicer** and a report-level filter defaulting to `analytics_demo`.
 
-3. **Confirm the app + policy:** make sure the app is reachable and the **model-selection
+4. **Confirm the app + policy:** make sure the app is reachable and the **model-selection
    policy is NOT yet applied** (you'll apply it on stage). Have the API endpoint handy — the
    web app URL + `/api` (find it via `azd env get-value FRONTEND_URI`, then append `/api`).
 
-4. **Dry-run the live turns once** (so you trust them on stage) — see "Live turns" below.
+5. **Dry-run the live turns once** (so you trust them on stage) — see "Live turns" below.
 
 ---
 
@@ -79,7 +86,18 @@ filtered to `demo_live`.
 > "And here it is happening for real: watch these new turns land — the greeting routed to nano,
 > the itinerary to the premium model."
 
-**6. Close — verify & govern.**
+**6. The business-impact turn — from cost to conversion (the part that lands).**
+*Do:* switch the tenant slicer / Console to `funnel_demo` and open the **Cost per outcome & conversion funnel** (SCEN-003) card.
+> "Everything so far cut *cost*. But the real question a business asks is: are we *converting*?
+> This funnel shows it — 120 sessions engaged, 106 searched, 71 got a plan, only 56 booked. And
+> it doesn't leave you hanging on 'why': the biggest addressable leak is **city friction** — 29
+> sessions where the agent kept re-asking which city instead of using the active trip. That's not
+> a model-cost problem; it's a *conversion* problem, and it points straight at the same
+> active-trip-city-context prompt fix — now justified by revenue, not just tokens."
+
+This is the uplevel: mechanical cost optimizations are table stakes; the analytics also surface **where the business is losing customers and why**. A dashboard can't auto-fix conversion — but it can name the cause and hand you the lever.
+
+**7. Close — verify & govern.**
 > "The measured before/after is the truth, not the projection — reasoning models bill hidden
 > tokens, so we always confirm with real numbers. And every change here is audited and
 > reversible."

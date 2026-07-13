@@ -253,7 +253,7 @@ Look also for other dimensions in the same data:
 
 - **Apply-able policies** (autonomous, L4/L5): capability-tiered **model selection** (SCEN-007) and **memory retention** (SCEN-004 — prune stale/superseded memories). One-click, reversible toggles.
 - **Staged prompt/code changes** (human-governed, L3): **active-trip city context** (SCEN-001) and **redundant tool calls** (SCEN-008). Recorded as a reviewable proposal — never auto-applied.
-- **Diagnostic lenses** (no toggle): **cost per outcome** (SCEN-003 — wasted spend on sessions that never convert) and **agent-path cost concentration** (SCEN-005). These *tell you where to look*; you act on them via the policies and staged fixes above — a dashboard can't auto-fix a conversion problem.
+- **Diagnostic lenses** (no toggle): **cost per outcome & conversion funnel** (SCEN-003) and **agent-path cost concentration** (SCEN-005). SCEN-003 is the *business-impact* view — it doesn't just say "36% of tokens went to sessions that never booked," it builds a funnel (engaged → searched → planned → confirmed), shows **where** sessions leak and **why** (e.g. the agent kept re-asking the city), and names the fix (SCEN-001). These *tell you where to look*; you act via the policies and staged fixes above — a dashboard can't auto-fix a conversion problem, but it can point straight at the cause.
 
 You're not fixing anything yet — you're building the *insight* that Module 08 will act on.
 
