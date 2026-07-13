@@ -132,7 +132,7 @@ def propose(scenario: str, body: Optional[ProposeBody] = None) -> dict[str, Any]
 def apply(scenario: str, body: Optional[ActionBody] = None) -> dict[str, Any]:
     body = body or ActionBody()
     # Human-governed (prompt/code) scenarios cannot be runtime-applied — they must be staged.
-    if scenario == optimization.CITY_CONTEXT_SCENARIO:
+    if scenario in (optimization.CITY_CONTEXT_SCENARIO, optimization.TOOL_DEDUP_SCENARIO):
         raise HTTPException(
             status_code=400,
             detail="This is a human-governed prompt change; use POST /optimizations/"

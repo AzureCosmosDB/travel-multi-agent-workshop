@@ -529,6 +529,9 @@ def build_recommendations(tenant_id: str) -> list[dict[str, Any]]:
     return [
         build_model_selection_recommendation(tenant_id),
         build_city_context_recommendation(tenant_id),
+        build_redundant_tool_recommendation(tenant_id),
+        build_cost_per_outcome_diagnostic(tenant_id),
+        build_agent_path_diagnostic(tenant_id),
     ]
 
 
@@ -628,24 +631,194 @@ def stage_prompt_change(scenario: str, by: str = "dashboard") -> Optional[dict[s
     Returns the staged proposal (the diff/text) for a human to review and merge.
     This deliberately does NOT change runtime behavior.
     """
-    if scenario != CITY_CONTEXT_SCENARIO:
+    if scenario == CITY_CONTEXT_SCENARIO:
+        scenario_id, title, change = "SCEN-001", "Active-trip city context", {
+            "file": "python/src/app/prompts/supervisor.prompty",
+            "add": PROPOSED_CITY_CONTEXT_CHANGE,
+        }
+    elif scenario == TOOL_DEDUP_SCENARIO:
+        scenario_id, title, change = "SCEN-008", "Redundant tool calls", {
+            "file": "python/src/app/prompts/supervisor.prompty",
+            "add": PROPOSED_TOOL_DEDUP_CHANGE,
+        }
+    else:
         return None
     doc = {
         "scenario": scenario,
-        "scenario_id": "SCEN-001",
-        "title": "Active-trip city context",
+        "scenario_id": scenario_id,
+        "title": title,
         "status": "staged",              # never 'active' -> no runtime effect
         "apply_mode": "staged_change",
-        "proposed_change": {
-            "file": "python/src/app/prompts/supervisor.prompty",
-            "add": PROPOSED_CITY_CONTEXT_CHANGE,
-        },
+        "proposed_change": change,
         "audit": list((get_policy(scenario) or {}).get("audit", [])) + [
             {"ts": _now_iso(), "action": "staged", "by": by}
         ],
     }
     saved = upsert_policy(doc)
     return saved
+
+
+# ---------------------------------------------------------------------------
+# SCEN-008 (staged) + SCEN-003 / SCEN-005 (diagnostic) — mined from Debug
+# telemetry, which now carries agent_path / handoff_count (see
+# store_debug_log_from_response).
+# ---------------------------------------------------------------------------
+
+TOOL_DEDUP_SCENARIO = "tool-call-dedup"
+
+PROPOSED_TOOL_DEDUP_CHANGE = (
+    "When a place/tool lookup for a query already returned results this turn, reuse them "
+    "instead of calling the same tool again. Only re-query on a materially different search."
+)
+
+
+def _bag(doc: dict) -> dict:
+    p = doc.get("propertyBag")
+    return {i["key"]: i["value"] for i in p} if isinstance(p, list) else (p or {})
+
+
+def _query_debug(tenant_id: str) -> list[dict]:
+    db = _database()
+    if db is None:
+        return []
+    try:
+        return list(db.get_container_client("Debug").query_items(
+            query="SELECT * FROM d WHERE d.tenantId=@t",
+            parameters=[{"name": "@t", "value": tenant_id}],
+            enable_cross_partition_query=True,
+        ))
+    except Exception:  # noqa: BLE001
+        return []
+
+
+def _redundant_tool_turns(debug: list[dict]) -> int:
+    n = 0
+    for d in debug:
+        parts = [p.strip() for p in str(_bag(d).get("agent_path") or "").split(",") if p.strip()]
+        if any(parts[i] == parts[i + 1] and parts[i] != "supervisor" for i in range(len(parts) - 1)):
+            n += 1
+    return n
+
+
+def build_redundant_tool_recommendation(tenant_id: str) -> dict[str, Any]:
+    """Detect redundant back-to-back tool/agent calls (SCEN-008) — a staged prompt fix."""
+    debug = _query_debug(tenant_id)
+    redundant = _redundant_tool_turns(debug)
+    status = (get_policy(TOOL_DEDUP_SCENARIO) or {}).get("status", "not_proposed")
+    return {
+        "scenario": TOOL_DEDUP_SCENARIO,
+        "scenario_id": "SCEN-008",
+        "title": "Redundant tool calls",
+        "dimension": "agent quality · tool use",
+        "maturity": "L3 (human-governed)",
+        "apply_mode": "staged_change",
+        "risk": "higher-risk (prompt/code change → human review / PR)",
+        "status": status,
+        "evidence": {"redundant_tool_turns": redundant, "total_turns": len(debug)},
+        "rationale": (
+            "Some turns invoke the same place-search tool/agent twice in a row — redundant "
+            "token spend with no added grounding."
+        ),
+        "proposed_change": {
+            "file": "python/src/app/prompts/supervisor.prompty",
+            "add": PROPOSED_TOOL_DEDUP_CHANGE,
+        },
+        "note": (
+            "Prompt/code change (higher-risk) — stage for human review (maturity L3), "
+            "not applied at runtime."
+        ),
+    }
+
+
+def _converting_users(tenant_id: str) -> set:
+    db = _database()
+    if db is None:
+        return set()
+    try:
+        rows = db.get_container_client("Trips").query_items(
+            query="SELECT d.userId, d.status FROM d WHERE d.tenantId=@t",
+            parameters=[{"name": "@t", "value": tenant_id}],
+            enable_cross_partition_query=True,
+        )
+        return {r.get("userId") for r in rows
+                if str(r.get("status", "")).lower() in ("confirmed", "completed")}
+    except Exception:  # noqa: BLE001
+        return set()
+
+
+def build_cost_per_outcome_diagnostic(tenant_id: str) -> dict[str, Any]:
+    """Wasted spend: tokens burned in sessions whose user never converted (SCEN-003)."""
+    debug = _query_debug(tenant_id)
+    total_tokens = 0
+    by_user: dict[Any, int] = {}
+    for d in debug:
+        tok = int(_bag(d).get("total_tokens") or 0)
+        total_tokens += tok
+        by_user[d.get("userId")] = by_user.get(d.get("userId"), 0) + tok
+    converters = _converting_users(tenant_id)
+    wasted = sum(t for u, t in by_user.items() if u not in converters)
+    trips = _trip_count(tenant_id)
+    return {
+        "scenario": "cost-per-outcome",
+        "scenario_id": "SCEN-003",
+        "title": "Cost per outcome (wasted spend)",
+        "dimension": "cost efficiency · outcome",
+        "maturity": "diagnostic (informs the budget guardrail + conversion fixes)",
+        "apply_mode": "diagnostic",
+        "status": "insight",
+        "evidence": {
+            "total_tokens": total_tokens,
+            "wasted_tokens": wasted,
+            "wasted_pct": round(100 * wasted / max(total_tokens, 1), 1),
+            "confirmed_trips": trips,
+            "tokens_per_outcome": round(total_tokens / max(trips, 1)),
+        },
+        "rationale": (
+            "A large share of tokens is spent in sessions whose user never confirmed a trip — "
+            "an 'abandoned cart' cost signal. 'Cheaper per turn' is not the goal; 'cheaper per "
+            "confirmed outcome' is."
+        ),
+        "note": (
+            "This is a lens, not a toggle. Act on it two ways: spend less on doomed sessions "
+            "(the budget-guardrail policy) and reduce friction that stalls conversion (the "
+            "active-trip-city-context prompt fix)."
+        ),
+    }
+
+
+def build_agent_path_diagnostic(tenant_id: str) -> dict[str, Any]:
+    """Where the tokens go: cost concentrated in a few agent_paths (SCEN-005)."""
+    debug = _query_debug(tenant_id)
+    agg: dict[str, list[int]] = {}
+    for d in debug:
+        path = str(_bag(d).get("agent_path") or "unknown")
+        tok = int(_bag(d).get("total_tokens") or 0)
+        a = agg.setdefault(path, [0, 0])
+        a[0] += 1
+        a[1] += tok
+    rows = sorted(
+        ({"agent_path": p, "turns": c, "total_tokens": t, "avg_tokens": round(t / max(c, 1))}
+         for p, (c, t) in agg.items()),
+        key=lambda r: -r["avg_tokens"],
+    )
+    return {
+        "scenario": "agent-path-cost",
+        "scenario_id": "SCEN-005",
+        "title": "Agent-path cost concentration",
+        "dimension": "cost efficiency · routing",
+        "maturity": "diagnostic (informs tiering + tool fixes)",
+        "apply_mode": "diagnostic",
+        "status": "insight",
+        "evidence": {"paths": rows[:6]},
+        "rationale": (
+            "A few agent paths (typically the itinerary path) dominate token cost — often "
+            "many times a plain supervisor turn. That's where tiering and tool fixes pay off."
+        ),
+        "note": (
+            "A lens: act via model tiering (SCEN-007) on the expensive paths and by removing "
+            "redundant tool calls (SCEN-008)."
+        ),
+    }
 
 
 # ---------------------------------------------------------------------------

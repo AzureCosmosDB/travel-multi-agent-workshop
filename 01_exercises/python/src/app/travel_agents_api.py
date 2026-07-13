@@ -704,6 +704,16 @@ def store_debug_log_from_response(sessionId: str, tenantId: str, userId: str, re
                                 agent_selected = tool_calls[-1].get("name", "").replace("transfer_to_", "")
 
     # Store in Cosmos DB using the new function
+    # Build the agent_path / handoff_count from the observed transfer_to_ delegations
+    # (analytics signal for SCEN-005 agent-path cost + SCEN-008 redundant tool calls).
+    delegations = [
+        c.get("name", "").replace("transfer_to_", "")
+        for c in tool_calls
+        if isinstance(c, dict) and str(c.get("name", "")).startswith("transfer_to_")
+    ]
+    agent_path = ",".join(["supervisor", *delegations]) if delegations else "supervisor"
+    handoff_count = len(delegations)
+
     try:
         stored_id = store_debug_log(
             session_id=sessionId,
@@ -722,6 +732,8 @@ def store_debug_log_from_response(sessionId: str, tenantId: str, userId: str, re
             tool_calls=tool_calls,
             logprobs=logprobs,
             content_filter_results=content_filter_results,
+            agent_path=agent_path,
+            handoff_count=handoff_count,
             debug_log_id=debug_log_id,
         )
 

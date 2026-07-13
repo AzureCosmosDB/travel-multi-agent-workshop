@@ -1006,6 +1006,8 @@ def store_debug_log(
     tool_calls: List[Dict[str, Any]] = None,
     logprobs: Optional[Dict[str, Any]] = None,
     content_filter_results: Optional[Dict[str, Any]] = None,
+    agent_path: str = "supervisor",
+    handoff_count: int = 0,
     debug_log_id: Optional[str] = None
 ) -> str:
     """
@@ -1052,6 +1054,8 @@ def store_debug_log(
         {"key": "cached_tokens", "value": cached_tokens, "timeStamp": timestamp},
         {"key": "transfer_success", "value": transfer_success, "timeStamp": timestamp},
         {"key": "tool_calls", "value": str(tool_calls or []), "timeStamp": timestamp},
+        {"key": "agent_path", "value": agent_path, "timeStamp": timestamp},
+        {"key": "handoff_count", "value": handoff_count, "timeStamp": timestamp},
         {"key": "logprobs", "value": str(logprobs or {}), "timeStamp": timestamp},
         {"key": "content_filter_results", "value": str(content_filter_results or {}), "timeStamp": timestamp}
     ]

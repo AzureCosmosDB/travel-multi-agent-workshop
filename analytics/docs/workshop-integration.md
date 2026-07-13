@@ -50,10 +50,18 @@ full rationale and the live verification.
 | `services/optimization_recommendations.py` | **new, plumbing** | Turns `Debug` signal into candidate cards (SCEN-007). Prices are labeled **estimates**; the measured verify is authoritative. |
 | `optimization_api.py` | **new, plumbing** | `/optimizations` REST surface: recommend, propose, apply, revert. |
 | `services/azure_open_ai.py` | modified, plumbing | `get_chat_model(deployment)` — cached per-deployment model factory; reasoning models (`gpt-5*`/o-series) omit `temperature`, use api `2025-04-01-preview`. |
-| `services/azure_cosmos_db.py` | modified, plumbing | `store_debug_log` records `model_tier` + `model_deployment`. |
-| `travel_agents_api.py` | modified, plumbing | Selects the tiered supervisor per turn; records tier/deployment on the `Debug` log. |
+| `services/azure_cosmos_db.py` | modified, plumbing | `store_debug_log` records `model_tier` + `model_deployment`, and **`agent_path` + `handoff_count`** (the per-turn delegation path — the signal SCEN-005 agent-path cost and SCEN-008 redundant-tool detection mine). |
+| `travel_agents_api.py` | modified, plumbing | Selects the tiered supervisor per turn; records tier/deployment **and computes `agent_path`/`handoff_count` from the turn's `transfer_to_` delegations** on the `Debug` log. |
 | `travel_agents.py` | modified, **decision + plumbing** | `classify_turn_tier` (**decision layer**) + `get_supervisor_for_turn`/`_build_supervisor` (plumbing: per-tier prebuilt supervisor). |
 | `analytics/optimization_mining.py` | modified | `--verify` per-tier token + estimated-cost report from `Debug`. |
+| `services/optimization_recommendations.py` (02) / `services/optimization.py` (01) | modified | Recommendation set expanded beyond SCEN-007 to **SCEN-001** (city-context, staged prompt fix), **SCEN-008** (redundant tool calls, staged), and the **SCEN-003** (cost-per-outcome/wasted-spend) + **SCEN-005** (agent-path cost) **diagnostic** panels (`apply_mode="diagnostic"`, no apply button — honest lenses, not toggles). |
+| `services/configuration_store.py` + `data/seed_configuration.py` | **new** | Cosmos `Configuration` container (model pricing + selection defaults), seeded from the azd-deployed models; the app, the Fabric notebook, and the Power BI report all read it (see `model-pricing.md`). |
+
+> **Base-app change applied to BOTH trees (not just `02_completed`):** capturing `agent_path`/`handoff_count`
+> in the `Debug` log is a change to the core app in **`01_exercises` as well**, so a learner's own live
+> traffic produces the agent-path signal (previously only `02_completed` captured it; `01_exercises`
+> relied on seeded data). This keeps the 01/02 end-states equal and makes SCEN-005/008 work on real
+> learner traffic. All new recommendation cards are mirrored across both trees.
 
 **Safe-by-default:** with no *active* policy, `select_deployment_for_turn` returns the default
 deployment and the app behaves exactly as before. Nothing changes until a user clicks apply.
