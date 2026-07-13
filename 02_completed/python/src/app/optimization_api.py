@@ -29,8 +29,10 @@ from src.app.services.optimization_recommendations import (
     build_recommendations,
     get_proposed_model_selection_params,
     get_city_context_staged_change,
+    get_tool_dedup_staged_change,
     MODEL_SELECTION_SCENARIO,
     CITY_CONTEXT_SCENARIO,
+    TOOL_DEDUP_SCENARIO,
 )
 
 logger = logging.getLogger(__name__)
@@ -52,12 +54,17 @@ _SCENARIO_META: dict[str, dict[str, str]] = {
         "scenario_id": "SCEN-001",
         "title": "Active-trip city context",
     },
+    TOOL_DEDUP_SCENARIO: {
+        "scenario_id": "SCEN-008",
+        "title": "Redundant tool calls",
+    },
 }
 
 # Scenarios whose "apply" is a STAGED human-governed change (prompt/code), not a
 # runtime toggle -> scenario -> provider of the proposed change (file + text).
 _STAGED_CHANGE_PROVIDERS: dict[str, Any] = {
     CITY_CONTEXT_SCENARIO: get_city_context_staged_change,
+    TOOL_DEDUP_SCENARIO: get_tool_dedup_staged_change,
 }
 
 
