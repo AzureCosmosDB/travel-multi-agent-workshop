@@ -121,6 +121,23 @@ Use a dark dashboard theme. Set the canvas background to a dark color if desired
 
 ---
 
+## Step 5: Tenant filter & the before/after demo
+
+Turns are keyed by `tenantId`, and the seed includes more than one tenant. Add a **tenant slicer** and a default filter so pages read cleanly:
+
+- **Report-level filter (do this first):** in the Filters pane → **Filters on all pages**, drag `'TravelAssistant OptimizationTurns'[tenantId]` and set it to **`analytics_demo`**. That drops seeding/test tenants (e.g. `marvel`) so the KPIs reflect the intended demo dataset.
+- **Tenant slicer:** add a **Slicer** visual on `tenantId` so you can switch tenants live.
+
+**Before/after A/B (recommended for a session):** the repo ships a paired dataset in two tenants — **`before_demo`** (every turn on the single premium model, `model_tier = "default"`) and **`after_demo`** (the *identical* workload, tiered to nano/mini/gpt-5.1). Because only the model routing differs, flipping the tenant slicer between them is a true apples-to-apples before/after — `[Est Cost USD]` drops and `[Trivial %]` goes from 0 to the real share. Build it with:
+
+```powershell
+python analytics/ab_demo_seed.py            # writes before_demo + after_demo (240 paired turns)
+```
+
+> These land in `OptimizationTurns`/`Trips`, which already mirror to Fabric — no mirror change, just **Refresh** the report.
+
+---
+
 ## Page 1: Optimization Overview
 
 Answers: **What are our agents doing, and what does it cost?**

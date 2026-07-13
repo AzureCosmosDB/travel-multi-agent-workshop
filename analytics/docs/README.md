@@ -14,6 +14,9 @@ This directory is the persisted knowledge base for the **Agent Analytics and Opt
 | `optimization-scenarios/README.md` | Catalog of data-validated optimization scenarios (the lab spine). |
 | `workshop-integration.md` | How the optimization apply-loop surfaces in the workshop: core-app changes, learner target, updated learning objectives, and the maintainer change summary. |
 | `workshop-lab-scope.md` | Full scope of the two-module Analytics & Optimization lab: end-state architecture, per-module activity outlines, learner-builds-vs-provided, the provided-asset build backlog, and open decisions. |
+| `demo-script.md` | Presenter talk track for a 60-minute session: the before/after A/B, live-turn generation (automated + manual), and what to avoid. |
+| `model-pricing.md` | The AI models deployed by default, the price reference file, and how to find/add a model's price. |
+| `powerbi-build-notes.md` | Maintainer gotchas for building the optimization report against the Fabric mirror (kept out of the attendee guide). |
 
 ## Working principles (summary — see `charter.md` for the authoritative statement)
 
