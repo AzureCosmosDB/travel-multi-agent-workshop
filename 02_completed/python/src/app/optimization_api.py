@@ -4,6 +4,7 @@ Optimization apply-loop REST surface.
 The dashboard-facing API for the analytics optimization loop:
 
     GET  /optimizations/{tenantId}          -> candidate cards (recommend)
+    GET  /optimizations/{tenantId}/metrics  -> aggregate KPIs (Console tiles)
     GET  /optimizations/policies            -> all policy docs + status
     GET  /optimizations/{scenario}/policy   -> one policy doc
     POST /optimizations/{scenario}/propose  -> register proposed policy (no effect)
@@ -27,6 +28,7 @@ from src.app.services import optimization_policy
 from src.app.services import fabric_capacity
 from src.app.services.optimization_recommendations import (
     build_recommendations,
+    build_turn_metrics,
     get_proposed_model_selection_params,
     get_city_context_staged_change,
     get_tool_dedup_staged_change,
@@ -124,6 +126,12 @@ def fabric_capacity_resume() -> dict[str, Any]:
 def get_recommendations(tenant_id: str) -> dict[str, Any]:
     """Candidate optimization cards mined from the tenant's captured signal."""
     return {"tenant_id": tenant_id, "recommendations": build_recommendations(tenant_id)}
+
+
+@router.get("/{tenant_id}/metrics")
+def get_metrics(tenant_id: str) -> dict[str, Any]:
+    """Aggregate KPIs for the Optimization Console (turns, cost, tiers, outcomes)."""
+    return build_turn_metrics(tenant_id)
 
 
 @router.get("/{scenario}/policy")

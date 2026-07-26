@@ -710,3 +710,67 @@ def build_agent_path_diagnostic(tenant_id: str) -> dict[str, Any]:
             "redundant tool calls (SCEN-008)."
         ),
     }
+
+
+# ---------------------------------------------------------------------------
+# Aggregate KPIs for the Optimization Console (GET /optimizations/{tenant}/metrics).
+# ---------------------------------------------------------------------------
+
+def _price_for(pricing: dict[str, dict[str, float]], deployment: str) -> tuple[float, float]:
+    """(input, output) USD per 1M tokens for a deployment/model name. ESTIMATE."""
+    name = (deployment or "").lower()
+    for key, p in pricing.items():
+        if name.startswith(key.lower()):
+            return float(p.get("input", 0.0)), float(p.get("output", 0.0))
+    default = pricing.get("gpt-5.1", _DEFAULT_PRICING["gpt-5.1"])
+    return float(default["input"]), float(default["output"])
+
+
+def build_turn_metrics(tenant_id: str) -> dict[str, Any]:
+    """Aggregate the captured turns into the KPIs the Console displays."""
+    dbg = _query_debug(tenant_id)
+    pricing = load_pricing()
+    total = len(dbg)
+    total_in = total_out = total_tokens = trivial = 0
+    est_cost = 0.0
+    models: dict[str, int] = {}
+    by_tier: dict[str, dict[str, Any]] = {}
+
+    for d in dbg:
+        b = _bag(d)
+        i = int(b.get("input_tokens") or 0)
+        o = int(b.get("output_tokens") or 0)
+        total_in += i
+        total_out += o
+        total_tokens += int(b.get("total_tokens") or 0)
+        if o < 60:
+            trivial += 1
+        mname = b.get("model_name", "Unknown")
+        models[mname] = models.get(mname, 0) + 1
+        dep = b.get("model_deployment") or mname
+        pin, pout = _price_for(pricing, dep)
+        cost = (i * pin + o * pout) / 1_000_000
+        est_cost += cost
+        key = f"{b.get('model_tier', 'default')} ({dep})"
+        row = by_tier.setdefault(key, {"tier": b.get("model_tier", "default"), "deployment": dep,
+                                       "turns": 0, "tokens": 0, "cost": 0.0})
+        row["turns"] += 1
+        row["tokens"] += int(b.get("total_tokens") or 0)
+        row["cost"] += cost
+
+    confirmed = len(_converted_sessions(tenant_id))
+    return {
+        "tenant_id": tenant_id,
+        "total_turns": total,
+        "total_input_tokens": total_in,
+        "total_output_tokens": total_out,
+        "total_tokens": total_tokens,
+        "estimated_cost_usd": round(est_cost, 4),
+        "trivial_turns": trivial,
+        "trivial_pct": round(100 * trivial / max(total, 1), 1),
+        "distinct_models": len(models),
+        "model_distribution": models,
+        "confirmed_outcomes": confirmed,
+        "cost_per_outcome_usd": round(est_cost / confirmed, 4) if confirmed else None,
+        "by_tier": sorted(by_tier.values(), key=lambda r: -r["cost"]),
+    }
