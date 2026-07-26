@@ -39,36 +39,5 @@ Get started here 👉 **[Start the Workshop](01_exercises/workshop/Home.md)**
 ### ✅ **02_completed** - The complete solution
 Navigate to this folder to access the fully implemented solution. Use this if you want to see the end result or deploy the complete application.
 
-## Deployment Instructions for Complete Solution (02_completed)
-
-To deploy the complete travel multi-agent assistant to your Azure account, follow these steps:
-
-1. **Clone the Repository**: Start by cloning this repository to your local machine.
-    ```bash
-    git clone https://github.com/AzureCosmosDB/travel-multi-agent-workshop.git
-    cd 02_completed
-    ``` 
-
-2. **Install Prerequisites**: Ensure you have the following installed:
-   - [Azure CLI](https://docs.microsoft.com/en-us/cli/azure/install-azure-cli)
-   - [Azure Developer CLI (azd)](https://learn.microsoft.com/en-us/azure/developer/azure-developer-cli/install-azd)
-   - [Python 3.11+](https://www.python.org/downloads/)
-   - [Node.js and npm](https://nodejs.org/en/download/)
-
-3. **Login to Azure**: Use the Azure CLI to log in to your Azure account.
-    ```bash
-    azd auth login
-    ```
-4. **Run azd up**: Navigate to the `travel-multi-agent-workshop/02_completed/infra` directory and run the following command to deploy the solution:
-    ```bash
-    azd up
-    ```
-   This command will provision all necessary Azure resources and seed the database. It may take several minutes to complete.
-
-## Running Locally After Deployment
-
-Once deployed, the app runs locally in three terminals (MCP server, Travel API, Angular frontend). The step-by-step instructions live with each path rather than here:
-
-- **Workshop (`01_exercises`):** start the API and frontend in **[Module 00](01_exercises/workshop/Module-00.md)**, then the MCP server in **[Module 01](01_exercises/workshop/Module-01.md)**.
-- **Complete solution (`02_completed`):** see **[02_completed/README.md → Local dev](02_completed/README.md#local-dev-three-terminals)**.
+Deploy the completed solution 👉 **[Deploy the Completed Solution](02_completed/README.md)**
 

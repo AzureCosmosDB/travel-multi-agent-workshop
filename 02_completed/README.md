@@ -6,9 +6,33 @@ This is the complete implementation of the Travel Multi-Agent Workshop. Here you
 
 This complete solution demonstrates the final result of the workshop with all modules implemented. You can deploy this directly to Azure or use it as a reference while working through the workshop exercises.
 
-Deploy the complete solution 👉  **[Deploy to Azure](../README.md#deployment-instructions-for-complete-solution-02_completed)**
+Deploy the complete solution 👉  **[Deploy to Azure](#deploy-to-azure)**
 
 📖 **[User Guide](./USER_GUIDE.md)** — how to use the travel assistant, interact with agents, manage memories, and get the best results.
+
+## Deploy to Azure
+
+To deploy the complete travel multi-agent assistant to your Azure account:
+
+1. **Clone the repository** and switch to this folder:
+   ```bash
+   git clone https://github.com/AzureCosmosDB/travel-multi-agent-workshop.git
+   cd travel-multi-agent-workshop/02_completed
+   ```
+2. **Install prerequisites:**
+   - [Azure CLI](https://docs.microsoft.com/cli/azure/install-azure-cli)
+   - [Azure Developer CLI (azd)](https://learn.microsoft.com/azure/developer/azure-developer-cli/install-azd)
+   - [Python 3.11+](https://www.python.org/downloads/)
+   - [Node.js 18+ and npm](https://nodejs.org/en/download/)
+3. **Log in to Azure:**
+   ```bash
+   azd auth login
+   ```
+4. **Provision and deploy** — `azd up` provisions all Azure resources, seeds Cosmos DB, and (because `deployHostedApp` defaults to **true** here) deploys the hosted app:
+   ```bash
+   azd up
+   ```
+   Provisioning takes several minutes. See [Deployment & run options](#deployment--run-options) below for the optional flags and the local three-terminal flow.
 
 ## Deployment & run options
 
