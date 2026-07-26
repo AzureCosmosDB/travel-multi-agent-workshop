@@ -27,7 +27,8 @@ Both are azd environment variables set with `azd env set <NAME> <value>` before 
 
 | Flag (env var) | Default (02_completed) | Effect |
 |---|---|---|
-| `deployAnalytics` (`DEPLOY_ANALYTICS`) | **true** | Provisions the analytics/optimization Cosmos containers (`OptimizationPolicies`, `OptimizationTurns`, `OptimizationInsights`, `Configuration`) used by **Modules 07 (Analytics)** and **08 (Optimization)**. Set `false` for a leaner base deployment; the app still self-provisions them at runtime if those features are exercised. |
+| `deployAnalytics` (`DEPLOY_ANALYTICS`) | **true** | Provisions the analytics/optimization Cosmos containers (`OptimizationPolicies`, `OptimizationTurns`, `OptimizationInsights`, `Configuration`) **and the Microsoft Fabric F2 capacity** used by **Modules 07 (Analytics)**, **08 (Optimization)**, and **09 (Fabric Analytics & Reverse-ETL)**. Set `false` for a leaner base deployment; the app still self-provisions the containers at runtime if those features are exercised. |
+| `deployGsi` (`DEPLOY_GSI`) | **false** | Provisions an alternative **provisioned-throughput** Cosmos DB account with a `TripsByDestination` **global secondary index** and seeds ~25K trips — an optional demonstration of the provisioned-throughput + GSI scaling pattern. Not required by any module; leave `false` for the standard deployment. |
 | `deployHostedApp` (`DEPLOY_HOSTED_APP`) | **true** | Deploys the app as **hosted Azure Container Apps** (frontend + API + MCP, with ACR + Container Apps environment + Log Analytics). `azd up` builds the three images and deploys them; the public frontend URL is printed as `FRONTEND_URI`. Set `false` to skip hosting and run the app locally instead (`azd provision` only). |
 
 > This is the **complete/demo** solution, so both flags are **on by default** — `azd up` gives you a
