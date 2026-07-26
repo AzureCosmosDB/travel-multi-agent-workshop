@@ -1,0 +1,2 @@
+# Power BI working files — ship the .pbit template, not the .pbix working file
+*.pbix
