@@ -1,6 +1,6 @@
 # Module 03 - Adding Memory with the Cosmos DB Agent Memory Toolkit
 
-[← Module 02: Specialized Sub-Agent Tools](./Module-02.md) | [Home](./README.md) | [Module 04: Making Memory Intelligent →](./Module-04.md)
+[← Module 02: Specialized Sub-Agent Tools](./Module-02.md) | [Home](./Home.md) | [Module 04: Making Memory Intelligent →](./Module-04.md)
 
 ---
 
@@ -2300,4 +2300,4 @@ user:
 
 ---
 
-[← Module 02: Specialized Sub-Agent Tools](./Module-02.md) | [Home](./README.md) | [Module 04: Making Memory Intelligent →](./Module-04.md)
+[← Module 02: Specialized Sub-Agent Tools](./Module-02.md) | [Home](./Home.md) | [Module 04: Making Memory Intelligent →](./Module-04.md)

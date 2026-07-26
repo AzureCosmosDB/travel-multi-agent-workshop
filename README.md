@@ -2,7 +2,7 @@
 
 ## Overview
 
-This workshop walks through how to build a  multi-agent travel assistant system using Python, LangGraph, Azure OpenAI, and Azure Cosmos DB. Here, you'll create specialized AI agents that work together to help users plan  travel arrangements and learn about agent memory orchestration. The workshop concludes with **optional modules on agent analytics and optimization** — instrumenting your agents, surfacing cost and quality insights, and applying (and auto-reverting) reversible optimizations — plus a **Microsoft Fabric** analytics and reverse-ETL module.
+This workshop walks through how to build a multi-agent travel assistant system using Python, LangGraph, Azure Foundry, and Azure Cosmos DB. Here, you'll create specialized AI agents that work together to help users plan travel arrangements and learn about agent memory orchestration. The workshop concludes with **optional modules on agent analytics and optimization** — instrumenting your agents, surfacing cost and quality insights, and applying (and auto-reverting) reversible optimizations — plus a **Microsoft Fabric** analytics and reverse-ETL module.
 
 ### What You'll Build
 
@@ -34,6 +34,8 @@ This repository contains two main directories:
 ### 📚 **01_exercises** - The Workshop
 Navigate to this folder to follow along with the step-by-step workshop modules. Start here if you want to build the solution from scratch and learn each concept progressively.
 
+Get started here 👉 **[Start the Workshop](01_exercises/workshop/Home.md)**
+
 ### ✅ **02_completed** - The complete solution
 Navigate to this folder to access the fully implemented solution. Use this if you want to see the end result or deploy the complete application.
 
@@ -63,73 +65,10 @@ To deploy the complete travel multi-agent assistant to your Azure account, follo
     ```
    This command will provision all necessary Azure resources and seed the database. It may take several minutes to complete.
 
-## Setting up local development
+## Running Locally After Deployment
 
-When you deploy this solution, it automatically configures `.env` files with the required Azure endpoints and authentication tokens for both the main application and MCP server.
+Once deployed, the app runs locally in three terminals (MCP server, Travel API, Angular frontend). The step-by-step instructions live with each path rather than here:
 
-To run the solution locally after deployment:
+- **Workshop (`01_exercises`):** start the API and frontend in **[Module 00](01_exercises/workshop/Module-00.md)**, then the MCP server in **[Module 01](01_exercises/workshop/Module-01.md)**.
+- **Complete solution (`02_completed`):** see **[02_completed/README.md → Local dev](02_completed/README.md#local-dev-three-terminals)**.
 
-### Terminal 1 - Start the MCP server:
-
-Open a new terminal, navigate to the `02_completed` directory, then run:
-
-**Linux/macOS:**
-```bash
-source .venv-travel/bin/activate
-cd mcp_server
-PYTHONPATH=../python python mcp_http_server.py
-```
-
-**Windows (PowerShell):**
-```bash
-.\.venv-travel\Scripts\Activate.ps1
-cd mcp_server
-$env:PYTHONPATH="..\python"
-python mcp_http_server.py
-```
-
-**Windows (Command Prompt):**
-```cmd
-.venv-travel\Scripts\activate.bat
-set PYTHONPATH=../python && python mcp_http_server.py
-```
-
-### Terminal 2 - Start the Travel API:
-
-Open a new terminal, navigate to the `02_completed` directory, then run:
-
-**Linux/macOS:**
-```bash
-source .venv-travel/bin/activate
-cd python
-uvicorn src.app.travel_agents_api:app --reload --host 0.0.0.0 --port 8000
-```
-
-**Windows (PowerShell):**
-```powershell
-.\.venv-travel\Scripts\Activate.ps1
-cd python
-uvicorn src.app.travel_agents_api:app --reload --host 0.0.0.0 --port 8000
-```
-
-**Windows (Command Prompt):**
-```cmd
-.venv-travel\Scripts\activate.bat
-uvicorn src.app.travel_agents_api:app --reload --host 0.0.0.0 --port 8000
-```
-
-### Terminal 3 - Start the Frontend:
-
-Open a new terminal, navigate to the `02_completed\frontend` folder, then run:
-
-**All platforms:**
-```bash
-npm install
-npm start
-```
-
-Access the applications:
-
-- Travel API: [http://localhost:8000/docs](http://localhost:8000/docs)
-- MCP Server: [http://localhost:8080/docs](http://localhost:8080/docs)
-- Frontend: [http://localhost:4200](http://localhost:4200/)

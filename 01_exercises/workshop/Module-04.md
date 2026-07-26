@@ -1,6 +1,6 @@
 # Module 04 - Making Memory Intelligent (3-Way RRF Personalisation)
 
-[← Module 03: Adding Memory](./Module-03.md) | [Home](./README.md)
+[← Module 03: Adding Memory](./Module-03.md) | [Home](./Home.md)
 
 ---
 
@@ -2176,4 +2176,4 @@ user:
 
 ---
 
-[← Module 03: Adding Memory](./Module-03.md) | [Home](./README.md)
+[← Module 03: Adding Memory](./Module-03.md) | [Home](./Home.md)

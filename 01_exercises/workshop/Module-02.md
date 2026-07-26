@@ -1,6 +1,6 @@
 # Module 02 - Specialized Sub-Agent Tools
 
-[← Module 01: Creating Your First Agent](./Module-01.md) | [Home](./README.md) | [Module 03: Adding Memory →](./Module-03.md)
+[← Module 01: Creating Your First Agent](./Module-01.md) | [Home](./Home.md) | [Module 03: Adding Memory →](./Module-03.md)
 
 ---
 
@@ -2084,4 +2084,4 @@ user:
 
 ---
 
-[← Module 01: Creating Your First Agent](./Module-01.md) | [Home](./README.md) | [Module 03: Adding Memory →](./Module-03.md)
+[← Module 01: Creating Your First Agent](./Module-01.md) | [Home](./Home.md) | [Module 03: Adding Memory →](./Module-03.md)
