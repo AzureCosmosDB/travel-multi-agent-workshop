@@ -33,9 +33,8 @@ region that has Fabric capacity available to you.
   assigned to the F2 capacity, workspace identity SP `8f33e8f7-d216-43e3-8d9f-0426c4d1df4e`
   (app `84c6d9a1-9916-44de-aa42-732d91f50911`). **Created + wired by `provision_fabric.py --phase 1`.**
 - **Cosmos (current, westus):** `cosmos-f2tx5x7js4bwi` (rg `rg-mjb-fabcon-travel`), DB `TravelAssistant`.
-  Provisioned autoscale + Continuous backup + `EnableFabricNetworkAclBypass` (all required for mirroring).
-  Cosmos **Data Contributor** assigned to the workspace identity SP `8f33e8f7-…`;
-  `networkAclBypass=AzureServices` + the workspace bypass resource id are set (both by Phase 1).
+  Provisioned autoscale + Continuous backup (both required for mirroring). Cosmos **Data Contributor**
+  assigned to the workspace identity SP `8f33e8f7-…` (by Phase 1).
 - **Legacy (retire):** old F64 workspace `37733bf9-…` + `cosmos-kfpokdh52vbec`/`TravelAssistantV2`
   mirror `TravelAssistantV2Analytics` (`debe9a19-…`) — stale after the westus redeploy.
 - **Connection:** WorkspaceIdentity connection is **still blocked** (`DMTS_UntrustedEndpointForWorkspaceIdentity`,
@@ -67,7 +66,7 @@ deployment. Idempotent.
 > land as `ConversionFunnelReverseETL`. No Direct Lake semantic model is created; the report is
 > DirectQuery over the mirror SQL endpoint.
 
-### Two gotchas that cost real debugging time (now fixed in code)
+### One gotcha that cost real debugging time (now fixed in code)
 
 1. **`readAnalytics`, not Data Contributor.** The mirror reads Cosmos **as the connection identity**
    — for an OAuth2 connection that's the **deploying user**, not the workspace identity. Fabric's
@@ -78,11 +77,6 @@ deployment. Idempotent.
    `readAnalytics` to the **user** (see the Cosmos mirroring limitations doc). This is **not** a
    regional issue — mirroring works cross-region.
 
-2. **Don't set `networkAclBypass` on a public account.** The `networkAclBypass` allowlist is a
-   **private-endpoint** feature. Setting `networkAclBypass=AzureServices` on a public account
-   (`publicNetworkAccess=Enabled`, the workshop default) *blocks* the mirroring snapshot service.
-   Leave it `None` for public accounts; only allowlist a workspace for VNet/PE-restricted accounts.
-
 
 ## What is automated (and proven)
 
@@ -90,7 +84,7 @@ deployment. Idempotent.
 |---|---|---|
 | Workspace identity | `POST /v1/workspaces/{id}/provisionIdentity` | ✅ SP `32087df7-ff95-490f-994f-e2a385f419ab` |
 | Cosmos RBAC | custom `FabricMirroringRole` (`readMetadata`+`readAnalytics`) assigned to the **OAuth2 connection identity (the user)** + the workspace identity | ✅ |
-| Network trust | none needed for public accounts; `networkAclBypass` only for VNet/PE-restricted accounts | ✅ |
+| Network trust | none needed for public accounts | ✅ |
 | Mirror | `POST /v1/workspaces/{id}/mirroredDatabases` (source CosmosDb → connection + database, `mountedTables`) + `/startMirroring` | ✅ `TravelAssistantV2Analytics` (`debe9a19-…`) replicating |
 | Reverse-ETL notebook | `POST /v1/workspaces/{id}/notebooks` + `updateDefinition` + `jobs/instances?jobType=RunNotebook` | ⏳ uploaded; read method being finalized (see below) |
 | Traffic simulator | `analytics/traffic_simulator.py` | ✅ proven: 83 turns → mirror in ~60s |
@@ -104,15 +98,6 @@ az cosmosdb sql role definition create -a cosmos-kfpokdh52vbec -g rg-mjb-fabcon-
 az cosmosdb sql role assignment create -a cosmos-kfpokdh52vbec -g rg-mjb-fabcon-travel \
   --role-definition-id <customRoleId> --principal-id <workspaceIdentitySpObjectId> --scope <accountId>
 az cosmosdb sql role assignment create ... --role-definition-id 00000000-0000-0000-0000-000000000002 ...
-```
-
-### Network trust (az) — required even without VNet
-
-```powershell
-az cosmosdb update -n cosmos-kfpokdh52vbec -g rg-mjb-fabcon-travel \
-  --capabilities EnableNoSQLVectorSearch EnableFabricNetworkAclBypass \
-  --network-acl-bypass AzureServices \
-  --network-acl-bypass-resource-ids "/tenants/<tid>/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/Fabric/providers/Microsoft.Fabric/workspaces/<workspaceId>"
 ```
 
 ### Mirror (Fabric REST) — `mirroring.json` payload
