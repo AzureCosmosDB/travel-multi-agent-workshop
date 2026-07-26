@@ -21,6 +21,14 @@ from datetime import datetime, timedelta
 from typing import List, Dict, Any
 from urllib.parse import urlparse
 
+# Ensure stdout/stderr use UTF-8 so emoji in logs/prints don't crash on Windows,
+# where the console defaults to cp1252 and raises UnicodeEncodeError on emoji.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8")
+    except (AttributeError, ValueError):
+        pass
+
 import requests as http_requests
 from azure.cosmos import CosmosClient
 from azure.cosmos.exceptions import CosmosHttpResponseError
