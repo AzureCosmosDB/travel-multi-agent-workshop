@@ -63,22 +63,25 @@ cd ~\travel-multi-agent-workshop\01_exercises
 
 ### Step 2: Configure Azure Authentication
 
-First, ensure you're logged out of any previous Azure sessions, then log in with your workshop credentials:
+Log in to **both** the Azure Developer CLI (used to provision resources) and the Azure CLI (used by the app and data-seeding scripts for local authentication). The commands are identical on macOS, Linux, and Windows:
 
 ```bash
+# Azure Developer CLI — used by azd up to provision
 azd auth logout
 azd auth login --tenant-id <TENANT_ID>
+
+# Azure CLI — used locally by DefaultAzureCredential (app + seed scripts)
+az logout
+az login --tenant <TENANT_ID>
 ```
 
 Replace `<TENANT_ID>` with your Azure tenant ID.
 
-> **Note:** A browser window will open for authentication. Complete the sign-in process.
+> **Note:** A browser window will open for each sign-in. Complete the sign-in process.
 
 ### Step 3: Set Environment Variables
 
-**MacOS**
-
-Configure your Azure subscription and tenant ID:
+Configure your Azure subscription and tenant ID (the same on all platforms):
 
 ```bash
 azd env set AZURE_SUBSCRIPTION_ID <SUBSCRIPTION_ID>
@@ -94,14 +97,6 @@ You'll be prompted for:
 1. **Environment name**: Enter a unique name (e.g., `alias-travel`)
    - Use lowercase letters, numbers, and hyphens only
    - Must be globally unique
-
-
-**Windows**
-
-```bash
-az logout
-az login --tenant <TENANT_ID>
-```
 
 ### Step 4: Navigate to Infrastructure Directory
 
