@@ -54,12 +54,6 @@ resource cosmosDb 'Microsoft.DocumentDB/databaseAccounts@2024-05-15' = {
       {
         name: 'EnableNoSQLVectorSearch'
       }
-      {
-        // Required for Fabric mirroring with a workspace-identity connection:
-        // lets the account trust a Fabric workspace via networkAclBypassResourceIds
-        // (set post-provision once the workspace + its identity exist).
-        name: 'EnableFabricNetworkAclBypass'
-      }
     ]
     // Continuous backup is required for Fabric mirroring (change-feed based).
     backupPolicy: {
@@ -86,8 +80,8 @@ resource database 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases@2024-12-01
 
 // Custom Cosmos SQL RBAC role for Fabric mirroring (readMetadata + readAnalytics).
 // Pre-created here so it is ready to assign to a Fabric workspace identity
-// post-provision (the assignment + networkAclBypass need the workspace, so they
-// are done by the mirroring setup script after the workspace exists).
+// post-provision (the role assignment needs the workspace, so it is done by
+// the mirroring setup script after the workspace exists).
 resource fabricMirroringRole 'Microsoft.DocumentDB/databaseAccounts/sqlRoleDefinitions@2024-12-01-preview' = {
   parent: cosmosDb
   name: guid(cosmosDb.id, 'FabricMirroringRole')

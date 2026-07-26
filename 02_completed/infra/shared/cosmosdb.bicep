@@ -54,9 +54,6 @@ resource cosmosDb 'Microsoft.DocumentDB/databaseAccounts@2024-05-15' = {
       {
         name: 'EnableNoSQLVectorSearch'
       }
-      {
-        name: 'EnableFabricNetworkAclBypass'
-      }
     ]
     backupPolicy: {
       type: 'Continuous'
