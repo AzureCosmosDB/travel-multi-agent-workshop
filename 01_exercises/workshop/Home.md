@@ -13,7 +13,7 @@ The workshop follows a progressive learning path with the following Modules
 - [Module 4: Making Memory Intelligent](Module-04.md)
 - [Module 5: Observability & Tracing](Module-05.md)
 - [Module 6: Evaluating Your Multi-Agent Application (Bonus Module)](Module-06.md)
-- [Module 7: Agent Analytics (Visibility & Insight)](Module-07.md)
+- [Module 7: Agent Analytics (Visibility & Insight)](Module-07.md) *(Optional)*
 - [Module 8: Agent Optimization (Apply & Autonomy)](Module-08.md) *(Optional)*
 - [Module 9: Fabric Analytics & Reverse-ETL (Cosmos + Fabric via Mirroring)](Module-09.md) *(Optional)*
 - [Module 10: Lessons Learned, Agent and Memory Future, Q&A](Module-10.md)

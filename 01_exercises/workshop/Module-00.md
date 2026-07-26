@@ -37,8 +37,8 @@ Before you begin, ensure you have:
 - Azure subscription with appropriate permissions to create resources
 - Azure tenant ID and subscription ID
 - [Azure Developer CLI (azd)](https://learn.microsoft.com/azure/developer/azure-developer-cli/install-azd) installed
-- Python 3.11 or higher installed
-- Node.js 18 or higher installed
+- [Python 3.11 or higher](https://www.python.org/downloads/) installed
+- [Node.js 18 or higher](https://nodejs.org/en/download/) installed
 
 ### Step 1: Get the repository and Navigate to the Workshop Directory
 
