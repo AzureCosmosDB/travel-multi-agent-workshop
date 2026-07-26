@@ -36,6 +36,7 @@ Before you begin, ensure you have:
 
 - Azure subscription with appropriate permissions to create resources
 - Azure tenant ID and subscription ID
+- [Azure CLI (az)](https://learn.microsoft.com/cli/azure/install-azure-cli) installed
 - [Azure Developer CLI (azd)](https://learn.microsoft.com/azure/developer/azure-developer-cli/install-azd) installed
 - [Python 3.11 or higher](https://www.python.org/downloads/) installed
 - [Node.js 18 or higher](https://nodejs.org/en/download/) installed
