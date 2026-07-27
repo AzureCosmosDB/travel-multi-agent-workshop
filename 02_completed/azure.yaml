@@ -218,7 +218,6 @@ hooks:
       run: |
         echo "
         COSMOSDB_ENDPOINT=""$env:COSMOSDB_ENDPOINT""
-        COSMOSDB_KEY=""$env:COSMOSDB_KEY""
         COSMOSDB_DATABASE_NAME=""TravelAssistant""
         AZURE_OPENAI_ENDPOINT=""$env:AZURE_OPENAI_ENDPOINT""
         AZURE_OPENAI_EMBEDDING_DEPLOYMENT=""$env:AZURE_OPENAI_EMBEDDINGDEPLOYMENTID""
@@ -243,7 +242,6 @@ hooks:
         # Create environment file for MCP server
         echo "
         COSMOSDB_ENDPOINT=""$env:COSMOSDB_ENDPOINT""
-        COSMOSDB_KEY=""$env:COSMOSDB_KEY""
         COSMOSDB_DATABASE_NAME=""TravelAssistant""
         AZURE_OPENAI_ENDPOINT=""$env:AZURE_OPENAI_ENDPOINT""
         AZURE_OPENAI_EMBEDDING_DEPLOYMENT=""$env:AZURE_OPENAI_EMBEDDINGDEPLOYMENTID""

@@ -2,7 +2,7 @@
 
 ## Overview
 
-This workshop walks through how to build a multi-agent travel assistant system using Python, LangGraph, Azure Foundry, and Azure Cosmos DB. Here, you'll create specialized AI agents that work together to help users plan travel arrangements and learn about agent memory orchestration. The workshop concludes with **optional modules on agent analytics and optimization** — instrumenting your agents, surfacing cost and quality insights, and applying (and auto-reverting) reversible optimizations — plus a **Microsoft Fabric** analytics and reverse-ETL module.
+This workshop walks through how to build a multi-agent travel assistant system using Python, LangGraph, Azure AI Foundry, and Azure Cosmos DB. Here, you'll create specialized AI agents that work together to help users plan travel arrangements and learn about agent memory orchestration. The workshop concludes with **optional modules on agent analytics and optimization** — instrumenting your agents, surfacing cost and quality insights, and applying (and auto-reverting) reversible optimizations — plus a **Microsoft Fabric** analytics and reverse-ETL module.
 
 ### What You'll Build
 
@@ -21,7 +21,7 @@ Memory is provided by the [`azure-cosmos-agent-memory`](https://pypi.org/project
 ### Learning Objectives
 
 - Understand multi-agent architecture patterns and design principles
-- Learn to build agents using LangGraph framework with Azure OpenAI
+- Learn to build agents using LangGraph framework with Azure AI Foundry
 - Implement agent specialization and tool integration
 - Add intelligent memory systems to enhance agent interactions
 - Practice observability and experimentation techniques

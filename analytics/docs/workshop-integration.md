@@ -66,7 +66,7 @@ full rationale and the live verification.
 **Safe-by-default:** with no *active* policy, `select_deployment_for_turn` returns the default
 deployment and the app behaves exactly as before. Nothing changes until a user clicks apply.
 
-**Infra note:** two later-gen deployments were added to the app's AOAI account (`gpt-5-nano`,
+**Infra note:** two later-gen deployments were added to the app's Azure AI Foundry account (`gpt-5-nano`,
 `gpt-5.1`) because the app was single-model. `gpt-5.4`/`gpt-5.4-nano` were fully quota-allocated
 subscription-wide (see ADR-0008).
 

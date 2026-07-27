@@ -84,4 +84,4 @@ The probe below was run with **`langchain-openai 1.3.3`**, but the **app pins `l
 ## Reproduce
 Script (throwaway, not committed): session workspace
 `~/.copilot/session-state/<session>/files/verify_tokens.py`. Requires `az login` (Entra ID) with
-data-plane access to the AOAI resource, and `pip install langchain-openai azure-identity python-dotenv`.
+data-plane access to the Azure AI Foundry resource, and `pip install langchain-openai azure-identity python-dotenv`.

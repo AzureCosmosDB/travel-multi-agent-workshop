@@ -28,7 +28,7 @@ The Travel Assistant is a multi-agent AI application that helps you plan persona
 - **Specialized AI agents** that each handle a specific domain (hotels, dining, activities, itineraries)
 - **Persistent memory** that learns your preferences across conversations
 - **Semantic search** powered by Azure Cosmos DB vector search, so you can describe what you want in plain language rather than using filters
-- **Azure OpenAI** for natural language understanding and response generation
+- **Azure AI Foundry** for natural language understanding and response generation
 
 The application has three running services:
 

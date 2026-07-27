@@ -1,6 +1,6 @@
 # Travel Multi-Agent Workshop - Complete Solution
 
-This is the complete implementation of the Travel Multi-Agent Workshop. Here you'll find a fully functional multi-agent travel assistant system with specialized AI agents that work together using Python, LangGraph, Azure OpenAI, and Azure Cosmos DB.
+This is the complete implementation of the Travel Multi-Agent Workshop. Here you'll find a fully functional multi-agent travel assistant system with specialized AI agents that work together using Python, LangGraph, Azure AI Foundry, and Azure Cosmos DB.
 
 ## Getting Started
 

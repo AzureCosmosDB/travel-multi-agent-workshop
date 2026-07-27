@@ -4,7 +4,7 @@ This guide walks you through generating realistic data in the Travel Multi-Agent
 
 ## What You'll Build
 
-- **Web Application** — The complete Travel Assistant deployed to Azure Container Apps, featuring an Angular frontend where users chat with specialized AI agents that plan personalized trips. The agents remember user preferences, search for hotels, restaurants, and activities, and build day-by-day itineraries — all powered by Azure Cosmos DB and Azure OpenAI. See the [User Guide](../02_completed/USER_GUIDE.md) for a full walkthrough of the application's features.
+- **Web Application** — The complete Travel Assistant deployed to Azure Container Apps, featuring an Angular frontend where users chat with specialized AI agents that plan personalized trips. The agents remember user preferences, search for hotels, restaurants, and activities, and build day-by-day itineraries — all powered by Azure Cosmos DB and Azure AI Foundry. See the [User Guide](../02_completed/USER_GUIDE.md) for a full walkthrough of the application's features.
 - **Data Generator** — A Python script that simulates 12 diverse users having realistic conversations with the travel assistant, generating memories, trips, and conversation data in Cosmos DB.
 - **Spark Notebook** — A Fabric notebook that reads mirrored Cosmos DB data, flattens nested JSON structures, and writes 10 analytical Delta tables to OneLake.
 - **SQL Queries** — Ready-to-run queries for the Fabric SQL Analytics Endpoint for quick ad-hoc exploration.
