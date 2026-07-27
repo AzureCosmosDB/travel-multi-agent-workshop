@@ -23,6 +23,7 @@ load_dotenv(override=False)
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
+from langsmith import traceable
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langchain_mcp_adapters.tools import load_mcp_tools
 from langgraph.prebuilt import create_react_agent
@@ -449,6 +450,7 @@ def get_supervisor_for_turn(messages: Any) -> tuple[Any, str, str]:
 
 
 @tool("find_places", args_schema=FindPlacesInput)
+@traceable
 async def find_places_tool(
     city: str,
     aspects: list[Literal["hotel", "activity", "dining"]],
@@ -588,6 +590,7 @@ class RecallMemoriesInput(BaseModel):
 
 
 @tool("recall_memories", args_schema=RecallMemoriesInput)
+@traceable
 async def recall_memories_tool(
     query: str,
     top_k: int = 10,
@@ -620,6 +623,7 @@ async def recall_memories_tool(
 
 
 @tool("create_or_update_itinerary", args_schema=ItineraryInput)
+@traceable
 async def create_or_update_itinerary_tool(
     trip_id: str | None = None,
     destination: str | None = None,
