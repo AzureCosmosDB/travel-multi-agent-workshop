@@ -331,7 +331,7 @@ resource cosmosContainerCheckpoints 'Microsoft.DocumentDB/databaseAccounts/sqlDa
     resource: {
       id: checkpointsContainerName
       partitionKey: {
-        paths: [ '/session_id' ]
+        paths: [ '/partition_key' ]
         kind: 'Hash'
         version: 2
       }

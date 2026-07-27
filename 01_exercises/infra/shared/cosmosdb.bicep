@@ -23,7 +23,7 @@ param memoriesEmbeddingDimensions int = 1536
 @description('Default per-container autoscale max RU/s (autoscale floors at 10%). Dedicated per-container throughput avoids shared-throughput asymmetry trip wires.')
 param containerMaxRU int = 1000
 @description('Autoscale max RU/s for the Checkpoints container (storage + write hotspot).')
-param checkpointsMaxRU int = 4000
+param checkpointsMaxRU int = 1000
 @description('Autoscale max RU/s for the Places container (vector search).')
 param placesMaxRU int = 2000
 @description('TTL (seconds) for the Checkpoints container. Acts as the idle "resume-within" window for a conversation; older checkpoints (only needed for time-travel) expire. Default 7 days; lengthen for production. Set 0/-1 to disable.')
@@ -481,7 +481,7 @@ resource cosmosContainerDebugLogs 'Microsoft.DocumentDB/databaseAccounts/sqlData
 }
 
 // Container 8: Checkpoints (LangGraph)
-// Partition Key: /session_id (simple)
+// Partition Key: /partition_key (matches langchain CosmosDBSaver document field)
 // No vector search, no full-text search
 resource cosmosContainerCheckpoints 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2024-12-01-preview' = {
   parent: database
@@ -494,7 +494,7 @@ resource cosmosContainerCheckpoints 'Microsoft.DocumentDB/databaseAccounts/sqlDa
       defaultTtl: checkpointsTtlSeconds
       partitionKey: {
         paths: [
-          '/session_id'
+          '/partition_key'
         ]
         kind: 'Hash'
         version: 2

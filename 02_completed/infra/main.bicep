@@ -114,9 +114,9 @@ module cosmosGsi './shared/cosmosdb-gsi.bicep' = if (deployGsi) {
 
 // Deploy OpenAI
 module openAi './shared/openai.bicep' = {
-  name: 'openai-account'
+  name: 'foundry-account'
   params: {
-    name: '${abbrs.openAiAccounts}${resourceToken}'
+    name: 'foundry-${resourceToken}'
     location: location
     tags: tags
     sku: 'S0'
@@ -159,7 +159,7 @@ var deployments = [
 @batchSize(1)
 module openAiModelDeployments './shared/modeldeployment.bicep' = [
   for (deployment, _) in deployments: {
-    name: 'openai-model-deployment-${deployment.name}'
+    name: 'foundry-model-deployment-${deployment.name}'
     params: {
       name: deployment.name
       parentAccountName: openAi.outputs.name
