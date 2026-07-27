@@ -680,14 +680,22 @@ def store_debug_log_from_response(sessionId: str, tenantId: str, userId: str, re
                         finish_reason = metadata.get("finish_reason", finish_reason)
                         model_name = metadata.get("model_name", model_name)
                         system_fingerprint = metadata.get("system_fingerprint", system_fingerprint)
-                        token_usage = metadata.get("token_usage", {})
-                        input_tokens = token_usage.get("prompt_tokens", input_tokens)
-                        output_tokens = token_usage.get("completion_tokens", output_tokens)
-                        total_tokens = token_usage.get("total_tokens", total_tokens)
-
-                        # Get cached tokens from prompt_tokens_details
-                        prompt_details = token_usage.get("prompt_tokens_details", {})
-                        cached_tokens = prompt_details.get("cached_tokens", cached_tokens)
+                        # Token usage: LangChain normalizes counts onto usage_metadata
+                        # (input/output/total_tokens); fall back to response_metadata's
+                        # token_usage (prompt/completion_tokens) for older SDK responses.
+                        usage_meta = getattr(msg, "usage_metadata", None) or {}
+                        if usage_meta:
+                            input_tokens = usage_meta.get("input_tokens", input_tokens) or input_tokens
+                            output_tokens = usage_meta.get("output_tokens", output_tokens) or output_tokens
+                            total_tokens = usage_meta.get("total_tokens", total_tokens) or total_tokens
+                            cached_tokens = (usage_meta.get("input_token_details") or {}).get("cache_read", cached_tokens) or cached_tokens
+                        else:
+                            token_usage = metadata.get("token_usage", {}) or {}
+                            input_tokens = token_usage.get("prompt_tokens", input_tokens)
+                            output_tokens = token_usage.get("completion_tokens", output_tokens)
+                            total_tokens = token_usage.get("total_tokens", total_tokens)
+                            prompt_details = token_usage.get("prompt_tokens_details", {}) or {}
+                            cached_tokens = prompt_details.get("cached_tokens", cached_tokens)
 
                         logprobs = metadata.get("logprobs", logprobs)
                         content_filter_results = metadata.get("content_filter_results", content_filter_results)
