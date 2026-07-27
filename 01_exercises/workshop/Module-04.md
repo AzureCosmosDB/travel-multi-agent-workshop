@@ -342,7 +342,7 @@ Open the `travel_agents_api.py`, search for the existing `from src.app.travel_ag
 from src.app.travel_agents import setup_agents, build_agent_graph, cleanup_persistent_session, _current_user_preference_vector
 ```
 
-### Step 3: Wire the vector into `get_chat_completion`
+### Step 2: Wire the vector into `get_chat_completion`
 
 Find your `get_chat_completion` handler from Module 03. Right after `await ensure_agents_initialized()`, uncomment the code block now.:
 
@@ -1948,7 +1948,7 @@ if __name__ == "__main__":
 
 
 <details>
-  <summary> Completed code for <strong>src/app/service/agent_memory.py</strong>strong></summary>
+  <summary>Completed code for <strong>src/app/services/agent_memory.py</strong></summary>
 
 <br>
 
