@@ -1356,6 +1356,14 @@ from typing import Any, Dict, List, Optional
 from dotenv import load_dotenv
 from mcp.server.fastmcp import FastMCP
 
+# Ensure stdout/stderr use UTF-8 so emoji in logs/prints don't crash on Windows,
+# where the console defaults to cp1252 and raises UnicodeEncodeError on emoji.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8")
+    except (AttributeError, ValueError):
+        pass
+
 from src.app.services.azure_open_ai import generate_embedding
 from src.app.services.azure_cosmos_db import (
     create_session_record,
@@ -1485,17 +1493,9 @@ def append_turn(
     content: str,
     tool_call: Optional[Dict] = None,
     keywords: Optional[List[str]] = None,
-    generate_embedding_flag: bool = True,
 ) -> Dict[str, Any]:
     """Atomically store a message and update session metadata."""
     logger.info(f"💬 Appending {role} message to session: {session_id}")
-
-    embedding = None
-    if generate_embedding_flag and content:
-        try:
-            embedding = generate_embedding(content)
-        except Exception as e:
-            logger.warning(f"Failed to generate embedding: {e}")
 
     message_id = append_message(
         session_id=session_id,
@@ -1503,16 +1503,13 @@ def append_turn(
         user_id=user_id,
         role=role,
         content=content,
-        tool_call=tool_call,
-        embedding=embedding,
-        keywords=keywords,
+        tool_calls=[tool_call] if tool_call else None,
     )
 
     return {
         "messageId": message_id,
         "sessionId": session_id,
         "role": role,
-        "embeddingGenerated": embedding is not None,
     }
 
 
@@ -1823,13 +1820,16 @@ async def recall_memories(
     """
     client = await get_memory_client()
 
-    hits = await _maybe_await(client.search_cosmos(
-        search_terms=query,
-        user_id=user_id,
-        thread_id=thread_id,
-        top_k=top_k,
-        hybrid_search=True,
-    ))
+    # search_cosmos's signature varies across toolkit versions: newer builds take
+    # `query`, older ones `search_terms` (+ an optional `hybrid_search` flag). Pass
+    # only the kwargs this installed version actually accepts.
+    params = inspect.signature(client.search_cosmos).parameters
+    kwargs: Dict[str, Any] = dict(user_id=user_id, thread_id=thread_id, top_k=top_k)
+    kwargs["query" if "query" in params else "search_terms"] = query
+    if "hybrid_search" in params:
+        kwargs["hybrid_search"] = True
+
+    hits = await _maybe_await(client.search_cosmos(**kwargs))
     return [_memory_to_dict(hit) for hit in hits]
 
 

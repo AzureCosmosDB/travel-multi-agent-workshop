@@ -33,7 +33,6 @@ By the end of this module you will:
 - Force a **single tool call per dispatch** with `bind_tools(..., tool_choice="required")`
 - Enable **parallel tool calls** on the supervisor so it can fan out searches for multiple aspects
 - Break `setup_agents()` into named helpers so the file stays readable as it grows
-- Wire **`CosmosDBSaver`** into the LangGraph state so chat sessions survive restarts
 
 ---
 
@@ -47,7 +46,6 @@ By the end of this module you will:
 6. [Activity 6: Update `supervisor.prompty` for the new tools](#activity-6-update-supervisorprompty-for-the-new-tools)
 7. [Activity 7: Add place discovery and trip management tools to the MCP server](#activity-7-add-place-discovery-and-trip-management-tools-to-the-mcp-server)
 8. [Activity 8: Test your work](#activity-8-test-your-work)
-9. [Activity 9: Persist supervisor state with the Cosmos DB checkpointer](#activity-9-persist-supervisor-state-with-the-cosmos-db-checkpointer)
 
 ---
 
@@ -594,7 +592,7 @@ def _build_supervisor_tools() -> list[Any]:
 
 ### Step 4: Slim down `setup_agents`
 
-Find the `setup_agents()` function you wrote in Module 01. Replace its body so it orchestrates the helpers and accepts an optional `checkpointer` argument (you'll use that argument in Activity 9):
+Find the `setup_agents()` function you wrote in Module 01. Replace its body so it orchestrates the helpers and accepts an optional `checkpointer` argument (you'll wire this up in Module 03):
 
 ```python
 async def setup_agents(checkpointer=None) -> None:
@@ -929,7 +927,7 @@ def update_trip(
 
 ## Activity 8: Test your work
 
-###Restart everything
+### Restart everything
 
 Since we added new tools to the MCP server, we need to restart it to load the changes. The backend API and frontend will automatically reload thanks to watchfiles.
 
@@ -997,8 +995,6 @@ Open your browser to http://localhost:4200 and start a new conversation (you may
 - [ ] ✅ `prompts/itinerary_agent.prompty` is populated and the itinerary sub-agent loads it on startup.
 - [ ] ✅ A 3-day trip request fires `find_places` for hotel + activity + dining and then `create_or_update_itinerary`.
 - [ ] ✅ A new document appears in the `trips` container.
-- [ ] ✅ The `Checkpoints` container shows one or more documents per active thread.
-- [ ] ✅ Killing and restarting the backend does not lose conversation context on the same `sessionId`.
 
 ---
 
@@ -1010,8 +1006,6 @@ Open your browser to http://localhost:4200 and start a new conversation (you may
 | `find_places` returns `{"error": "no discover_* tools available"}` | `_mcp_find_places_tools` is empty — the partition step ran before `_connect_to_mcp()` finished | Verify `setup_agents` calls `_connect_to_mcp()` first and `_partition_mcp_tools(all_tools)` second. |
 | `discover_places` returns 0 results | The constraints over-filtered (e.g., `price_tier="$$$$"` in a city that has nothing at that tier) | Drop filters one at a time. The full-text fallback should still match on keywords. |
 | Itinerary agent calls `discover_places` instead of `create_new_trip` | Tool partitioning is off — `_mcp_itinerary_tools` accidentally included the search tools | Re-check the prefix list in `_partition_mcp_tools`. |
-| `Checkpoints` container stays empty | The `checkpointer or _create_checkpointer()` change didn't take | Re-run Activity 9 Step 3 and restart the backend. |
-| `CosmosDBSaver` raises `TypeError` on startup | Older toolkit version expected a different kwarg name | The `_create_checkpointer()` helper has a `TypeError` fallback — make sure you imported and used the helper, not `CosmosDBSaver` directly. |
 
 ---
 
@@ -1556,6 +1550,14 @@ from typing import Any, Dict, List, Optional
 from dotenv import load_dotenv
 from mcp.server.fastmcp import FastMCP
 
+# Ensure stdout/stderr use UTF-8 so emoji in logs/prints don't crash on Windows,
+# where the console defaults to cp1252 and raises UnicodeEncodeError on emoji.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8")
+    except (AttributeError, ValueError):
+        pass
+
 from src.app.services.azure_open_ai import generate_embedding
 from src.app.services.azure_cosmos_db import (
     create_session_record,
@@ -1678,17 +1680,9 @@ def append_turn(
     content: str,
     tool_call: Optional[Dict] = None,
     keywords: Optional[List[str]] = None,
-    generate_embedding_flag: bool = True,
 ) -> Dict[str, Any]:
     """Atomically store a message and update session metadata."""
     logger.info(f"💬 Appending {role} message to session: {session_id}")
-
-    embedding = None
-    if generate_embedding_flag and content:
-        try:
-            embedding = generate_embedding(content)
-        except Exception as e:
-            logger.warning(f"Failed to generate embedding: {e}")
 
     message_id = append_message(
         session_id=session_id,
@@ -1696,16 +1690,13 @@ def append_turn(
         user_id=user_id,
         role=role,
         content=content,
-        tool_call=tool_call,
-        embedding=embedding,
-        keywords=keywords,
+        tool_calls=[tool_call] if tool_call else None,
     )
 
     return {
         "messageId": message_id,
         "sessionId": session_id,
         "role": role,
-        "embeddingGenerated": embedding is not None,
     }
 
 

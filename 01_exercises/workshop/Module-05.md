@@ -273,7 +273,6 @@ def append_turn(
     content: str,
     tool_call: Optional[Dict] = None,
     keywords: Optional[List[str]] = None,
-    generate_embedding_flag: bool = True,
 ) -> Dict[str, Any]:
     """Append a single message to a session's transcript."""
     # Existing code...

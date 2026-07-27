@@ -102,13 +102,7 @@ You'll be prompted for:
 
 Navigate to the infrastructure directory:
 
-**macOS/Linux:**
 ```bash
-cd infra
-```
-
-**Windows (PowerShell):**
-```powershell
 cd infra
 ```
 
@@ -141,7 +135,7 @@ azd up
 
 You'll be prompted for:
 
-1cd ... **Azure location**: Select a region (e.g., `eastus`, `westus2`, `westeurope`)
+1. **Azure location**: Select a region (e.g., `eastus`, `westus2`, `westeurope`)
    - Choose a region close to you for better performance
 
 ### What Happens During Provisioning?
@@ -149,15 +143,22 @@ You'll be prompted for:
 The `azd up` command will:
 
 ✅ Create an Azure resource group: rg-`EnvironmentName`  
-✅ Deploy Azure Cosmos DB with three containers (Users, Places, Memories)  
-✅ Deploy Azure OpenAI with GPT-4 and text-embedding-3-small (1536-dim) embeddings  
+✅ Deploy an Azure Cosmos DB account (`TravelAssistant` database) with all app containers:
+   - Core: `Sessions`, `Messages`, `ApiEvents`, `Users`, `Places`, `Trips`, `Debug`, `Checkpoints`
+   - Memory: `memories`, `memories_turns`, `memories_summaries`, `counter`
+   - Analytics (with `deployAnalytics`, on by default): `OptimizationPolicies`, `OptimizationTurns`, `OptimizationInsights`, `Configuration`
+   - GSI (only with `deployGsi`): `TripsByDestination`
+✅ Deploy an Azure AI Foundry (AIServices) account with the `gpt-5.1` chat model, `gpt-5-mini` and `gpt-5-nano` (optimization tiers), and `text-embedding-3-small` (1536-dim) embeddings  
 ✅ Configure managed identity and role assignments  
 ✅ Create a Python virtual environment (`.venv-travel`)  
 ✅ Install all Python dependencies from `requirements.txt`  
 ✅ Seed Cosmos DB with initial data:
-   - 4 users (Tony Stark, Steve Rogers, Peter Parker, Bruce Banner)
-   - ~2,900 places (hotels, restaurants, activities across multiple cities)
-   - 10 pre-existing memories
+   - 4 app users (the Marvel profiles: Tony Stark, Steve Rogers, Peter Parker, Bruce Banner)
+   - ~2,900 places (490 hotels, 977 restaurants, 1,470 activities across many cities)
+   - 5 trips, 14 long-term memories, and 28 memory turns
+   - Conversation history: 40 sessions and 642 messages
+   - Analytics/optimization baseline: 321 `Debug` turn logs, 321 `OptimizationTurns`, and 1 `OptimizationPolicy`, spanning the `marvel` (4 users) and `analytics_demo` (12 personas) tenants
+   - Model pricing + selection defaults in the `Configuration` container
 
 ### Expected Output
 
@@ -201,14 +202,7 @@ Seeding memories...
 
 Once provisioning is complete, navigate back to the exercises directory and open the project in VS Code:
 
-**macOS/Linux:**
 ```bash
-cd ..
-code .
-```
-
-**Windows (PowerShell):**
-```powershell
 cd ..
 code .
 ```
@@ -253,7 +247,7 @@ Your screen should look like this:
 In the **Overview** tab of your resource group, you should see the following resources:
 
 - **Azure Cosmos DB account** (starts with `cosmos-`)
-- **Azure OpenAI service** (starts with `aoai-`)
+- **Azure AI Foundry (AIServices) account** (starts with `foundry-`)
 - **User Assigned Managed Identity** (starts with `id-`)
 - **Application Insights** (optional, starts with `appi-`)
 
@@ -614,28 +608,19 @@ Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
 1. Activate the virtual environment (see above)
 2. Navigate to the python directory and run the seed script:
 
-   **macOS/Linux:**
    ```bash
    cd python
    python data/seed_data.py
    cd ..
    ```
-   
-   **Windows:**
-   ```powershell
-   cd python
-   python data\seed_data.py
-   cd ..
-   ```
 
 ### Issue: Authentication Error When Seeding Data
 
-**Solution**: Verify your `.env` file configuration:
+**Solution**: The workshop uses **keyless** authentication (Microsoft Entra ID via `DefaultAzureCredential`) — there is no Cosmos key to set. Check the following:
 
-- Check `python/.env` exists and contains `COSMOSDB_ENDPOINT`
-- On Windows, verify `COSMOSDB_KEY` is present
-- Ensure the values match your Azure Cosmos DB account
-- Try logging in to Azure again: `azd auth login`
+- `python/.env` exists and contains `COSMOSDB_ENDPOINT`, and the endpoint matches your Azure Cosmos DB account
+- You're signed in with `az login` — the seed script authenticates through the Azure CLI credential (re-run `azd auth login` too if needed)
+- Your account has data-plane access — the deployment grants the **Cosmos DB Built-in Data Contributor** role to the deploying user
 
 ### Issue: API Server Won't Start
 
@@ -703,7 +688,7 @@ Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
 Congratulations! You've successfully:
 
 - Configured Azure authentication using Azure Developer CLI
-- Provisioned Azure resources (Cosmos DB, Azure OpenAI, and supporting services)
+- Provisioned Azure resources (Cosmos DB, Azure AI Foundry, and supporting services)
 - Verified resources in the Azure Portal
 - Automatically created a Python virtual environment (`.venv-travel`)
 - Installed dependencies and seeded Cosmos DB with users, places, and memories

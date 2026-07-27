@@ -106,7 +106,7 @@ In this workshop, the supervisor is a ReAct agent. In Module 02 we'll add **sub-
 A **checkpointer** persists graph state. The two flavors you'll see in this workshop are:
 
 - `MemorySaver` - keeps state in process memory. Fast, zero infrastructure, but state disappears when the process restarts.
-- `CosmosDBSaver` - persists state to a Cosmos DB container so a conversation can survive a restart and be resumed on any host. You'll wire this up at the end of Module 02.
+- `CosmosDBSaver` - persists state to a Cosmos DB container so a conversation can survive a restart and be resumed on any host. You'll wire this up in Module 03.
 
 For this module we use `MemorySaver` so you can focus on the agent itself.
 
@@ -407,7 +407,14 @@ from typing import Any, Dict, List, Optional
 from dotenv import load_dotenv
 from mcp.server.fastmcp import FastMCP
 
-from src.app.services.azure_open_ai import generate_embedding
+# Ensure stdout/stderr use UTF-8 so emoji in logs/prints don't crash on Windows,
+# where the console defaults to cp1252 and raises UnicodeEncodeError on emoji.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8")
+    except (AttributeError, ValueError):
+        pass
+
 from src.app.services.azure_cosmos_db import (
     create_session_record,
     get_session_by_id,
@@ -526,17 +533,9 @@ def append_turn(
     content: str,
     tool_call: Optional[Dict] = None,
     keywords: Optional[List[str]] = None,
-    generate_embedding_flag: bool = True,
 ) -> Dict[str, Any]:
     """Atomically store a message and update session metadata."""
     logger.info(f"💬 Appending {role} message to session: {session_id}")
-
-    embedding = None
-    if generate_embedding_flag and content:
-        try:
-            embedding = generate_embedding(content)
-        except Exception as e:
-            logger.warning(f"Failed to generate embedding: {e}")
 
     message_id = append_message(
         session_id=session_id,
@@ -544,16 +543,13 @@ def append_turn(
         user_id=user_id,
         role=role,
         content=content,
-        tool_call=tool_call,
-        embedding=embedding,
-        keywords=keywords,
+        tool_calls=[tool_call] if tool_call else None,
     )
 
     return {
         "messageId": message_id,
         "sessionId": session_id,
         "role": role,
-        "embeddingGenerated": embedding is not None,
     }
 
 
@@ -1279,7 +1275,14 @@ from typing import Any, Dict, List, Optional
 from dotenv import load_dotenv
 from mcp.server.fastmcp import FastMCP
 
-from src.app.services.azure_open_ai import generate_embedding
+# Ensure stdout/stderr use UTF-8 so emoji in logs/prints don't crash on Windows,
+# where the console defaults to cp1252 and raises UnicodeEncodeError on emoji.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8")
+    except (AttributeError, ValueError):
+        pass
+
 from src.app.services.azure_cosmos_db import (
     create_session_record,
     get_session_by_id,
@@ -1398,17 +1401,9 @@ def append_turn(
     content: str,
     tool_call: Optional[Dict] = None,
     keywords: Optional[List[str]] = None,
-    generate_embedding_flag: bool = True,
 ) -> Dict[str, Any]:
     """Atomically store a message and update session metadata."""
     logger.info(f"💬 Appending {role} message to session: {session_id}")
-
-    embedding = None
-    if generate_embedding_flag and content:
-        try:
-            embedding = generate_embedding(content)
-        except Exception as e:
-            logger.warning(f"Failed to generate embedding: {e}")
 
     message_id = append_message(
         session_id=session_id,
@@ -1416,16 +1411,13 @@ def append_turn(
         user_id=user_id,
         role=role,
         content=content,
-        tool_call=tool_call,
-        embedding=embedding,
-        keywords=keywords,
+        tool_calls=[tool_call] if tool_call else None,
     )
 
     return {
         "messageId": message_id,
         "sessionId": session_id,
         "role": role,
-        "embeddingGenerated": embedding is not None,
     }
 
 

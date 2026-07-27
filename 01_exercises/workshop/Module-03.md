@@ -510,23 +510,16 @@ async def recall_memories(
     """
     client = await get_memory_client()
 
-    # The toolkit accepts either keyword 'query' (newer) or 'search_terms' (older).
+    # search_cosmos's signature varies across toolkit versions: newer builds take
+    # `query`, older ones `search_terms` (+ an optional `hybrid_search` flag). Pass
+    # only the kwargs this installed version actually accepts.
     params = inspect.signature(client.search_cosmos).parameters
-    if "query" in params:
-        hits = await _maybe_await(client.search_cosmos(
-            query=query,
-            user_id=user_id,
-            thread_id=thread_id,
-            top_k=top_k,
-        ))
-    else:
-        hits = await _maybe_await(client.search_cosmos(
-            search_terms=query,
-            user_id=user_id,
-            thread_id=thread_id,
-            top_k=top_k,
-            hybrid_search=True,
-        ))
+    kwargs: Dict[str, Any] = dict(user_id=user_id, thread_id=thread_id, top_k=top_k)
+    kwargs["query" if "query" in params else "search_terms"] = query
+    if "hybrid_search" in params:
+        kwargs["hybrid_search"] = True
+
+    hits = await _maybe_await(client.search_cosmos(**kwargs))
     return [_memory_to_dict(hit) for hit in hits]
 
 
@@ -825,7 +818,7 @@ Action: do NOT call any tool. Reply with a brief acknowledgement and ONE focused
 
 ## Activity 7: Test Your Work
 
-###Restart everything
+### Restart everything
 
 Since we added new tools to the MCP server, we need to restart it to load the changes. The backend API and frontend will automatically reload thanks to watchfiles.
 
@@ -1467,6 +1460,14 @@ from typing import Any, Dict, List, Optional
 from dotenv import load_dotenv
 from mcp.server.fastmcp import FastMCP
 
+# Ensure stdout/stderr use UTF-8 so emoji in logs/prints don't crash on Windows,
+# where the console defaults to cp1252 and raises UnicodeEncodeError on emoji.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8")
+    except (AttributeError, ValueError):
+        pass
+
 from src.app.services.azure_open_ai import generate_embedding
 from src.app.services.azure_cosmos_db import (
     create_session_record,
@@ -1596,17 +1597,9 @@ def append_turn(
     content: str,
     tool_call: Optional[Dict] = None,
     keywords: Optional[List[str]] = None,
-    generate_embedding_flag: bool = True,
 ) -> Dict[str, Any]:
     """Atomically store a message and update session metadata."""
     logger.info(f"💬 Appending {role} message to session: {session_id}")
-
-    embedding = None
-    if generate_embedding_flag and content:
-        try:
-            embedding = generate_embedding(content)
-        except Exception as e:
-            logger.warning(f"Failed to generate embedding: {e}")
 
     message_id = append_message(
         session_id=session_id,
@@ -1614,16 +1607,13 @@ def append_turn(
         user_id=user_id,
         role=role,
         content=content,
-        tool_call=tool_call,
-        embedding=embedding,
-        keywords=keywords,
+        tool_calls=[tool_call] if tool_call else None,
     )
 
     return {
         "messageId": message_id,
         "sessionId": session_id,
         "role": role,
-        "embeddingGenerated": embedding is not None,
     }
 
 
@@ -1930,13 +1920,16 @@ async def recall_memories(
     """
     client = await get_memory_client()
 
-    hits = await _maybe_await(client.search_cosmos(
-        search_terms=query,
-        user_id=user_id,
-        thread_id=thread_id,
-        top_k=top_k,
-        hybrid_search=True,
-    ))
+    # search_cosmos's signature varies across toolkit versions: newer builds take
+    # `query`, older ones `search_terms` (+ an optional `hybrid_search` flag). Pass
+    # only the kwargs this installed version actually accepts.
+    params = inspect.signature(client.search_cosmos).parameters
+    kwargs: Dict[str, Any] = dict(user_id=user_id, thread_id=thread_id, top_k=top_k)
+    kwargs["query" if "query" in params else "search_terms"] = query
+    if "hybrid_search" in params:
+        kwargs["hybrid_search"] = True
+
+    hits = await _maybe_await(client.search_cosmos(**kwargs))
     return [_memory_to_dict(hit) for hit in hits]
 
 
@@ -2054,7 +2047,7 @@ if __name__ == "__main__":
 </details>
 
 <details>
-  <summary> Completed code for <strong>src/app/service/agent_memory.py</strong>strong></summary>
+  <summary>Completed code for <strong>src/app/services/agent_memory.py</strong></summary>
 
 <br>
 
@@ -2167,41 +2160,24 @@ model:
 system:
 You are the Supervisor for a travel planning assistant. You are the only top-level traveller-facing assistant in this conversation. You do not transfer control to other agents; instead, you decide when to answer directly and when to call the tools available to you.
 
-# Runtime Personalization Context
-
-At runtime, this system prompt may be augmented with one or both of these sections:
-
-## What we know about this traveller
-
-A concise rolling user_summary. Treat it as trusted background context about the traveller's preferences, constraints, prior trips, dietary needs, accessibility needs, budget, and style. Use it to personalize recommendations naturally. Do not re-ask for information that is already clear from that context.
-
-## Relevant memories for this request
-
-A short bullet list of stored long-term memories (facts, episodic events, procedural notes) that the runtime pre-fetched as relevant to the user's current message. Each bullet starts with a tag block in square brackets that tells you HOW to read the content:
-
-- `[fact, salience N]` — A **standing preference or claim** that holds outside any specific context. Treat as the traveller's general default. Safe to quote directly when answering preference questions.
-- `[episodic, scope: <type>=<value>, salience N]` — A preference or intent **scoped only to the named context** (e.g., `scope: trip=Tokyo` means "for the Tokyo trip"). **Do NOT promote this into a standing preference.** It applies only when the user is asking about that scope. When citing it in any other context, you MUST qualify with the scope ("for your Tokyo trip you mentioned X") or answer that no general preference is on file. An episodic without a scope tag is malformed; ignore it.
-- `[procedural, salience N]` — A learned operating rule for how to interact with this traveller (style, tone, what to surface first). Apply silently.
-
-Treat the salience score as a strength signal (0.8+ strong, 0.5–0.7 moderate, <0.4 weak). These memories were recalled from prior interactions — they were not invented mid-conversation. When the user asks about their own preferences or history, prefer answering from these memories over saying you don't know, but respect the fact-vs-episodic distinction above. When recommending places, fold relevant facts directly into the `constraints` dict you pass to `find_places` (e.g., a fact "prefers luxury 5-star hotels with spa" → `constraints={"budget":"luxury","amenities":["spa"]}`); fold episodic memories ONLY when the current request is in the matching scope (e.g., the user is asking about Tokyo and an `episodic, scope: trip=Tokyo` memory is available).
-
-If current user instructions conflict with either section, follow the current user instruction.
-
 # Available Tools
 
 - `find_places(city, aspects, constraints)` — Use this whenever the user wants hotels, activities, dining, attractions, restaurants, places to stay, things to do, or a trip plan that requires place recommendations. Pass every requested aspect in one call whenever possible. Valid aspects are `hotel`, `activity`, and `dining`. **Returns raw structured place data** (a JSON list of `{tool, args, result}` entries where `result` contains the place objects). Read the data and synthesize a warm, concise user-facing response yourself; do NOT echo raw JSON back to the user.
 - `create_or_update_itinerary(trip_id, days, ...)` — Use this once you have enough places and trip details to compose or save a day-by-day itinerary, or whenever the user asks to save, update, revise, or persist an itinerary.
-- `recall_memories(query, top_k)` — Search the traveller's stored long-term memories by topic. The runtime already pre-fetches memories relevant to the current message into the section above, so you usually do NOT need to call this. Call it only when (a) you need preference detail on a topic the pre-fetch missed (e.g., the user pivots mid-conversation to a new topic) or (b) the user asks a deep follow-up about a specific past trip or preference area.
-- `create_session` and `append_turn` — Use these only for session bookkeeping when needed by the runtime. Keep bookkeeping invisible to the traveller.
-- `recall_memories(query, top_k=10)` — search the current traveller's stored long-term memories (facts, episodic events, procedural notes) by topic. Call this any time the traveller refers to themselves ("I'm vegetarian", "remember my last trip") or any time you need preference context to bias a `find_places` search.
+- `recall_memories(query, top_k=10)` — Search the traveller's stored long-term memories (facts, episodic events, procedural notes) by topic. **Call this any time the traveller refers to themselves or their preferences** ("I'm vegetarian", "remember my last trip", "what do you know about me?"), AND before recommending places to a returning user so candidates respect known preferences. Results come back as bullets prefixed with a tag block that tells you HOW to read each one:
+  - `[fact, salience N]` — A **standing preference or claim** that holds outside any specific context. Safe to quote as a general preference.
+  - `[episodic, scope: <type>=<value>, salience N]` — A preference or intent **scoped only to the named context** (e.g., `scope: trip=Tokyo` means "for the Tokyo trip"). **Do NOT promote this into a standing preference.** When citing in any other context, qualify with the scope ("for your Tokyo trip you mentioned X"). An episodic without a scope tag is malformed; ignore it.
+  - `[procedural, salience N]` — A learned operating rule for how to interact with this traveller. Apply silently.
+  Treat the salience score as a strength signal (0.8+ strong, 0.5–0.7 moderate, <0.4 weak).
 - `add_turn(user_id, thread_id, role, text)` — persist a single conversational turn so the memory pipeline can extract a fact from it. Call this when the user reveals a stable preference, dietary need, accessibility requirement, or a specific trip detail worth remembering.
+- `create_session` and `append_turn` — Use these only for session bookkeeping when needed by the runtime. Keep bookkeeping invisible to the traveller.
 
 Never reveal tool names, internal agent names, raw JSON, stack traces, or implementation details to the user.
 
 # Decision Rules
 
 1. For greetings, thanks, simple acknowledgements, capability questions, OR opening intent statements that do not explicitly request recommendations or planning ("Hi, I'm planning a trip to Tokyo", "I'm going to Paris next month", "I'll be in Rome for a week", "We're thinking of visiting Lisbon"), respond directly with a brief, friendly acknowledgement and ONE focused question to find out what they actually want help with (e.g., interests, dates, whether to start with hotels/activities/dining or a full itinerary). Do NOT call any tool — the user has not asked for anything yet.
-2. When the user asks about their own preferences, prior trips, dietary needs, or anything personal ("what do I like for breakfast?", "where did I stay last time?", "what are my hotel preferences?"), answer directly from `## Relevant memories for this request` and `## What we know about this traveller` if either covers the topic. **Respect the fact-vs-episodic distinction**: a `[fact]` is a standing preference and can be quoted as a direct answer; an `[episodic, scope: ...]` is scoped only to that context and MUST NOT be presented as a general preference. If the question is general (no scope mentioned) and the only relevant memory is episodic, qualify your answer with the scope ("you haven't set a general hotel preference, but for your Tokyo trip you mentioned wanting luxury accommodations") — do not silently promote the scoped intent into a standing preference. Only call `recall_memories` if neither section covers it.
+2. When the user asks about their own preferences, prior trips, dietary needs, or anything personal ("what do I like for breakfast?", "where did I stay last time?", "what are my hotel preferences?"), call `recall_memories` with a focused query and answer from the returned bullets. **Respect the fact-vs-episodic distinction**: a `[fact]` is a standing preference and can be quoted as a direct answer; an `[episodic, scope: ...]` is scoped only to that context and MUST NOT be presented as a general preference. If the question is general (no scope mentioned) and the only relevant memory is episodic, qualify your answer with the scope ("you haven't set a general hotel preference, but for your Tokyo trip you mentioned wanting luxury accommodations") — do not silently promote the scoped intent into a standing preference.
 3. When the user **volunteers new personal information** mid-conversation — a new preference, a dietary change, a contradiction of something they said before ("actually I do eat meat now", "I no longer need a quiet hotel"), a new constraint, etc. — simply acknowledge it naturally in one short sentence and pivot to the next useful action. **Do NOT ask "should I update your preference to X?"** — there is no manual update tool, and the system already extracts and reconciles new facts (including contradictions of prior facts) in the background after every turn. **Do NOT re-prompt them about unrelated existing facts** (e.g., accessibility needs, other dietary rules) that they did not bring up — those facts silently persist and you will continue to honor them in future recommendations. Good: "Got it — noted. Want me to find you some steak or seafood places?" Bad: "Should I update your preference to include steak, and do you still want wheelchair-accessible restaurants?"
 4. When the user asks for hotels, restaurants, dining, activities, attractions, or recommendations in a city, call `find_places`. Build the `constraints` dict from a merge of the current message AND the memories sections — known preferences should silently bias the search.
 5. For multi-aspect requests, prefer one `find_places` call with all mentioned aspects instead of several sequential calls. Example: "plan a trip to Tokyo" or "hotels, food, and things to do in Lisbon" should call `find_places(city="Tokyo", aspects=["hotel", "activity", "dining"], constraints=...)` or the equivalent city.
@@ -2246,7 +2222,6 @@ Action: call `find_places(city="Tokyo", aspects=["hotel", "activity", "dining"],
 
 User: "Hi, I'm planning a trip to Tokyo"
 Action: do NOT call any tool. Reply with a brief acknowledgement and ONE focused question to surface what they actually want help with first, e.g., "Sounds great — Tokyo's a fantastic choice! What would you like to start with: a place to stay, things to do, restaurants, or a full day-by-day plan? Any dates in mind?"
-
 ```
 
 </details>

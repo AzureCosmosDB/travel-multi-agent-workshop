@@ -1,6 +1,6 @@
 # AI models and pricing
 
-The optimization analytics (Modules 07/08, the Optimization Console, the Fabric
+The optimization analytics (Modules 07–09, the Optimization Console, the Fabric
 notebook, and the Power BI report) put a **dollar cost** on agent turns. That cost
 needs a price per model. This page explains which models the workshop deploys, where
 their prices come from, and what to do when you change a model.
