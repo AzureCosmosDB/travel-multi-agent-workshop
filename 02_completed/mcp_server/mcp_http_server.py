@@ -169,7 +169,6 @@ def append_turn(
     content: str,
     tool_call: Optional[Dict] = None,
     keywords: Optional[List[str]] = None,
-    generate_embedding_flag: bool = True
 ) -> Dict[str, Any]:
     """
     Atomically store a message and update session metadata.
@@ -182,20 +181,11 @@ def append_turn(
         content: Message content
         tool_call: Optional tool call information
         keywords: Optional list of keywords
-        generate_embedding_flag: Whether to generate embedding (default: True)
         
     Returns:
         Dictionary with messageId and metadata
     """
     logger.info(f"💬 Appending {role} message to session: {session_id}")
-    
-    # Generate embedding if requested
-    embedding = None
-    if generate_embedding_flag and content:
-        try:
-            embedding = generate_embedding(content)
-        except Exception as e:
-            logger.warning(f"Failed to generate embedding: {e}")
     
     message_id = append_message(
         session_id=session_id,
@@ -203,16 +193,13 @@ def append_turn(
         user_id=user_id,
         role=role,
         content=content,
-        tool_call=tool_call,
-        embedding=embedding,
-        keywords=keywords
+        tool_calls=[tool_call] if tool_call else None,
     )
     
     return {
         "messageId": message_id,
         "sessionId": session_id,
         "role": role,
-        "embeddingGenerated": embedding is not None
     }
 # ============================================================================
 # 2. Memory Tools
@@ -278,22 +265,16 @@ async def recall_memories(
     Returns up to top_k records ranked by relevance."""
     client = await get_memory_client()
 
+    # search_cosmos's signature varies across toolkit versions: newer builds take
+    # `query`, older ones `search_terms` (+ an optional `hybrid_search` flag). Pass
+    # only the kwargs this installed version actually accepts.
     params = inspect.signature(client.search_cosmos).parameters
-    if "query" in params:
-        hits = await _maybe_await(client.search_cosmos(
-            query=query,
-            user_id=user_id,
-            thread_id=thread_id,
-            top_k=top_k,
-        ))
-    else:
-        hits = await _maybe_await(client.search_cosmos(
-            search_terms=query,
-            user_id=user_id,
-            thread_id=thread_id,
-            top_k=top_k,
-            hybrid_search=True,
-        ))
+    kwargs: Dict[str, Any] = dict(user_id=user_id, thread_id=thread_id, top_k=top_k)
+    kwargs["query" if "query" in params else "search_terms"] = query
+    if "hybrid_search" in params:
+        kwargs["hybrid_search"] = True
+
+    hits = await _maybe_await(client.search_cosmos(**kwargs))
     # Exclude memories soft-pruned by the SCEN-004 retention policy (best-effort:
     # applies where the memory client surfaces the retention_status field).
     return [
