@@ -105,36 +105,104 @@ assert classify_turn_tier("plan my trip to Tokyo") == "complex"
 
 ### Wire the enforcement hooks
 
-Two small hooks let the policy actually pick a model per turn.
+Three edits let the policy actually pick a model per turn **and** record which model served it. Each points at a specific spot in code you already have.
 
-**Hook A — make your supervisor buildable with any model.** If your supervisor is constructed inline, extract that into a function taking a chat model, then register it once at startup so the layer can build a supervisor per tier:
+#### Step 1 — Hook A: make your supervisor buildable with any model
 
-```python
-def create_supervisor(chat_model):
-    return create_react_agent(chat_model, tools=[...], prompt=..., checkpointer=...)
-
-# once, e.g. in setup_agents:
-from src.app.services import optimization
-optimization.register_supervisor_factory(create_supervisor)
-```
-
-**Hook B — select the tier's supervisor per turn.** Where you currently do `workflow = build_agent_graph()`, use the tiered selector (it returns your default graph when no policy is active, so this is safe):
+Open `01_exercises/python/src/app/travel_agents.py` and find the `setup_agents()` function you wrote in Module 02. Near the end it builds the supervisor with a single assignment:
 
 ```python
-workflow, deployment, tier = optimization.get_supervisor_for_turn(
-    messages, default_graph=build_agent_graph()
-)
+    supervisor_agent = _create_agent(
+        _bind_parallel_tool_calls(model),
+        tools=_build_supervisor_tools(),
+        prompt_text=load_prompt("supervisor"),
+        checkpointer=checkpointer or MemorySaver(),
+    )
 ```
 
-Then update your Module 07 record hook to log the **real** tier/deployment instead of `"default"`:
+**Replace that assignment** with a factory (so any chat model can build a supervisor), register the factory with the optimization layer, then call it once for the default model:
 
 ```python
-optimization.record_optimization_turn(
-    tenant_id=tenantId, user_id=userId, session_id=sessionId,
-    tier=tier, deployment=deployment,
-    usage={...}, model_name=model_name,
-)
+    from src.app.services import optimization
+
+    def _supervisor_factory(chat_model):
+        return _create_agent(
+            _bind_parallel_tool_calls(chat_model),
+            tools=_build_supervisor_tools(),
+            prompt_text=load_prompt("supervisor"),
+            checkpointer=checkpointer or MemorySaver(),
+        )
+
+    optimization.register_supervisor_factory(_supervisor_factory)
+    supervisor_agent = _supervisor_factory(model)
 ```
+
+#### Step 2 — Hook B: select the tier's supervisor per turn
+
+Open `01_exercises/python/src/app/travel_agents_api.py` and **search for `async def get_chat_completion`**. Inside it, find the `config = { ... }` block (the one with `"thread_id": sessionId`). **Immediately after that block closes**, and before the `# Retrieve last checkpoint` line, add:
+
+```python
+        # Module 08 Hook B — pick the tier's supervisor for this turn
+        # (returns the default graph unchanged when no policy is active).
+        workflow, deployment, tier = optimization.get_supervisor_for_turn(
+            [{"role": "user", "content": request_body}], default_graph=build_agent_graph()
+        )
+```
+
+This overrides the injected `workflow` with the tier's supervisor for this turn, and hands you the `tier` and `deployment` the router picked.
+
+#### Step 3 — record the *real* tier
+
+In Module 07 your record hook lives inside `store_debug_log_from_response` (a background helper), so the `tier`/`deployment` from Hook B must be handed down to it. Make these four edits, all in `travel_agents_api.py`:
+
+**(a)** Still in `get_chat_completion`, find the `background_tasks.add_task(` call (it passes `_post_response_background, sessionId, tenantId, ...`). Add `tier` and `deployment` as the last two arguments:
+
+```python
+        background_tasks.add_task(
+            _post_response_background,
+            sessionId, tenantId, userId, response_data, messages, debug_log_id, request_body,
+            tier, deployment,
+        )
+```
+
+**(b)** **Search for `async def _post_response_background`** and add two parameters to its signature:
+
+```python
+async def _post_response_background(sessionId: str, tenantId: str, userId: str, response_data, messages,
+                                    debug_log_id: str, user_message_text: str = "",
+                                    tier: str = "default", deployment: Optional[str] = None):
+```
+
+**(c)** A few lines into that same function, find the `await asyncio.to_thread(store_debug_log_from_response, ...)` call and forward the two values:
+
+```python
+        await asyncio.to_thread(
+            store_debug_log_from_response,
+            sessionId, tenantId, userId, response_data,
+            debug_log_id=debug_log_id, tier=tier, deployment=deployment,
+        )
+```
+
+**(d)** **Search for `def store_debug_log_from_response`** and add the two parameters to its signature:
+
+```python
+def store_debug_log_from_response(sessionId: str, tenantId: str, userId: str, response_data: List[Dict],
+                                  debug_log_id: Optional[str] = None,
+                                  tier: str = "default", deployment: Optional[str] = None) -> str:
+```
+
+Finally, update the `record_optimization_turn(...)` call you added in Module 07 (inside `store_debug_log_from_response`) to log the **real** tier/deployment instead of `"default"`:
+
+```python
+        optimization.record_optimization_turn(
+            tenant_id=tenantId, user_id=userId, session_id=sessionId,
+            tier=tier, deployment=deployment or AZURE_OPENAI_DEPLOYMENT,
+            usage={"input_tokens": input_tokens, "output_tokens": output_tokens,
+                   "total_tokens": total_tokens, "cached_tokens": cached_tokens},
+            model_name=model_name,
+        )
+```
+
 
 ### Apply the policy
 

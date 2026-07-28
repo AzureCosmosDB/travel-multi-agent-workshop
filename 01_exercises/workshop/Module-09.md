@@ -65,7 +65,7 @@ Run the first two cells. The read cell pulls the mirrored tables via the SQL end
 
 ## Activity 3: Build the Decision (`cause` classification)
 
-**TODO 1** is yours — the analytics decision (the notebook analog of `classify_turn_tier`). For every **non-converting** session, add a `cause` column that explains *why* it leaked, in this order:
+In the notebook you opened in Activity 2, scroll to the section headed **`## 3. TODO 1 — classify the abandonment cause`**. The code cell just below it contains a `# ---- TODO 1 ----` placeholder — this is the analytics decision (the notebook analog of `classify_turn_tier`). **Replace that placeholder** with the classification below. For every **non-converting** session it adds a `cause` column that explains *why* it leaked, in this order:
 
 | Condition | `cause` |
 |---|---|
@@ -90,7 +90,7 @@ The next cell (provided) shapes the results into **flat** `OptimizationInsights`
 
 ## Activity 4: Reverse-ETL the Insights Back to Cosmos
 
-**TODO 2** is the pattern this module teaches. Write the three DataFrames (`funnel_df`, `cause_df`, `kpi_df`) back to the Cosmos **`OptimizationInsights`** container using the Spark Cosmos connector (the `cosmos_write` options are provided; Fabric authenticates to Cosmos with your Entra token):
+Scroll to the section headed **`## 5. TODO 2 — reverse-ETL the insights back to Cosmos`**. Its code cell contains a `# ---- TODO 2 ----` placeholder — this is the pattern this module teaches. **Replace that placeholder** with the write below. It sends the three DataFrames (`funnel_df`, `cause_df`, `kpi_df`) back to the Cosmos **`OptimizationInsights`** container using the Spark Cosmos connector (the `cosmos_write` options are already defined in the cell above; Fabric authenticates to Cosmos with your Entra token):
 
 ```python
 for df in (funnel_df, cause_df, kpi_df):

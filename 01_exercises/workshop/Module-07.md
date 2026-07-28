@@ -98,33 +98,50 @@ Both are provided; the Cosmos containers they use (`OptimizationTurns`, `Optimiz
 
 ### Hook 1 — mount the REST surface
 
-In `travel_agents_api.py`, next to your other routers/middleware:
+Open `01_exercises/python/src/app/travel_agents_api.py`. Near the top of the file, find the CORS middleware block — it starts with `app.add_middleware(`:
 
 ```python
+app.add_middleware(
+    CORSMiddleware,
+    ...
+)
+```
+
+**Immediately after that block** (before the `# Health & Status Endpoints` section), add the imports and mount the optimization router:
+
+```python
+# Module 07 — mount the optimization / analytics REST surface
 from src.app.optimization_api import router as optimization_router
+from src.app.services import optimization
+from src.app.services.azure_open_ai import AZURE_OPENAI_DEPLOYMENT
 app.include_router(optimization_router)
 ```
 
 ### Hook 2 — record every turn
 
-In your completion handler, after you invoke the graph and extract token usage (you already do this), record the turn. For now every turn runs on the default model, so record tier `"default"`:
+Still in `travel_agents_api.py`, **search for `def store_debug_log_from_response`**. This helper runs after every turn — it already pulls the token usage out of the model response and writes your debug log, so it's exactly where the per-turn optimization record belongs (the completion handler itself never sees the token counts).
+
+Inside that function's `try` block, find the `stored_id = store_debug_log(` call. **Immediately after that call closes** (the line with `)`), and before the `logger.info(...)` line just below it, add:
 
 ```python
-from src.app.services import optimization
-from src.app.services.azure_open_ai import AZURE_OPENAI_DEPLOYMENT
-
-optimization.record_optimization_turn(
-    tenant_id=tenantId, user_id=userId, session_id=sessionId,
-    tier="default", deployment=AZURE_OPENAI_DEPLOYMENT,
-    usage={"input_tokens": input_tokens, "output_tokens": output_tokens,
-           "total_tokens": total_tokens, "cached_tokens": cached_tokens},
-    model_name=model_name,
-)
+        # Module 07 — record this turn for optimization analytics.
+        # Every turn runs on the default model for now, so record tier "default".
+        optimization.record_optimization_turn(
+            tenant_id=tenantId, user_id=userId, session_id=sessionId,
+            tier="default", deployment=AZURE_OPENAI_DEPLOYMENT,
+            usage={"input_tokens": input_tokens, "output_tokens": output_tokens,
+                   "total_tokens": total_tokens, "cached_tokens": cached_tokens},
+            model_name=model_name,
+        )
 ```
 
-Restart your API. Nothing behaves differently — but every turn now lands in `OptimizationTurns`. That's the **instrument** step of the loop.
+You're reusing the `input_tokens`, `output_tokens`, `total_tokens`, `cached_tokens`, and `model_name` variables that this function already computed a few lines above — and `optimization` / `AZURE_OPENAI_DEPLOYMENT` are the imports you added in Hook 1.
 
-> In Module 08 you'll replace `tier="default"` with the *real* tier the router picks — the same hook then records which model actually served each turn.
+### Save and let the API reload
+
+The travel API runs under uvicorn with `--reload`, so **saving the file auto-reloads it — no manual restart is needed** (watch Terminal 2 for the reload line). If the API isn't running, start it with the Terminal 2 command from [Module 00](./Module-00.md). Nothing behaves differently in the chat — but every turn now lands in the `OptimizationTurns` container. That's the **instrument** step of the loop.
+
+> In Module 08 you'll replace `tier="default"` in this same `record_optimization_turn(...)` call with the *real* tier the router picks — so this hook then records which model actually served each turn.
 
 ---
 
