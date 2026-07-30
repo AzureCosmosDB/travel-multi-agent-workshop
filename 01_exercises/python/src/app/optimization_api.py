@@ -131,6 +131,20 @@ def get_metrics(tenant_id: str, source: str = "auto") -> dict[str, Any]:
     return optimization.build_turn_metrics(tenant_id)
 
 
+@router.get("/{tenant_id}/result")
+def get_optimization_result(tenant_id: str) -> dict[str, Any]:
+    """Measured before/after impact of applied optimizations (counterfactual saving).
+
+    Computed analytically (Fabric / reverse-ETL) and read here — keyed by scenario,
+    not by tenant. Empty until the analytics loop has measured this tenant.
+    """
+    res = optimization.read_optimization_result_from_insights(tenant_id)
+    if res is None:
+        return {"tenant_id": tenant_id, "source": "fabric", "results": [],
+                "note": "no measured result yet; run the analytics loop"}
+    return res
+
+
 @router.get("/{scenario}/policy")
 def get_scenario_policy(scenario: str) -> dict[str, Any]:
     doc = optimization.get_policy(scenario)

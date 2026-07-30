@@ -613,6 +613,26 @@ def read_metrics_from_insights(tenant_id: str) -> dict[str, Any] | None:
     return metrics
 
 
+def read_optimization_result_from_insights(tenant_id: str) -> dict[str, Any] | None:
+    """Measured before/after results (counterfactual saving etc.) for a tenant, or None."""
+    container = _insights_container()
+    if container is None:
+        return None
+    try:
+        rows = list(container.query_items(
+            query="SELECT * FROM d WHERE d.tenantId=@t AND d.type='optimization_result'",
+            parameters=[{"name": "@t", "value": tenant_id}],
+            enable_cross_partition_query=True,
+        ))
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(f"reverse-ETL result read failed: {exc}")
+        return None
+    if not rows:
+        return None
+    results = [{k: v for k, v in r.items() if not k.startswith("_")} for r in rows]
+    return {"tenant_id": tenant_id, "source": "fabric", "results": results}
+
+
 # ---------------------------------------------------------------------------
 # SCEN-004 — memory retention: a lower-risk AUTONOMOUS (L4/L5) policy. Memory
 # accumulates superseded ("stale") entries as preferences change; applying the

@@ -144,6 +144,49 @@ def build_recommendation_rows(tenant_id: str) -> list[dict]:
     return rows
 
 
+def build_optimization_result_rows(tenant_id: str, turns_container) -> list[dict]:
+    """Measure the REAL before/after saving via counterfactual (shadow) scoring.
+
+    For every captured turn, price it under the model it actually ran on vs. under
+    the all-premium baseline (gpt-5.1). ``saving = baseline_cost - actual_cost`` —
+    exact for a price-only optimization (same tokens, different unit price). This
+    is keyed by *scenario* (the experiment identity), never by tenant, and needs
+    no A/B tenant fork or time split: a baseline (single-model) tenant scores ~0
+    saving, a tiered one scores the true delta. Emitted as a flat
+    ``optimization_result`` row so Power BI can read it with trivial DAX.
+    """
+    from src.app.services import optimization_recommendations as rec
+
+    pricing = rec.load_pricing()
+    baseline = pricing.get("gpt-5.1", {"input": 1.25, "output": 10.00})
+    turns = list(turns_container.query_items(
+        query=("SELECT c.model_deployment, c.model_name, c.input_tokens, c.output_tokens "
+               "FROM c WHERE c.tenantId=@t"),
+        parameters=[{"name": "@t", "value": tenant_id}],
+        enable_cross_partition_query=True,
+    ))
+    actual_cost = baseline_cost = 0.0
+    for d in turns:
+        i = int(d.get("input_tokens") or 0)
+        o = int(d.get("output_tokens") or 0)
+        dep = d.get("model_deployment") or d.get("model_name") or "gpt-5.1"
+        pin, pout = rec._price_for(pricing, dep)
+        actual_cost += (i * pin + o * pout) / 1_000_000
+        baseline_cost += (i * baseline["input"] + o * baseline["output"]) / 1_000_000
+    saving = baseline_cost - actual_cost
+    return [{
+        "id": f"result::{tenant_id}::model-selection::counterfactual",
+        "type": "optimization_result", "tenantId": tenant_id,
+        "scenario": "model-selection", "method": "counterfactual",
+        "turns": len(turns),
+        "baseline_cost_usd": round(baseline_cost, 4),
+        "actual_cost_usd": round(actual_cost, 4),
+        "saving_usd": round(saving, 4),
+        "saving_pct": round(100 * saving / baseline_cost, 1) if baseline_cost else 0.0,
+        "computed_at": _now(),
+    }]
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description="Reverse-ETL: compute insights -> OptimizationInsights.")
     ap.add_argument("--tenant", required=True)
@@ -172,6 +215,14 @@ def main() -> None:
     for r in rec_rows:
         rec_kinds[r["type"]] = rec_kinds.get(r["type"], 0) + 1
     print(f"✅ reverse-ETL wrote {len(rec_rows)} recommendation rows for '{args.tenant}': {rec_kinds}")
+
+    # Measure the real before/after (counterfactual) saving and write it back too.
+    res_rows = build_optimization_result_rows(args.tenant, db.get_container_client("OptimizationTurns"))
+    for r in res_rows:
+        container.upsert_item(r)
+    for r in res_rows:
+        print(f"✅ reverse-ETL wrote optimization_result for '{args.tenant}': "
+              f"turns={r['turns']} saving=${r['saving_usd']} ({r['saving_pct']}% vs all-premium baseline)")
 
 
 if __name__ == "__main__":
