@@ -93,13 +93,41 @@ def fabric_capacity_resume() -> dict[str, Any]:
 
 
 @router.get("/{tenant_id}")
-def get_recommendations(tenant_id: str) -> dict[str, Any]:
-    return {"tenant_id": tenant_id, "recommendations": optimization.build_recommendations(tenant_id)}
+def get_recommendations(tenant_id: str, source: str = "auto") -> dict[str, Any]:
+    """Candidate optimization cards.
+
+    ``source``: ``auto`` (default) returns the Fabric-computed cards reverse-ETL'd
+    into OptimizationInsights when present, else an in-app compute; ``fabric`` only
+    the reverse-ETL'd cards (may be empty); ``live`` always recomputes in-app.
+    """
+    recs = None
+    used = "live"
+    if source in ("auto", "fabric"):
+        recs = optimization.read_recommendations_from_insights(tenant_id)
+        if recs is not None:
+            used = "fabric"
+    if recs is None:
+        if source == "fabric":
+            recs, used = [], "fabric"
+        else:
+            recs, used = optimization.build_recommendations(tenant_id), "live"
+    return {"tenant_id": tenant_id, "source": used, "recommendations": recs}
 
 
 @router.get("/{tenant_id}/metrics")
-def get_metrics(tenant_id: str) -> dict[str, Any]:
-    """Aggregate KPIs for the Optimization Console (turns, cost, tiers, outcomes)."""
+def get_metrics(tenant_id: str, source: str = "auto") -> dict[str, Any]:
+    """Aggregate KPIs for the Optimization Console (turns, cost, tiers, outcomes).
+
+    Prefers the Fabric-computed (reverse-ETL'd) metrics; falls back to in-app.
+    Pass ``source=live`` to force the in-app compute.
+    """
+    if source in ("auto", "fabric"):
+        metrics = optimization.read_metrics_from_insights(tenant_id)
+        if metrics is not None:
+            return metrics
+        if source == "fabric":
+            return {"tenant_id": tenant_id, "source": "fabric",
+                    "note": "no reverse-ETL metrics yet; run the analytics loop"}
     return optimization.build_turn_metrics(tenant_id)
 
 

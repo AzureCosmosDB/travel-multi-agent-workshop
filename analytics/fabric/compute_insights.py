@@ -115,6 +115,35 @@ def build_insight_rows(tenant_id: str) -> list[dict]:
     return rows
 
 
+def build_recommendation_rows(tenant_id: str) -> list[dict]:
+    """Reverse-ETL the recommendation *cards* + turn metrics the Console reads.
+
+    Closes the loop the workshop teaches: instead of the Optimization Console
+    recomputing these aggregations from Cosmos on every request, the analytics
+    plane (this script / the Fabric notebook) computes them and writes them back
+    to ``OptimizationInsights``, where the app reads them cheaply. The volatile
+    policy ``status`` is re-stamped live by the app on read — analysis is
+    analytical, but acting (apply/revert) stays operational.
+    """
+    from src.app.services import optimization_recommendations as rec
+
+    now = _now()
+    rows: list[dict] = []
+    for order, card in enumerate(rec.build_recommendations(tenant_id)):
+        rows.append({
+            "id": f"reccard::{tenant_id}::{card.get('scenario')}",
+            "type": "recommendation_card", "tenantId": tenant_id,
+            "scenario": card.get("scenario"), "scenario_id": card.get("scenario_id"),
+            "order": order, "card": card, "computed_at": now,
+        })
+    rows.append({
+        "id": f"metrics::{tenant_id}",
+        "type": "turn_metrics", "tenantId": tenant_id,
+        "metrics": rec.build_turn_metrics(tenant_id), "computed_at": now,
+    })
+    return rows
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description="Reverse-ETL: compute insights -> OptimizationInsights.")
     ap.add_argument("--tenant", required=True)
@@ -133,6 +162,16 @@ def main() -> None:
     for r in rows:
         kinds[r["type"]] = kinds.get(r["type"], 0) + 1
     print(f"✅ reverse-ETL wrote {len(rows)} insight rows for '{args.tenant}': {kinds}")
+
+    # Also reverse-ETL the recommendation *cards* + turn metrics the Optimization
+    # Console reads, so it no longer recomputes aggregations from Cosmos per request.
+    rec_rows = build_recommendation_rows(args.tenant)
+    for r in rec_rows:
+        container.upsert_item(r)
+    rec_kinds: dict[str, int] = {}
+    for r in rec_rows:
+        rec_kinds[r["type"]] = rec_kinds.get(r["type"], 0) + 1
+    print(f"✅ reverse-ETL wrote {len(rec_rows)} recommendation rows for '{args.tenant}': {rec_kinds}")
 
 
 if __name__ == "__main__":

@@ -186,6 +186,95 @@ def build_recommendations(tenant_id: str) -> list[dict[str, Any]]:
 
 
 # ---------------------------------------------------------------------------
+# Read the Fabric-computed (reverse-ETL'd) cards/metrics from OptimizationInsights.
+# This CLOSES the analytics loop: the Console reads pre-computed results instead
+# of recomputing aggregations from Cosmos on every request. The in-app build_*
+# functions above remain the low-dependency "peek" (Module 07) / --local fallback,
+# used automatically whenever the loop hasn't populated OptimizationInsights yet.
+# ---------------------------------------------------------------------------
+
+INSIGHTS_CONTAINER = "OptimizationInsights"
+_insights_container = None
+
+
+def _get_insights_container():
+    global _insights_container
+    if _insights_container is not None:
+        return _insights_container
+    if cosmos.database is None:
+        cosmos.initialize_cosmos_client()
+    if cosmos.database is None:
+        return None
+    try:
+        _insights_container = cosmos.database.get_container_client(INSIGHTS_CONTAINER)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("OptimizationInsights container unavailable: %s", exc)
+        return None
+    return _insights_container
+
+
+def read_recommendations_from_insights(tenant_id: str) -> list[dict[str, Any]] | None:
+    """Fabric-computed recommendation cards, or None if the loop hasn't populated them.
+
+    The volatile policy ``status`` is re-stamped from the live policy store so the
+    Console's apply/revert state is always current even though the evidence was
+    computed analytically (analysis analytical, act operational).
+    """
+    container = _get_insights_container()
+    if container is None:
+        return None
+    try:
+        rows = list(container.query_items(
+            query="SELECT * FROM d WHERE d.tenantId=@t AND d.type='recommendation_card'",
+            parameters=[{"name": "@t", "value": tenant_id}],
+            enable_cross_partition_query=True,
+        ))
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("reverse-ETL recommendations read failed: %s", exc)
+        return None
+    if not rows:
+        return None
+    cards: list[dict[str, Any]] = []
+    for r in sorted(rows, key=lambda x: x.get("order", 99)):
+        card = dict(r.get("card") or {})
+        if not card:
+            continue
+        scenario = card.get("scenario")
+        active = optimization_policy.get_active_policy(scenario)
+        card["status"] = "active" if active else (
+            (optimization_policy.get_policy(scenario) or {}).get("status", card.get("status", "not_proposed"))
+        )
+        card["source"] = "fabric"
+        card["computed_at"] = r.get("computed_at")
+        cards.append(card)
+    return cards or None
+
+
+def read_metrics_from_insights(tenant_id: str) -> dict[str, Any] | None:
+    """Fabric-computed Console KPIs, or None if the loop hasn't populated them."""
+    container = _get_insights_container()
+    if container is None:
+        return None
+    try:
+        rows = list(container.query_items(
+            query="SELECT * FROM d WHERE d.tenantId=@t AND d.type='turn_metrics'",
+            parameters=[{"name": "@t", "value": tenant_id}],
+            enable_cross_partition_query=True,
+        ))
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("reverse-ETL metrics read failed: %s", exc)
+        return None
+    if not rows:
+        return None
+    metrics = dict(rows[0].get("metrics") or {})
+    if not metrics:
+        return None
+    metrics["source"] = "fabric"
+    metrics["computed_at"] = rows[0].get("computed_at")
+    return metrics
+
+
+# ---------------------------------------------------------------------------
 # SCEN-004 — memory retention: a lower-risk AUTONOMOUS (L4/L5) policy. Memory
 # accumulates superseded ("stale") entries as preferences change; applying the
 # policy soft-prunes them (a reversible mark), so recall stays cheaper/cleaner.

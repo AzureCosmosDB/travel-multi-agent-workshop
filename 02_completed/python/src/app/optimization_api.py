@@ -29,6 +29,8 @@ from src.app.services import fabric_capacity
 from src.app.services.optimization_recommendations import (
     build_recommendations,
     build_turn_metrics,
+    read_recommendations_from_insights,
+    read_metrics_from_insights,
     get_proposed_model_selection_params,
     get_city_context_staged_change,
     get_tool_dedup_staged_change,
@@ -123,14 +125,43 @@ def fabric_capacity_resume() -> dict[str, Any]:
 
 
 @router.get("/{tenant_id}")
-def get_recommendations(tenant_id: str) -> dict[str, Any]:
-    """Candidate optimization cards mined from the tenant's captured signal."""
-    return {"tenant_id": tenant_id, "recommendations": build_recommendations(tenant_id)}
+def get_recommendations(tenant_id: str, source: str = "auto") -> dict[str, Any]:
+    """Candidate optimization cards mined from the tenant's captured signal.
+
+    ``source`` controls where the aggregations come from:
+      - ``auto`` (default): the Fabric-computed cards reverse-ETL'd into
+        OptimizationInsights when present, otherwise an in-app compute.
+      - ``fabric``: only the reverse-ETL'd cards (may be empty until the loop runs).
+      - ``live``: always recompute in-app (the Module-07 "peek" / offline dev path).
+    """
+    recs = None
+    used = "live"
+    if source in ("auto", "fabric"):
+        recs = read_recommendations_from_insights(tenant_id)
+        if recs is not None:
+            used = "fabric"
+    if recs is None:
+        if source == "fabric":
+            recs, used = [], "fabric"
+        else:
+            recs, used = build_recommendations(tenant_id), "live"
+    return {"tenant_id": tenant_id, "source": used, "recommendations": recs}
 
 
 @router.get("/{tenant_id}/metrics")
-def get_metrics(tenant_id: str) -> dict[str, Any]:
-    """Aggregate KPIs for the Optimization Console (turns, cost, tiers, outcomes)."""
+def get_metrics(tenant_id: str, source: str = "auto") -> dict[str, Any]:
+    """Aggregate KPIs for the Optimization Console (turns, cost, tiers, outcomes).
+
+    Prefers the Fabric-computed (reverse-ETL'd) metrics; falls back to an in-app
+    compute. Pass ``source=live`` to force the in-app compute.
+    """
+    if source in ("auto", "fabric"):
+        metrics = read_metrics_from_insights(tenant_id)
+        if metrics is not None:
+            return metrics
+        if source == "fabric":
+            return {"tenant_id": tenant_id, "source": "fabric",
+                    "note": "no reverse-ETL metrics yet; run the analytics loop"}
     return build_turn_metrics(tenant_id)
 
 
