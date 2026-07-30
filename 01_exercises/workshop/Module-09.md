@@ -168,7 +168,9 @@ Open the provided **`analytics/TravelAssistantAnalyticsReport.pbit`** in Power B
 
 So far the report *reads* analytics. A **translytical task flow** lets it *act*: a button in Power BI calls a Fabric **User Data Function**, which writes back to Cosmos — the same operational store the agent reads per turn. The provisioning already deployed the `optimization-apply-loop` UDF (Activity 2, Step 4), so there is nothing to author; you just bind two buttons.
 
-1. In Power BI Desktop, enable **Options → Preview features → Translytical task flows**, then restart.
+> **Do this in the Power BI *Service* (edit in the browser), not Desktop.** In the current rollout the data-function button config UI appears reliably only in the Service, and the button only fires there anyway. So publish the finished report first, then add the buttons in the browser.
+
+1. In the Power BI **Service**, open the published report → **Edit**.
 2. On the report's **Applied Optimizations** page, add an **Apply** button: **Insert → Button**, then **Format → Action → Type = Data function** and fill all three dropdowns — your **workspace** → **function set** `optimization-apply-loop` → **data function** `apply_optimization`. There is no static-value option: create a measure `Apply Scenario = "model-selection"` and bind the `scenario` parameter to it via the **`fx`** button (leave `by` unmapped). (Full steps: `analytics/PowerBI_Optimization_Build_Guide.md`, Page 4.)
 3. Duplicate it for **Revert** → the **`revert_optimization`** function.
 4. Click **Apply**. The UDF flips the `OptimizationPolicies` doc in Cosmos to `status=active`; the running agent honors capability-tiered model selection on its **next turn**. Click **Revert** to roll back — a safe, reversible policy flip, never a code change.

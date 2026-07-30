@@ -114,12 +114,12 @@ def revert_optimization(cosmos: CosmosClient, scenario: str, by: str = "powerbi"
 
 @udf.connection(argName="cosmos", audienceType="CosmosDB", cosmos_endpoint=COSMOS_URI)
 @udf.function()
-def get_optimization_status(cosmos: CosmosClient, scenario: str) -> dict[str, Any]:
-    """Read the current status of a policy (handy to verify the writeback in tests)."""
+def get_optimization_status(cosmos: CosmosClient, scenario: str) -> str:
+    """Read the current status of a policy. Returns a string so the whole function set
+    stays compatible with Power BI data-function buttons."""
     container = cosmos.get_database_client(DB_NAME).get_container_client(POLICIES_CONTAINER)
     try:
         doc = container.read_item(item=scenario, partition_key=scenario)
     except exceptions.CosmosResourceNotFoundError:
-        return {"scenario": scenario, "status": "not_proposed"}
-    return {"scenario": scenario, "status": doc.get("status"),
-            "version": doc.get("version"), "updated_at": doc.get("updated_at")}
+        return f"{scenario}: not_proposed"
+    return f"{scenario}: {doc.get('status')} (v{doc.get('version')})"

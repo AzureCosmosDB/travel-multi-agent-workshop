@@ -125,8 +125,12 @@ The function return is under the `output` field of the response (alongside
 
 The functions **return a string** — required for data-function buttons.
 
-1. Power BI Desktop with **translytical task flow** preview features enabled
-   (Options → Preview features), connected to the report.
+> **Add the buttons in the Power BI *Service* (edit in the browser), not Desktop.** In the
+> current rollout the data-function button config UI (Workspace / Function set / Data
+> function dropdowns) appears reliably only in the Service, and the button fires only
+> there. Publish the report first, then add the buttons in the browser.
+
+1. Publish the report, open it in the **Power BI Service** → **Edit**.
 2. Add a constant measure for the scenario: `Apply Scenario = "model-selection"`.
 3. Add a **Button** → **Format → Action** (On) → Type **Data function**, then fill all
    three dropdowns: **Workspace** → **Function set** `optimization-apply-loop` →

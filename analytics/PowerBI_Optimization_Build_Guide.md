@@ -204,6 +204,8 @@ Use the **`OptimizationPolicies`** table (schema-prefixed: `'TravelAssistant Opt
 
 Turn this page from *read-only* into *actionable*: bind **Apply** / **Revert** buttons to the Fabric **User Data Function** the provisioning deploys (`optimization-apply-loop`), so a click flips the `OptimizationPolicies` doc in Cosmos and the running agent honors it on its next turn. (The UDF functions **return a string** — a requirement for data-function buttons.)
 
+> **Add these buttons in the Power BI *Service* (edit in the browser), not Desktop.** In the current rollout, the data-function button config UI (the Workspace / Function set / Data function dropdowns) reliably appears only in the Service — and the button only *fires* there anyway. So: finish the report in Desktop, **Publish**, then open it in the Service and add the buttons. The steps below are the same either way.
+
 1. **Options → Preview features → enable "Translytical task flows"**, then restart Power BI Desktop.
 2. Add a constant measure for the scenario (New measure, any table): `Apply Scenario = "model-selection"`.
 3. **Insert → Button** (label it *Apply*). Select it → **Format → Action** (toggle **On**) → **Type = Data function**, then fill **all three** dropdowns: **Workspace** → **Function set** = `optimization-apply-loop` → **Data function** = `apply_optimization`. The parameters appear only after the Data function is chosen.
