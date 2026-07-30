@@ -40,12 +40,11 @@ Based on the official sample: <https://github.com/AzureCosmosDB/cosmos-fabric-sa
 4. Edit the two constants at the top: `COSMOS_URI` and `DB_NAME` (see the table above).
 5. **Publish**.
 
-## Step 2 — Grant the UDF's identity Cosmos **data-plane** RBAC (the fix)
+## Step 2 — Grant the UDF's identity Cosmos **data-plane** RBAC
 
-The earlier attempt almost certainly failed here. `@udf.connection(audienceType="CosmosDB")`
-gets an Entra token, but the identity still needs the **Cosmos DB Built-in Data
-Contributor** *data-plane* role on the account (control-plane "Contributor" does
-**not** grant data access).
+`@udf.connection(audienceType="CosmosDB")` gets an Entra token, but the identity
+still needs the **Cosmos DB Built-in Data Contributor** *data-plane* role on the
+account (control-plane "Contributor" does **not** grant data access).
 
 First figure out **which principal** Fabric presents. Two candidates — grant both to be safe:
 - **You** (interactive Test / your Power BI sign-in): your Entra user object id.

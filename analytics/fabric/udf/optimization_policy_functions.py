@@ -16,7 +16,7 @@ HOW TO DEPLOY (Fabric portal — see README.md for the full runbook)
     4. Set COSMOS_URI and DB_NAME below.
     5. Publish. Then Test with scenario="model-selection".
 
-AUTH (the part that bit us before)
+AUTH
     ``@udf.connection(audienceType="CosmosDB", cosmos_endpoint=COSMOS_URI)`` makes
     Fabric hand the function an Entra-authenticated CosmosClient. The identity
     Fabric uses MUST hold the **Cosmos DB Built-in Data Contributor** data-plane
