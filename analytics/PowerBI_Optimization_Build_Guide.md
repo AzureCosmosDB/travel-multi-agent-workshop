@@ -200,6 +200,17 @@ Use the **`OptimizationPolicies`** table (schema-prefixed: `'TravelAssistant Opt
 - **Cards:** `[Active Policies]`, `[Latest Policy Change]` (Step 3).
 - **Conditional formatting** (optional): color the `status` column — `active` green, `staged`/`proposed` amber, `reverted` grey.
 
+### Apply / Revert from the report (translytical task flow)
+
+Turn this page from *read-only* into *actionable*: bind **Apply** / **Revert** buttons to the Fabric **User Data Function** the provisioning deploys (`optimization-apply-loop`), so a click flips the `OptimizationPolicies` doc in Cosmos and the running agent honors it on its next turn.
+
+1. **Options → Preview features → enable "Translytical task flows"**, then restart Power BI Desktop.
+2. **Insert → Button** (label it *Apply*). Select it → **Format → Action → Type = Data function** → pick your workspace → the `apply_optimization` function.
+3. Map its `scenario` parameter to the selected policy (bind to `'…OptimizationPolicies'[scenario]`, or a fixed value like `model-selection`); set `by = "powerbi"`.
+4. Duplicate the button for **Revert** → `revert_optimization`.
+
+See `analytics/fabric/udf/README.md` for the UDF details. This is the translytical payoff: the analytical report *writes back* to the operational store — Power BI → Fabric UDF → Cosmos — closing the loop inside one surface.
+
 ---
 
 ## Page 5: Business Impact — the conversion funnel (reverse-ETL)
@@ -225,6 +236,29 @@ Visuals:
 - **Bar — why sessions don't convert:** Axis `'…OptimizationInsights'[cause]`, Values `[Cause Sessions]`, visual-level filter `type = "abandonment_cause"`. Sort descending.
 
 > **Talking point:** the earlier pages cut *cost*; this page shows *conversion* — the business metric. And it doesn't leave you guessing: it names the biggest addressable leak (e.g. the agent re-asking the city) and points at the fix (SCEN-001). That's the reverse-ETL payoff — Fabric-computed intelligence, landed back where the app can act on it.
+
+---
+
+## Page 6: Measured before/after saving (reverse-ETL)
+
+Answers: **What did the optimization actually save?** — a measured number, not an estimate.
+
+This reads the flat `optimization_result` row the reverse-ETL writes into `'TravelAssistant OptimizationInsights'` (`type = "optimization_result"`). It's a **counterfactual** measurement: every captured turn is priced under the model it actually ran on vs. under the all-premium baseline, so the difference is the real saving — keyed by scenario, not by tenant.
+
+Measures (add to `'TravelAssistant OptimizationInsights'`):
+
+```DAX
+Saving USD        = CALCULATE(MAX('TravelAssistant OptimizationInsights'[saving_usd]),        'TravelAssistant OptimizationInsights'[type] = "optimization_result")
+Saving %          = CALCULATE(MAX('TravelAssistant OptimizationInsights'[saving_pct]),        'TravelAssistant OptimizationInsights'[type] = "optimization_result")
+Baseline Cost USD = CALCULATE(MAX('TravelAssistant OptimizationInsights'[baseline_cost_usd]), 'TravelAssistant OptimizationInsights'[type] = "optimization_result")
+Actual Cost USD   = CALCULATE(MAX('TravelAssistant OptimizationInsights'[actual_cost_usd]),   'TravelAssistant OptimizationInsights'[type] = "optimization_result")
+```
+
+Visuals (each with a visual-level filter `type = "optimization_result"`):
+- **Cards:** `[Saving USD]` and `[Saving %]` — the headline "we saved $X (Y%)".
+- **Clustered column — baseline vs actual:** values `[Baseline Cost USD]` and `[Actual Cost USD]`, so the gap *is* the saving.
+
+> **Talking point:** the recommendation cards *estimate* a saving; this page shows the **measured** one from the counterfactual — so apply → re-measure closes the loop with a real number.
 
 ---
 
@@ -259,4 +293,4 @@ The `.pbit`:
 
 **`Configuration`** — a small multi-entity config store keyed by `type`. Pricing rows have `type = "model_pricing"`, `model`, `input_price`, `output_price` (USD per 1M tokens); the `type = "model_selection_defaults"` doc carries the proposed tier/classifier policy. Filter `type = "model_pricing"` when joining for cost.
 
-**`OptimizationInsights`** — reverse-ETL output from the Fabric notebook, keyed by `type`: `funnel_stage` (`stage`, `stage_order`, `sessions`), `abandonment_cause` (`cause`, `sessions`), `conversion_kpi` (`engaged`, `confirmed`, `conversion_rate`, `biggest_leak`). Powers the Business Impact page; every visual filters on `type`.
+**`OptimizationInsights`** — reverse-ETL output from the Fabric notebook, keyed by `type`: `funnel_stage` (`stage`, `stage_order`, `sessions`), `abandonment_cause` (`cause`, `sessions`), `conversion_kpi` (`engaged`, `confirmed`, `conversion_rate`, `biggest_leak`), and `optimization_result` (`scenario`, `method`, `turns`, `baseline_cost_usd`, `actual_cost_usd`, `saving_usd`, `saving_pct`). Powers the Business Impact + Measured Saving pages; every visual filters on `type`. (The `recommendation_card` and `turn_metrics` rows in this same container carry nested JSON the *app/console* reads — not for Power BI visuals.)
