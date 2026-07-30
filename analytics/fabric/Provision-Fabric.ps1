@@ -1,15 +1,16 @@
 <#
 .SYNOPSIS
     Stands up the Microsoft Fabric analytics for Module 09: workspace, Cosmos mirror,
-    and the reverse-ETL notebook. PowerShell front end for the workshop - it prompts
-    for the few values it needs and drives the proven provisioning underneath.
+    the reverse-ETL notebook, and the translytical Apply/Revert User Data Function.
+    PowerShell front end for the workshop - it prompts for the few values it needs and
+    drives the proven provisioning underneath.
 
 .DESCRIPTION
     `azd up` only creates the Fabric *capacity*. This script creates everything else:
 
         Phase 1  workspace  ->  assign to capacity  ->  workspace identity  ->  Cosmos RBAC
         (manual) create the Cosmos connection in the Fabric portal, copy its id
-        Phase 2  mirrored database (starts replicating)  ->  upload the Module 09 notebook
+        Phase 2  mirrored database (starts replicating)  ->  Module 09 notebook  ->  Apply/Revert UDF
 
     The funnel_demo demo dataset the notebook reads is seeded automatically during `azd up`
     (postprovision), so there is nothing to seed here.
@@ -253,6 +254,7 @@ Write-Host 'FABRIC_WORKSPACE_ID and FABRIC_MIRROR_ID were saved to your azd envi
 Write-Host ''
 Write-Host 'The funnel_demo analytics dataset was seeded during azd up, so the mirror already'
 Write-Host 'has data to replicate. In the Fabric portal, open your workspace and confirm you see:'
-Write-Host '  - a mirrored database that is replicating the Cosmos containers, and'
-Write-Host '  - the ConversionFunnelReverseETL notebook.'
+Write-Host '  - a mirrored database that is replicating the Cosmos containers,'
+Write-Host '  - the ConversionFunnelReverseETL notebook, and'
+Write-Host '  - the optimization-apply-loop User Data Function (Power BI Apply/Revert).'
 Write-Host 'Then continue with Module 09, Activity 2 (open the notebook and run sections 1 and 2).'

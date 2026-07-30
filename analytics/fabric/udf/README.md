@@ -1,4 +1,4 @@
-# Translytical Apply/Revert — Power BI → Fabric UDF → Cosmos (spike runbook)
+# Translytical Apply/Revert — Power BI → Fabric UDF → Cosmos
 
 Click **Apply**/**Revert** on an optimization *in the Power BI report* → a Fabric
 **User Data Function** flips the `OptimizationPolicies` doc in Azure Cosmos DB →
@@ -21,13 +21,20 @@ Based on the official sample: <https://github.com/AzureCosmosDB/cosmos-fabric-sa
 
 ---
 
-## Your deployment (fill these in)
+## Deployed automatically
 
-| Value | Where |
+`Provision-Fabric.ps1` (the Module 09 Fabric provisioning) deploys this UDF in Phase 2:
+it injects your Cosmos endpoint + database, installs `azure-cosmos`, publishes the
+functions, and grants the deploying user Cosmos data-plane write. **The only remaining
+step is wiring the Power BI buttons (Step 5).** The steps below are for reference, or if
+you want to author/customize the function by hand.
+
+## Values
+
+| Value | Source |
 |---|---|
-| `COSMOS_URI` | `https://cosmos-iyaisgv7zrpyi.documents.azure.com:443/` (your `COSMOSDB_ENDPOINT`) |
-| `DB_NAME` | `TravelAssistant` |
-| Cosmos account name | `cosmos-iyaisgv7zrpyi` |
+| `COSMOS_URI` | your `COSMOSDB_ENDPOINT` (`https://<account>.documents.azure.com:443/`) |
+| `DB_NAME` | your `COSMOS_DB_DATABASE_NAME` (default `TravelAssistant`) |
 | Scenario to demo | `model-selection` |
 
 ---

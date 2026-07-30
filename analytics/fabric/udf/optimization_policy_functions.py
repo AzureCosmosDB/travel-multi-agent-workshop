@@ -39,34 +39,46 @@ COSMOS_URI = "https://YOUR-COSMOS-ACCOUNT.documents.azure.com:443/"
 DB_NAME = "TravelAssistant"
 # ---------------------------------------------------------------------------
 POLICIES_CONTAINER = "OptimizationPolicies"
-
-# Fallback params so Apply works even if the scenario was never proposed from the
-# console. Keep model-selection in sync with the app's proposed params
-# (Configuration type="model_selection_defaults" / the app's code default).
-_DEFAULT_PARAMS: dict[str, dict[str, Any]] = {
-    "model-selection": {
-        "enabled": True,
-        "classifier": {"trivial_max_output_tokens": 60, "trivial_requires_zero_handoffs": True},
-        "tiers": {"trivial": "gpt-5-nano", "routine": "gpt-5-mini", "complex": "gpt-5.1"},
-    },
-}
+CONFIG_CONTAINER = "Configuration"
 
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _set_status(container, scenario: str, status: str, by: str) -> dict[str, Any]:
+def _lookup_params(database, scenario: str) -> dict[str, Any]:
+    """Read the scenario's canonical params from the app's Configuration container so
+    the tiers/models live in ONE place (seeded from the models azd actually deployed) —
+    never duplicated here. Falls back to a minimal enabled flag if not seeded."""
+    if scenario == "model-selection":
+        try:
+            cfg = database.get_container_client(CONFIG_CONTAINER)
+            doc = cfg.read_item(item="model_selection_defaults", partition_key="model_selection_defaults")
+            if isinstance(doc.get("tiers"), dict):
+                return {
+                    "enabled": bool(doc.get("enabled", True)),
+                    "default_deployment": doc.get("default_deployment", "gpt-5.1"),
+                    "tiers": doc["tiers"],
+                    "classifier": doc.get("classifier", {}),
+                }
+        except Exception:  # noqa: BLE001 -- not seeded / not found -> minimal fallback
+            pass
+    return {"enabled": True}
+
+
+def _set_status(database, scenario: str, status: str, by: str) -> dict[str, Any]:
     """Read-modify-write the policy doc: flip status, bump version, append audit.
 
-    Mirrors the app's optimization_policy._transition so the app reads a
-    consistent document (id == scenario, partition key /scenario)."""
+    Mirrors the app's optimization_policy._transition so the app reads a consistent
+    document (id == scenario, partition key /scenario). If the policy was never
+    proposed from the console, seed it from the app's canonical Configuration params."""
+    container = database.get_container_client(POLICIES_CONTAINER)
     try:
         doc = container.read_item(item=scenario, partition_key=scenario)
     except exceptions.CosmosResourceNotFoundError:
         doc = {
             "id": scenario, "scenario": scenario,
-            "params": _DEFAULT_PARAMS.get(scenario, {"enabled": True}),
+            "params": _lookup_params(database, scenario),
             "version": 0, "audit": [], "created_at": _now_iso(),
         }
     doc["status"] = status
@@ -82,8 +94,7 @@ def _set_status(container, scenario: str, status: str, by: str) -> dict[str, Any
 @udf.function()
 def apply_optimization(cosmos: CosmosClient, scenario: str, by: str = "powerbi") -> dict[str, Any]:
     """Activate an optimization policy (status=active). The agent reads it per turn."""
-    container = cosmos.get_database_client(DB_NAME).get_container_client(POLICIES_CONTAINER)
-    result = _set_status(container, scenario, "active", by)
+    result = _set_status(cosmos.get_database_client(DB_NAME), scenario, "active", by)
     logging.info("apply_optimization: %s", result)
     return result
 
@@ -92,8 +103,7 @@ def apply_optimization(cosmos: CosmosClient, scenario: str, by: str = "powerbi")
 @udf.function()
 def revert_optimization(cosmos: CosmosClient, scenario: str, by: str = "powerbi") -> dict[str, Any]:
     """Roll back an optimization policy (status=reverted) — a safe, reversible flip."""
-    container = cosmos.get_database_client(DB_NAME).get_container_client(POLICIES_CONTAINER)
-    result = _set_status(container, scenario, "reverted", by)
+    result = _set_status(cosmos.get_database_client(DB_NAME), scenario, "reverted", by)
     logging.info("revert_optimization: %s", result)
     return result
 

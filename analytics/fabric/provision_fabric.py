@@ -19,6 +19,9 @@ Fabric + Power BI + Azure REST APIs:
     - upload the reverse-ETL notebook (Module 09) with its parameters pre-filled
       (Cosmos + mirror SQL endpoint). The report uses DirectQuery over the mirror SQL
       endpoint, so no separate Direct Lake semantic model is created.
+    - deploy the translytical Apply/Revert User Data Function (Cosmos endpoint injected,
+      azure-cosmos installed) + grant the deploying user Cosmos data-plane write, so
+      Power BI buttons drive the optimization apply-loop with no manual portal steps
 
   Phase 3 (optional):
     - import a .pbit and set its MirrorSQLEndpoint / MirrorDatabase parameters
@@ -34,6 +37,7 @@ import argparse
 import base64
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -578,6 +582,102 @@ def upload_notebook(tok: Tokens, ws_id: str, nb_path: str, params: dict[str, str
     return result.get("id")
 
 
+def deploy_udf(tok: Tokens, ws_id: str, udf_src_path: str, cosmos_endpoint: str, db_name: str,
+               display_name: str = "optimization-apply-loop") -> Optional[str]:
+    """Create/update the translytical Apply/Revert User Data Function.
+
+    Uploads function_app.py (with this deployment's Cosmos endpoint + database
+    injected) plus the azure-cosmos library dependency, so students and demo users
+    get a working Apply/Revert UDF with no manual portal steps. The functions flip
+    an OptimizationPolicies doc via Fabric's managed CosmosDB connection; a Power BI
+    translytical button binds straight to them.
+    """
+    hdr = tok.headers(FABRIC_SCOPE)
+    if not os.path.exists(udf_src_path):
+        log(f"UDF source not found at {udf_src_path}; skipping UDF deploy")
+        return None
+    with open(udf_src_path, "r", encoding="utf-8") as f:
+        code = f.read()
+    # inject the deployment's Cosmos endpoint + database into the two config constants
+    code = re.sub(r'COSMOS_URI = ".*?"', f'COSMOS_URI = "{cosmos_endpoint}"', code, count=1)
+    code = re.sub(r'DB_NAME = ".*?"', f'DB_NAME = "{db_name}"', code, count=1)
+
+    definition = {
+        "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/userDataFunction/definition/1.1.0/schema.json",
+        "runtime": "PYTHON",
+        "connectedDataSources": [],
+        "functions": [
+            {"name": "apply_optimization", "description": "", "isPublicEndpointEnabled": True},
+            {"name": "revert_optimization", "description": "", "isPublicEndpointEnabled": True},
+            {"name": "get_optimization_status", "description": "", "isPublicEndpointEnabled": True},
+        ],
+        "libraries": {
+            "public": [
+                {"name": "azure-cosmos", "type": "PYPI", "version": "4.16.3"},
+                {"name": "fabric-user-data-functions", "type": "PYPI", "version": "1.0"},
+            ],
+            "private": [],
+        },
+    }
+    platform = {
+        "$schema": "https://developer.microsoft.com/json-schemas/fabric/gitIntegration/platformProperties/2.0.0/schema.json",
+        "metadata": {"type": "UserDataFunction", "displayName": display_name},
+        "config": {"version": "2.0", "logicalId": "00000000-0000-0000-0000-000000000000"},
+    }
+    parts = [
+        {"path": "definition.json", "payload": b64(definition), "payloadType": "InlineBase64"},
+        {"path": "function_app.py",
+         "payload": base64.b64encode(code.encode("utf-8")).decode("ascii"),
+         "payloadType": "InlineBase64"},
+        {"path": ".platform", "payload": b64(platform), "payloadType": "InlineBase64"},
+    ]
+    body = {"displayName": display_name, "definition": {"parts": parts}}
+
+    r = req("GET", f"{FABRIC_API}/workspaces/{ws_id}/userDataFunctions", hdr)
+    existing = next((u for u in r.json().get("value", []) if u.get("displayName") == display_name), None)
+    if existing:
+        log("updating existing User Data Function definition...")
+        resp = req("POST",
+                   f"{FABRIC_API}/workspaces/{ws_id}/userDataFunctions/{existing['id']}/updateDefinition",
+                   hdr, json_body={"definition": body["definition"]}, ok=(200, 202))
+        poll_lro(resp, hdr)
+        udf_id = existing["id"]
+    else:
+        log("creating User Data Function...")
+        resp = req("POST", f"{FABRIC_API}/workspaces/{ws_id}/userDataFunctions", hdr,
+                   json_body=body, ok=(200, 201, 202))
+        result = poll_lro(resp, hdr) or resp.json()
+        udf_id = result.get("id")
+    log(f"User Data Function ready (id {udf_id})")
+    return udf_id
+
+
+def grant_cosmos_data_contributor(cosmos_account: str, rg: str, sub: str) -> None:
+    """Grant the signed-in user Cosmos Built-in Data Contributor (data-plane read+write)
+    so the translytical UDF can flip OptimizationPolicies on their behalf."""
+    user_oid = _current_user_object_id()
+    if not user_oid:
+        log("WARNING: could not resolve the signed-in user; grant Cosmos Data Contributor "
+            "manually so the Apply/Revert UDF can write policies.")
+        return
+    account_scope = (
+        f"/subscriptions/{sub}/resourceGroups/{rg}/providers/"
+        f"Microsoft.DocumentDB/databaseAccounts/{cosmos_account}"
+    )
+    existing = json.loads(
+        az(["cosmosdb", "sql", "role", "assignment", "list", "-a", cosmos_account, "-g", rg, "-o", "json"])
+        or "[]"
+    )
+    for a in existing:
+        props = a.get("properties", a)
+        if props.get("principalId") == user_oid and props.get("roleDefinitionId", "").endswith(COSMOS_DATA_CONTRIBUTOR):
+            log("Cosmos Data Contributor already assigned to the deploying user")
+            return
+    log("assigning Cosmos Data Contributor to the deploying user (for the Apply/Revert UDF)...")
+    az(["cosmosdb", "sql", "role", "assignment", "create", "-a", cosmos_account, "-g", rg,
+        "--role-definition-id", COSMOS_DATA_CONTRIBUTOR, "--principal-id", user_oid, "--scope", account_scope])
+
+
 # --------------------------------------------------------------------------- phase 3
 def import_pbit(tok: Tokens, ws_id: str, pbit_path: str, sql_endpoint: str, mirror_db: str) -> None:
     if not os.path.exists(pbit_path):
@@ -724,10 +824,18 @@ def main() -> None:
         "SQL_DB": f"{cfg['db_name']}Analytics",
     }
     upload_notebook(tok, ws_id, args.notebook, nb_params)
+
+    # Deploy the translytical Apply/Revert User Data Function (and grant the deploying
+    # user Cosmos data-plane write) so Power BI buttons work with no manual portal steps.
+    udf_src = os.path.join(os.path.dirname(__file__), "udf", "optimization_policy_functions.py")
+    udf_id = deploy_udf(tok, ws_id, udf_src, cfg["cosmos_endpoint"], cfg["db_name"])
+    if udf_id:
+        persist_env({"FABRIC_UDF_ID": udf_id})
+        grant_cosmos_data_contributor(cfg["cosmos_account"], cfg["rg"], cfg["sub"])
     log(f"PHASE 2 COMPLETE. mirror={mirror_id}")
 
     if args.phase == "2":
-        print(json.dumps({"workspaceId": ws_id, "mirrorId": mirror_id}, indent=2))
+        print(json.dumps({"workspaceId": ws_id, "mirrorId": mirror_id, "udfId": udf_id}, indent=2))
         return
 
     # ---- Phase 3 (optional .pbit import) ----
