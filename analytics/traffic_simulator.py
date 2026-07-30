@@ -32,7 +32,20 @@ from azure.cosmos import CosmosClient
 from azure.identity import DefaultAzureCredential
 from dotenv import load_dotenv
 
-load_dotenv(Path(__file__).resolve().parents[1] / "02_completed" / "python" / ".env")
+load_dotenv  # noqa: B018  (imported above; env resolution happens below)
+
+# Resolve the deployed Cosmos endpoint. Priority: an already-set COSMOSDB_ENDPOINT
+# (e.g. exported by azd during a hook) > a .env in the current directory (the deployed
+# tree's python/ dir) > the known workshop trees.
+_repo_root = Path(__file__).resolve().parents[1]
+if not os.environ.get("COSMOSDB_ENDPOINT"):
+    _env_candidates = [Path.cwd() / ".env"]
+    _env_candidates += [_repo_root / _tree / "python" / ".env" for _tree in ("01_exercises", "02_completed")]
+    for _env_path in _env_candidates:
+        if _env_path.exists():
+            load_dotenv(_env_path)
+            if os.environ.get("COSMOSDB_ENDPOINT"):
+                break
 
 # Realistic tier mix + per-tier token/model profile. Kept consistent with the canonical
 # trivial definition used everywhere (handoff_count == 0 AND output_tokens < 60): only the
