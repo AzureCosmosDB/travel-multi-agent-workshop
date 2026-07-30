@@ -23,6 +23,12 @@
 .PARAMETER Forever
     Run until you press Ctrl+C.
 
+.PARAMETER Assume
+    Which model mix to write (direct mode). `auto` (default) reads the tenant's
+    model-selection OptimizationPolicy: baseline single-model until you apply it,
+    capability-tiered once active — so apply -> simulate -> re-measure shows a real
+    cost delta. `baseline`/`tiered` force the mix regardless of policy.
+
 .PARAMETER WorkshopRoot
     The deployed workshop folder (holds .azure + the venv). Auto-detected when omitted.
 
@@ -39,6 +45,8 @@ param(
     [int]$Rate = 120,
     [int]$Minutes = 10,
     [switch]$Forever,
+    [ValidateSet('auto', 'baseline', 'tiered')]
+    [string]$Assume = 'auto',
     [string]$WorkshopRoot
 )
 
@@ -118,13 +126,14 @@ Write-Host "Workshop folder : $WorkshopRoot"
 Write-Host "Tenant          : $Tenant"
 Write-Host "Rate            : $Rate turns/min"
 Write-Host ("Duration        : " + $(if ($Forever) { 'until Ctrl+C' } else { "$Minutes minutes" }))
+Write-Host ("Model policy    : " + $(if ($Assume -eq 'auto') { 'auto (baseline until you apply model-selection, then tiered)' } else { "$Assume (forced)" }))
 if ($cosmos) { Write-Host "Cosmos          : $cosmos" }
 Write-Host ''
 Write-Host "Streaming live turns under tenant '$Tenant' - watch your Power BI report" -ForegroundColor Cyan
 Write-Host "(filtered to '$Tenant') or the Optimization Console update. Press Ctrl+C to stop." -ForegroundColor Cyan
 Write-Host ''
 
-$argList = @($simPy, '--tenant', $Tenant, '--rate', "$Rate")
+$argList = @($simPy, '--tenant', $Tenant, '--rate', "$Rate", '--assume', $Assume)
 if ($Forever) { $argList += '--forever' } else { $argList += @('--minutes', "$Minutes") }
 
 $prev = $env:COSMOSDB_ENDPOINT

@@ -14,6 +14,17 @@ Two modes:
   --mode app:     drive the real completion endpoint (real agent turns).
                   Realistic but slower and incurs model cost.
 
+Policy-aware (direct mode): the *workload* (per-turn token profile, handoffs,
+complexity mix) is fixed, but which MODEL serves each turn depends on the active
+`model-selection` OptimizationPolicy for the tenant — so apply -> simulate ->
+re-measure shows a REAL cost delta, not a canned one:
+  - no active policy  -> every turn runs on the single premium model (baseline).
+  - policy active      -> capability-tiered (trivial->nano, routine->mini,
+                          complex->premium). Only the model differs, so the cost
+                          delta vs baseline is exactly the optimization saving.
+The policy is re-checked every ~10s, so applying/reverting it mid-run visibly
+changes the stream. Override with --assume {auto,baseline,tiered}.
+
 Usage (repo root, Cosmos access via DefaultAzureCredential):
   python analytics/traffic_simulator.py --tenant DemoLive --rate 60 --minutes 10
   python analytics/traffic_simulator.py --tenant DemoLive --forever --rate 120
@@ -61,6 +72,11 @@ TIERS = [
 ]
 CITIES = ["Amsterdam", "Paris", "Tokyo", "Rome", "Barcelona", "London", "New York"]
 
+# The single premium model everything runs on in the pre-optimization baseline.
+DEFAULT_DEPLOYMENT = "gpt-5.1"
+DEFAULT_MODEL = "gpt-5.1-2025-11-13"
+MODEL_SELECTION_SCENARIO = "model-selection"
+
 
 def _pick_tier() -> dict:
     r = random.random()
@@ -72,16 +88,41 @@ def _pick_tier() -> dict:
     return TIERS[-1]
 
 
-def _turn_doc(tenant: str, user: str, session: str, tier: dict) -> dict:
+def _model_selection_active(policies) -> bool:
+    """True iff the tenant's model-selection policy is active AND enabled.
+
+    Reads the OptimizationPolicies container the app's apply-loop writes. Any
+    error (no container, no policy, 404) means 'not applied' -> baseline, which
+    is the safe default.
+    """
+    if policies is None:
+        return False
+    try:
+        doc = policies.read_item(item=MODEL_SELECTION_SCENARIO, partition_key=MODEL_SELECTION_SCENARIO)
+    except Exception:  # noqa: BLE001 -- 404 == no policy yet
+        return False
+    return doc.get("status") == "active" and bool((doc.get("params") or {}).get("enabled", False))
+
+
+def _turn_doc(tenant: str, user: str, session: str, tier: dict, applied: bool) -> dict:
+    """One OptimizationTurn. The workload (tokens/handoffs) comes from ``tier``;
+    ``applied`` decides which model served it — tiered (True) vs the single
+    premium baseline (False). Only the model/tier fields differ between the two,
+    so the cost delta between a baseline run and an applied run is exactly the
+    optimization saving."""
     it = random.randint(*tier["in"])
     ot = random.randint(*tier["out"])
     now = datetime.now(timezone.utc)
+    if applied:
+        model_tier, deployment, model = tier["tier"], tier["deployment"], tier["model"]
+    else:
+        model_tier, deployment, model = "default", DEFAULT_DEPLOYMENT, DEFAULT_MODEL
     return {
         "id": str(uuid.uuid4()),
         "type": "optimization_turn",
         "tenantId": tenant, "userId": user, "sessionId": session,
-        "model_tier": tier["tier"], "model_deployment": tier["deployment"],
-        "model_name": tier["model"],
+        "model_tier": model_tier, "model_deployment": deployment,
+        "model_name": model,
         "input_tokens": it, "output_tokens": ot, "total_tokens": it + ot,
         "cached_tokens": int(it * random.uniform(0.6, 0.9)),
         "handoff_count": tier["handoffs"],
@@ -101,29 +142,56 @@ def _trip_doc(tenant: str, user: str) -> dict:
     }
 
 
+def _resolve_applied(assume: str, policies) -> bool:
+    if assume == "baseline":
+        return False
+    if assume == "tiered":
+        return True
+    return _model_selection_active(policies)  # auto
+
+
 def run_direct(args) -> None:
     endpoint = os.environ["COSMOSDB_ENDPOINT"]
     db_name = os.environ.get("COSMOSDB_DATABASE_NAME", "TravelAssistant")
     db = CosmosClient(endpoint, DefaultAzureCredential()).get_database_client(db_name)
     turns = db.get_container_client("OptimizationTurns")
     trips = db.get_container_client("Trips")
+    policies = db.get_container_client("OptimizationPolicies")
 
     interval = 60.0 / max(args.rate, 1)
     deadline = None if args.forever else time.monotonic() + args.minutes * 60
+    applied = _resolve_applied(args.assume, policies)
+
+    def _mode_label(a: bool) -> str:
+        if args.assume == "auto":
+            return "TIERED (model-selection policy active)" if a else "baseline (single premium model)"
+        return f"{args.assume} (forced)"
+
     print(f"[simulator] tenant={args.tenant} rate={args.rate}/min "
           f"mode=direct db={db_name} {'(forever)' if args.forever else f'for {args.minutes} min'}")
+    print(f"[simulator] model policy: {_mode_label(applied)}")
 
     n_turns = n_trips = 0
+    last_policy_check = time.monotonic()
     users = [f"demo-user-{i}" for i in range(1, args.users + 1)]
     sessions = {u: f"sess-{uuid.uuid4().hex[:8]}" for u in users}
     try:
         while args.forever or time.monotonic() < deadline:
+            # Re-check the policy periodically so applying/reverting it mid-run
+            # visibly flips the stream between baseline and tiered.
+            if args.assume == "auto" and time.monotonic() - last_policy_check > 10:
+                new_applied = _model_selection_active(policies)
+                if new_applied != applied:
+                    print(f"[simulator] model policy changed -> {_mode_label(new_applied)}")
+                applied = new_applied
+                last_policy_check = time.monotonic()
+
             user = random.choice(users)
             # occasionally rotate a user's session (new conversation)
             if random.random() < 0.05:
                 sessions[user] = f"sess-{uuid.uuid4().hex[:8]}"
             tier = _pick_tier()
-            turns.upsert_item(_turn_doc(args.tenant, user, sessions[user], tier))
+            turns.upsert_item(_turn_doc(args.tenant, user, sessions[user], tier, applied))
             n_turns += 1
             # a complex turn sometimes results in a confirmed trip (an outcome)
             if tier["tier"] == "complex" and random.random() < 0.35:
@@ -175,6 +243,9 @@ def main() -> None:
     ap.add_argument("--minutes", type=float, default=10)
     ap.add_argument("--forever", action="store_true")
     ap.add_argument("--users", type=int, default=8)
+    ap.add_argument("--assume", choices=["auto", "baseline", "tiered"], default="auto",
+                    help="direct mode: auto reads the model-selection policy (baseline vs tiered); "
+                         "baseline/tiered force the model mix regardless of policy")
     ap.add_argument("--endpoint", default="http://localhost:8000", help="API base (app mode)")
     args = ap.parse_args()
     (run_app if args.mode == "app" else run_direct)(args)
