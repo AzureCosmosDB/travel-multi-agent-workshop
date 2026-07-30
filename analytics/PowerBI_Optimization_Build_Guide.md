@@ -43,6 +43,25 @@ To find the SQL analytics endpoint:
 
 8. Click **Load** (not Transform Data).
 
+### Step 1b: Parameterize the connection (REQUIRED — makes the `.pbit` re-pointable)
+
+Step 1 hard-codes your SQL endpoint into every query. If you export the `.pbit` like that, **every attendee who opens it silently queries *your* mirror** (this template previously shipped with that exact bug). Convert the source to parameters so each attendee points it at their own mirror:
+
+1. **Home → Transform data** to open Power Query.
+2. **Manage Parameters → New Parameter**, twice:
+   - `MirrorSQLEndpoint` — Type **Text**, **Required**.
+   - `MirrorDatabase` — Type **Text**, **Required**.
+3. For **every** table, open the **Advanced Editor** and change the source line to use the parameters:
+
+   ```
+   Source = Sql.Database(MirrorSQLEndpoint, MirrorDatabase),
+   ```
+
+   (replacing the literal `Sql.Database("<your-endpoint>", "<your-db>")`).
+4. **Close & Apply.**
+
+> **Caution — verify before every export.** Power BI Desktop silently re-bakes the literal server back into the M query when you re-save, **and** caches pending edits (with their literal servers) in an `UnappliedChanges` part inside the `.pbit`. Before exporting (**File → Export → Power BI template**): (1) **Home → Close & Apply** so there are **no** unapplied changes, (2) re-open each table's **Advanced Editor** and confirm it reads `Sql.Database(MirrorSQLEndpoint, MirrorDatabase)`, and (3) as a final check, unzip the `.pbit` and grep **every** part — not just `DataModelSchema`, also `UnappliedChanges` — for `datawarehouse.fabric.microsoft.com`; there must be **zero** matches.
+
 ---
 
 ## Step 2: Parameterize the Connection (makes the .pbit portable)

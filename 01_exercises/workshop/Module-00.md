@@ -40,6 +40,7 @@ Before you begin, ensure you have:
 - [Azure Developer CLI (azd)](https://learn.microsoft.com/azure/developer/azure-developer-cli/install-azd) installed
 - [Python 3.11 or higher](https://www.python.org/downloads/) installed
 - [Node.js 18 or higher](https://nodejs.org/en/download/) installed
+- [Power BI Desktop](https://www.microsoft.com/power-platform/products/power-bi/desktop/) (Windows only) — used in **Modules 07 and 09** to open the provided analytics report (`.pbit`). Optional for the other modules; on macOS/Linux you can skip it (the Optimization Console covers Module 07's views).
 
 ### Step 1: Get the repository and Navigate to the Workshop Directory
 

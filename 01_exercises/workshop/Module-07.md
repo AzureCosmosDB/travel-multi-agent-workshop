@@ -160,7 +160,9 @@ Start the **Optimization Console** — the provided analytics web app — on its
 python -m http.server 8050 --directory console
 ```
 
-Open <http://localhost:8050>, set the **Tenant** to the one you drove traffic with, and click **Refresh**. It reads the captured turns and the recommendation cards and presents them with explanations. Take a few minutes to read each panel; these are the talking points that make the data *mean* something:
+> **No virtual environment needed here.** The Console is a **static** web app (`console/index.html`) that calls the API on `:8000` over REST from your browser. `python -m http.server` is just Python's built-in static file server, so any Python works and there are **no dependencies to install** — this is unlike the MCP and API servers, which are Python apps that run inside the workshop's virtual environment. (The API *does* need to be running, since the Console reads from it.)
+
+Open <http://localhost:8050>. Set the **Tenant** box to **`marvel`** — the tenant the frontend records turns under by default, so the traffic you drove through the app is stored under it (tenant names are case-sensitive, so use lower-case `marvel`). If you instead generated turns with the traffic simulator further below, use that command's `--tenant` value. Click **Refresh**. It reads the captured turns and the recommendation cards and presents them with explanations. Take a few minutes to read each panel; these are the talking points that make the data *mean* something:
 
 - **Turns & spend** — total turns, total tokens, and estimated cost. *Talking point: cost scales with usage, but not evenly — a few turns dominate.*
 - **Model usage** — a breakdown by model. Right now it's **one model, 100%**. *Talking point: every turn, trivial or complex, pays the same rate — the core inefficiency this lab targets.*
@@ -174,18 +176,24 @@ Notice what the Console is doing: it turns thousands of individual turns into a 
 
 ### Power BI (provided)
 
-For the deep, real-time view, use the provided **`analytics/TravelAssistantAnalyticsReport.pbit`**
-template (built with the `analytics/PowerBI_Optimization_Build_Guide.md` guide):
+For the deep, real-time view, open the provided **`analytics/TravelAssistantAnalyticsReport.pbit`** template:
 
 1. Open the `.pbit` in **Power BI Desktop**.
-2. When prompted, paste your **mirror SQL analytics endpoint** and **mirror database name** (from your
-   Fabric mirrored database — see `analytics/fabric/README.md`).
-3. The report loads over **DirectQuery**, so it reflects new turns **near-real-time** as the mirror
-   replicates. Turn on **page auto-refresh** and run the traffic simulator to watch it move live:
+2. When prompted, enter these two values from your Fabric mirrored database (the mirror is created in **Module 09**):
+   - **Mirror database name** — the mirrored database's name as it appears in your Fabric workspace. It is your Cosmos database name with `Analytics` appended (e.g. `TravelAssistantAnalytics`).
+   - **Mirror SQL analytics endpoint** — in the [Fabric portal](https://app.fabric.microsoft.com), open your workspace and open that mirrored database. Use the view selector at the **top-right** to switch to its **SQL analytics endpoint**, click the **Settings** (gear) icon, open **SQL connection string**, and copy the server value (a host like `xxxxxxxx.datawarehouse.fabric.microsoft.com`).
+3. **Credentials dialog:** Power BI then prompts for how to sign in to the endpoint. Select the **Microsoft account / Organizational account** tab and **Sign in** with your Azure account, then **Connect** — do **not** use the **Windows** tab (Fabric SQL endpoints require Entra sign-in and will reject Windows auth).
+4. **Privacy dialog:** you may also see a *"potential security risk / this file uses multiple data sources"* prompt — this is expected for a parameterized connection; click **OK / Continue**.
+5. The report loads over **DirectQuery**, so it reflects new turns **near-real-time** as the mirror
+   replicates. Turn on **page auto-refresh** and run the traffic simulator to watch it move live. From the **`analytics`** folder:
 
    ```powershell
-   python analytics/traffic_simulator.py --tenant DemoLive --rate 120 --forever
+   .\Run-TrafficSimulator.ps1 -Tenant DemoLive -Rate 120 -Forever
    ```
+
+   The wrapper finds your virtual environment and targets your deployment's Cosmos automatically (run bare — `.\Run-TrafficSimulator.ps1` — and it prompts for the tenant and streams for 10 minutes). **`DemoLive`** is a dedicated demo tenant, so **filter/slice your report to `DemoLive`** to watch that stream in isolation. Press **Ctrl+C** to stop.
+
+> **Seeing old/wrong data or the wrong server in the credential prompt?** The report reads whatever the **`MirrorSQLEndpoint`** / **`MirrorDatabase`** parameters point to. To change them after opening, use **Home → Transform data → Manage Parameters**, then **Close & Apply → Refresh**. If Power BI cached an old endpoint's credentials, clear them under **File → Options and settings → Data source settings**.
 
 > The **Console + REST** are enough for this module's detect/measure steps (they read Cosmos directly). The **Cosmos → Fabric mirror + Power BI + reverse-ETL** is the analytical plane — you build it in **Module 09**, which is where the business-impact analytics and the self-optimizing (L4/L5) loop come together.
 
