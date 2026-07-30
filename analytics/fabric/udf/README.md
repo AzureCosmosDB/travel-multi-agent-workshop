@@ -88,21 +88,31 @@ curl "http://localhost:8000/optimizations/marvel" | ConvertFrom-Json | Select -E
 ```
 Or check Cosmos Data Explorer: `OptimizationPolicies` doc `id=model-selection`.
 
-## Step 4 — Test via REST (automation proof)
+## Step 4 — Invoke via REST (automation / verification)
 
-Published UDFs expose an Entra-secured REST endpoint (copy it from the function's
-… menu → **Copy URL**, or the function properties). Invoke with a bearer token:
+Published UDFs expose an Entra-secured REST endpoint. Get the base URL from the
+function's **…** menu → **Copy URL** (or the generated OpenAPI `servers.url`); each
+function is `{base}/{function_name}/invoke`. Authenticate with a bearer token for
+the `https://api.fabric.microsoft.com` audience:
 
 ```powershell
-$fnUrl = "<PASTE THE PUBLISHED FUNCTION URL>"   # .../apply_optimization/invoke (exact shape from the portal)
+$base  = "<FUNCTIONS BASE URL from Copy URL / OpenAPI servers.url>"
 $token = az account get-access-token --resource "https://api.fabric.microsoft.com" --query accessToken -o tsv
-Invoke-RestMethod -Method Post -Uri $fnUrl -Headers @{ Authorization = "Bearer $token" } `
-  -ContentType "application/json" -Body (@{ scenario = "model-selection"; by = "rest-test" } | ConvertTo-Json)
+$h     = @{ Authorization = "Bearer $token" }
+
+# read (non-mutating)
+(Invoke-RestMethod -Method Post -Uri "$base/get_optimization_status/invoke" -Headers $h `
+  -ContentType "application/json" -Body '{"scenario":"model-selection"}').output
+
+# apply, then revert
+(Invoke-RestMethod -Method Post -Uri "$base/apply_optimization/invoke" -Headers $h `
+  -ContentType "application/json" -Body '{"scenario":"model-selection","by":"rest"}').output
+(Invoke-RestMethod -Method Post -Uri "$base/revert_optimization/invoke" -Headers $h `
+  -ContentType "application/json" -Body '{"scenario":"model-selection","by":"rest"}').output
 ```
 
-> The exact resource/audience for the token and the URL shape are shown in the
-> portal; we'll confirm them together when you paste the published URL. If the
-> Fabric-API audience is rejected, the portal's "Copy URL" page lists the correct one.
+The function return is under the `output` field of the response (alongside
+`functionName`, `invocationId`, `status`, `errors`).
 
 ## Step 5 — Wire the Power BI buttons (translytical task flow)
 
@@ -119,13 +129,13 @@ Full walkthrough: the `translytical-taskflows/` sample README.
 
 ---
 
-## Fallback — self-authenticated client (if the managed connection can't reach an *external* Azure Cosmos account)
+## Alternative auth — self-authenticated client
 
-The sample targets a **Fabric-native** Cosmos item. If `@udf.connection` can't
-reach our external Azure Cosmos account, drop the decorator and build the client
-in-function. Two credential options:
+The functions above use Fabric's managed `@udf.connection`, which reaches the
+Azure Cosmos account directly. If you prefer to manage the client yourself, drop
+the decorator and build it in-function. Two credential options:
 
-**(a) Cosmos key** (simplest to prove connectivity; store as a UDF parameter/secret, not in source):
+**(a) Cosmos key** (store as a UDF parameter/secret, not in source):
 ```python
 from azure.cosmos import CosmosClient
 @udf.function()
