@@ -1,2 +1,9 @@
 # Power BI working files — ship the .pbit template, not the .pbix working file
 *.pbix
+
+# Provision-Fabric.ps1 remembered settings (workspace name / connection id)
+analytics/fabric/.provision-fabric.local.json
+
+# Python bytecode caches
+__pycache__/
+*.pyc
