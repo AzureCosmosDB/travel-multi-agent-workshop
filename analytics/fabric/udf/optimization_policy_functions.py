@@ -92,20 +92,24 @@ def _set_status(database, scenario: str, status: str, by: str) -> dict[str, Any]
 
 @udf.connection(argName="cosmos", audienceType="CosmosDB", cosmos_endpoint=COSMOS_URI)
 @udf.function()
-def apply_optimization(cosmos: CosmosClient, scenario: str, by: str = "powerbi") -> dict[str, Any]:
-    """Activate an optimization policy (status=active). The agent reads it per turn."""
+def apply_optimization(cosmos: CosmosClient, scenario: str, by: str = "powerbi") -> str:
+    """Activate an optimization policy (status=active). The agent reads it per turn.
+
+    Returns a string so it can drive a Power BI translytical (data function) button."""
     result = _set_status(cosmos.get_database_client(DB_NAME), scenario, "active", by)
     logging.info("apply_optimization: %s", result)
-    return result
+    return f"Applied '{scenario}' - status now {result['status']} (v{result['version']})."
 
 
 @udf.connection(argName="cosmos", audienceType="CosmosDB", cosmos_endpoint=COSMOS_URI)
 @udf.function()
-def revert_optimization(cosmos: CosmosClient, scenario: str, by: str = "powerbi") -> dict[str, Any]:
-    """Roll back an optimization policy (status=reverted) — a safe, reversible flip."""
+def revert_optimization(cosmos: CosmosClient, scenario: str, by: str = "powerbi") -> str:
+    """Roll back an optimization policy (status=reverted) - a safe, reversible flip.
+
+    Returns a string so it can drive a Power BI translytical (data function) button."""
     result = _set_status(cosmos.get_database_client(DB_NAME), scenario, "reverted", by)
     logging.info("revert_optimization: %s", result)
-    return result
+    return f"Reverted '{scenario}' - status now {result['status']} (v{result['version']})."
 
 
 @udf.connection(argName="cosmos", audienceType="CosmosDB", cosmos_endpoint=COSMOS_URI)

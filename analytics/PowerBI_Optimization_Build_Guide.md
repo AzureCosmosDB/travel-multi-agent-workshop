@@ -202,12 +202,15 @@ Use the **`OptimizationPolicies`** table (schema-prefixed: `'TravelAssistant Opt
 
 ### Apply / Revert from the report (translytical task flow)
 
-Turn this page from *read-only* into *actionable*: bind **Apply** / **Revert** buttons to the Fabric **User Data Function** the provisioning deploys (`optimization-apply-loop`), so a click flips the `OptimizationPolicies` doc in Cosmos and the running agent honors it on its next turn.
+Turn this page from *read-only* into *actionable*: bind **Apply** / **Revert** buttons to the Fabric **User Data Function** the provisioning deploys (`optimization-apply-loop`), so a click flips the `OptimizationPolicies` doc in Cosmos and the running agent honors it on its next turn. (The UDF functions **return a string** — a requirement for data-function buttons.)
 
 1. **Options → Preview features → enable "Translytical task flows"**, then restart Power BI Desktop.
-2. **Insert → Button** (label it *Apply*). Select it → **Format → Action → Type = Data function** → pick your workspace → the `apply_optimization` function.
-3. Map its `scenario` parameter to the selected policy (bind to `'…OptimizationPolicies'[scenario]`, or a fixed value like `model-selection`); set `by = "powerbi"`.
-4. Duplicate the button for **Revert** → `revert_optimization`.
+2. Add a constant measure for the scenario (New measure, any table): `Apply Scenario = "model-selection"`.
+3. **Insert → Button** (label it *Apply*). Select it → **Format → Action** (toggle **On**) → **Type = Data function**, then fill **all three** dropdowns: **Workspace** → **Function set** = `optimization-apply-loop` → **Data function** = `apply_optimization`. The parameters appear only after the Data function is chosen.
+4. There is **no static-value option** — bind each parameter to a measure or slicer. Click the **`fx`** next to **`scenario`** → select the **`Apply Scenario`** measure. Leave **`by`** unmapped (it defaults to `powerbi`). (For a dynamic version, bind `scenario` to `SELECTEDVALUE('…OptimizationPolicies'[scenario], "model-selection")` driven by a slicer.)
+5. Duplicate the button for **Revert** → **Data function** = `revert_optimization`, same `Apply Scenario` measure.
+
+> **Testing:** buttons do **not** fire in Power BI Desktop — they only validate (the button restyles when the parameter is accepted). **Publish to the Power BI Service** to actually click Apply/Revert.
 
 See `analytics/fabric/udf/README.md` for the UDF details. This is the translytical payoff: the analytical report *writes back* to the operational store — Power BI → Fabric UDF → Cosmos — closing the loop inside one surface.
 
@@ -255,7 +258,7 @@ Actual Cost USD   = CALCULATE(MAX('TravelAssistant OptimizationInsights'[actual_
 ```
 
 Visuals (each with a visual-level filter `type = "optimization_result"`):
-- **Scenario slicer:** add a **Slicer** on `'…OptimizationInsights'[title]` (or `scenario`) — this is how you **switch between optimizations**. Pick one and the cards below update.
+- **Scenario slicer:** add a **Slicer** on `'…OptimizationInsights'[scenario]` — this is how you **switch between optimizations**. Pick one and the cards below update. (`title` is a nicer label but may not appear until the mirror syncs it; `scenario` is always present.)
 - **Cards:** `[Saving USD]` and `[Saving %]` — the headline "we saved $X (Y%)" for the selected optimization (`method="pending"` scenarios read $0 until measured).
 - **Clustered column — baseline vs actual:** values `[Baseline Cost USD]` and `[Actual Cost USD]`, so the gap *is* the saving.
 

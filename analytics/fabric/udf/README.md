@@ -123,14 +123,24 @@ The function return is under the `output` field of the response (alongside
 
 ## Step 5 — Wire the Power BI buttons (translytical task flow)
 
+The functions **return a string** — required for data-function buttons.
+
 1. Power BI Desktop with **translytical task flow** preview features enabled
    (Options → Preview features), connected to the report.
-2. Add a **Button** → Action **Data function** → pick your workspace → the
-   `apply_optimization` function → map the parameter `scenario` to the selected
-   optimization (a slicer field or a fixed value `model-selection`); set `by="powerbi"`.
-3. Duplicate for **Revert** → `revert_optimization`.
-4. Optionally add the `get_optimization_status` result (or the `optimization_result`
-   saving from `OptimizationInsights`) as a card so the report shows the effect.
+2. Add a constant measure for the scenario: `Apply Scenario = "model-selection"`.
+3. Add a **Button** → **Format → Action** (On) → Type **Data function**, then fill all
+   three dropdowns: **Workspace** → **Function set** `optimization-apply-loop` →
+   **Data function** `apply_optimization`. The parameters appear only after the
+   Data function is chosen.
+4. There is **no static-value option**: click the **`fx`** next to `scenario` and pick
+   the `Apply Scenario` measure (or bind to a slicer). Leave `by` unmapped (defaults to
+   `powerbi`).
+5. Duplicate for **Revert** → Data function `revert_optimization`.
+6. Optionally add the `optimization_result` saving from `OptimizationInsights` as a card
+   so the report shows the effect.
+
+> Buttons don't fire in Power BI Desktop (they only validate/restyle) — **publish to the
+> Power BI Service** to click Apply/Revert for real.
 
 Full walkthrough: the `translytical-taskflows/` sample README.
 
