@@ -275,14 +275,16 @@ def read_metrics_from_insights(tenant_id: str) -> dict[str, Any] | None:
 
 
 def read_optimization_result_from_insights(tenant_id: str) -> dict[str, Any] | None:
-    """Measured before/after results (counterfactual saving etc.) for a tenant, or None."""
+    """Measured before/after results per optimization (scenario-keyed), or None.
+
+    Results are keyed by scenario under a reserved partition — not by tenant — so the
+    tenant argument is accepted for route compatibility but isn't used as a filter."""
     container = _get_insights_container()
     if container is None:
         return None
     try:
         rows = list(container.query_items(
-            query="SELECT * FROM d WHERE d.tenantId=@t AND d.type='optimization_result'",
-            parameters=[{"name": "@t", "value": tenant_id}],
+            query="SELECT * FROM d WHERE d.type='optimization_result'",
             enable_cross_partition_query=True,
         ))
     except Exception as exc:  # noqa: BLE001
@@ -290,8 +292,10 @@ def read_optimization_result_from_insights(tenant_id: str) -> dict[str, Any] | N
         return None
     if not rows:
         return None
-    results = [{k: v for k, v in r.items() if not k.startswith("_")} for r in rows]
-    return {"tenant_id": tenant_id, "source": "fabric", "results": results}
+    results = sorted(
+        [{k: v for k, v in r.items() if not k.startswith("_")} for r in rows],
+        key=lambda r: r.get("scenario", ""))
+    return {"source": "fabric", "results": results}
 
 
 # ---------------------------------------------------------------------------

@@ -239,11 +239,11 @@ Visuals:
 
 ---
 
-## Page 6: Measured before/after saving (reverse-ETL)
+## Page 6: Measured saving by optimization (reverse-ETL)
 
-Answers: **What did the optimization actually save?** — a measured number, not an estimate.
+Answers: **What did each optimization actually save?** — a measured number, not an estimate, and you can **switch between optimizations**.
 
-This reads the flat `optimization_result` row the reverse-ETL writes into `'TravelAssistant OptimizationInsights'` (`type = "optimization_result"`). It's a **counterfactual** measurement: every captured turn is priced under the model it actually ran on vs. under the all-premium baseline, so the difference is the real saving — keyed by scenario, not by tenant.
+This reads the flat `optimization_result` rows the reverse-ETL writes into `'TravelAssistant OptimizationInsights'` — **one row per optimization**, keyed by `scenario` and stored under the reserved `tenantId = "_optimizations"` partition (so the axis is the *optimization*, never the tenant). `model-selection` carries a real **counterfactual** measurement (every captured turn priced under the model it actually ran on vs. the all-premium baseline); the behavior-changing scenarios show `method = "pending"` until their before/after is measured.
 
 Measures (add to `'TravelAssistant OptimizationInsights'`):
 
@@ -255,10 +255,13 @@ Actual Cost USD   = CALCULATE(MAX('TravelAssistant OptimizationInsights'[actual_
 ```
 
 Visuals (each with a visual-level filter `type = "optimization_result"`):
-- **Cards:** `[Saving USD]` and `[Saving %]` — the headline "we saved $X (Y%)".
+- **Scenario slicer:** add a **Slicer** on `'…OptimizationInsights'[title]` (or `scenario`) — this is how you **switch between optimizations**. Pick one and the cards below update.
+- **Cards:** `[Saving USD]` and `[Saving %]` — the headline "we saved $X (Y%)" for the selected optimization (`method="pending"` scenarios read $0 until measured).
 - **Clustered column — baseline vs actual:** values `[Baseline Cost USD]` and `[Actual Cost USD]`, so the gap *is* the saving.
 
-> **Talking point:** the recommendation cards *estimate* a saving; this page shows the **measured** one from the counterfactual — so apply → re-measure closes the loop with a real number.
+> **Filtering note:** because these rows live under `tenantId = "_optimizations"`, keep this page **off** the tenant slicer used on other pages (or add a page-level filter `tenantId = "_optimizations"`).
+
+> **Talking point:** the recommendation cards *estimate* a saving; this page shows the **measured** one, per optimization — so apply → re-measure closes the loop with a real number.
 
 ---
 
@@ -293,4 +296,4 @@ The `.pbit`:
 
 **`Configuration`** — a small multi-entity config store keyed by `type`. Pricing rows have `type = "model_pricing"`, `model`, `input_price`, `output_price` (USD per 1M tokens); the `type = "model_selection_defaults"` doc carries the proposed tier/classifier policy. Filter `type = "model_pricing"` when joining for cost.
 
-**`OptimizationInsights`** — reverse-ETL output from the Fabric notebook, keyed by `type`: `funnel_stage` (`stage`, `stage_order`, `sessions`), `abandonment_cause` (`cause`, `sessions`), `conversion_kpi` (`engaged`, `confirmed`, `conversion_rate`, `biggest_leak`), and `optimization_result` (`scenario`, `method`, `turns`, `baseline_cost_usd`, `actual_cost_usd`, `saving_usd`, `saving_pct`). Powers the Business Impact + Measured Saving pages; every visual filters on `type`. (The `recommendation_card` and `turn_metrics` rows in this same container carry nested JSON the *app/console* reads — not for Power BI visuals.)
+**`OptimizationInsights`** — reverse-ETL output from the Fabric notebook, keyed by `type`: `funnel_stage` (`stage`, `stage_order`, `sessions`), `abandonment_cause` (`cause`, `sessions`), `conversion_kpi` (`engaged`, `confirmed`, `conversion_rate`, `biggest_leak`), and `optimization_result` (`scenario`, `title`, `method`, `status`, `turns`, `baseline_cost_usd`, `actual_cost_usd`, `saving_usd`, `saving_pct`) — **one row per optimization**, stored under `tenantId = "_optimizations"`. Powers the Business Impact + Measured Saving pages; every visual filters on `type`. (The `recommendation_card` and `turn_metrics` rows in this same container carry nested JSON the *app/console* reads — not for Power BI visuals.)

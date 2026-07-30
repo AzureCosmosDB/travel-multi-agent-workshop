@@ -152,25 +152,37 @@ def build_recommendation_rows(tenant_id: str) -> list[dict]:
     return rows
 
 
-def build_optimization_result_rows(tenant_id: str, turns_container) -> list[dict]:
-    """Measure the REAL before/after saving via counterfactual (shadow) scoring.
+# The applyable optimizations the report can switch between. model-selection is
+# measured (counterfactual); the behavior-changing ones are "pending" until a
+# before/after measurement is wired up. Scenario-keyed, stored under one reserved
+# partition so the report slices on `scenario`, never on tenant.
+MEASUREMENT_PARTITION = "_optimizations"
+OPTIMIZATION_SCENARIOS = [
+    ("model-selection", "Capability-tiered model selection", "counterfactual"),
+    ("memory-retention", "Memory retention (prune superseded)", "pending"),
+    ("active-trip-city-context", "Active-trip city context", "pending"),
+    ("tool-call-dedup", "Redundant tool-call dedup", "pending"),
+]
 
-    For every captured turn, price it under the model it actually ran on vs. under
-    the all-premium baseline (gpt-5.1). ``saving = baseline_cost - actual_cost`` —
-    exact for a price-only optimization (same tokens, different unit price). This
-    is keyed by *scenario* (the experiment identity), never by tenant, and needs
-    no A/B tenant fork or time split: a baseline (single-model) tenant scores ~0
-    saving, a tiered one scores the true delta. Emitted as a flat
-    ``optimization_result`` row so Power BI can read it with trivial DAX.
-    """
+
+def _policy_status(db, scenario: str) -> str:
+    try:
+        p = db.get_container_client("OptimizationPolicies").read_item(scenario, scenario)
+        return p.get("status", "not_proposed")
+    except Exception:  # noqa: BLE001
+        return "not_proposed"
+
+
+def _model_selection_counterfactual(db) -> tuple[int, float, float]:
+    """Counterfactual over ALL captured turns (every tenant): price each turn under the
+    model it actually ran on vs. the all-premium baseline (gpt-5.1). Returns
+    (turns, baseline_cost, actual_cost)."""
     from src.app.services import optimization_recommendations as rec
 
     pricing = rec.load_pricing()
     baseline = pricing.get("gpt-5.1", {"input": 1.25, "output": 10.00})
-    turns = list(turns_container.query_items(
-        query=("SELECT c.model_deployment, c.model_name, c.input_tokens, c.output_tokens "
-               "FROM c WHERE c.tenantId=@t"),
-        parameters=[{"name": "@t", "value": tenant_id}],
+    turns = list(db.get_container_client("OptimizationTurns").query_items(
+        query="SELECT c.model_deployment, c.model_name, c.input_tokens, c.output_tokens FROM c",
         enable_cross_partition_query=True,
     ))
     actual_cost = baseline_cost = 0.0
@@ -181,18 +193,47 @@ def build_optimization_result_rows(tenant_id: str, turns_container) -> list[dict
         pin, pout = rec._price_for(pricing, dep)
         actual_cost += (i * pin + o * pout) / 1_000_000
         baseline_cost += (i * baseline["input"] + o * baseline["output"]) / 1_000_000
+    return len(turns), baseline_cost, actual_cost
+
+
+def build_optimization_result_rows(db) -> list[dict]:
+    """Measured before/after impact per OPTIMIZATION (scenario), not per tenant.
+
+    Emits one flat ``optimization_result`` row per applyable scenario under a reserved
+    ``_optimizations`` partition, so a Power BI slicer on ``scenario`` switches between
+    optimizations. model-selection carries a real **counterfactual** measurement (price
+    each captured turn under the model it actually ran on vs. the all-premium baseline,
+    across all tenants); the behavior-changing scenarios are ``pending`` until a
+    before/after measurement is wired up. Keyed by scenario + measured analytically —
+    the tenant is never the axis for "which optimization am I looking at".
+    """
+    now = _now()
+    n, baseline_cost, actual_cost = _model_selection_counterfactual(db)
     saving = baseline_cost - actual_cost
-    return [{
-        "id": f"result::{tenant_id}::model-selection::counterfactual",
-        "type": "optimization_result", "tenantId": tenant_id,
-        "scenario": "model-selection", "method": "counterfactual",
-        "turns": len(turns),
-        "baseline_cost_usd": round(baseline_cost, 4),
-        "actual_cost_usd": round(actual_cost, 4),
-        "saving_usd": round(saving, 4),
-        "saving_pct": round(100 * saving / baseline_cost, 1) if baseline_cost else 0.0,
-        "computed_at": _now(),
-    }]
+    rows: list[dict] = []
+    for scenario, title, method in OPTIMIZATION_SCENARIOS:
+        row = {
+            "id": f"result::{scenario}",
+            "type": "optimization_result", "tenantId": MEASUREMENT_PARTITION,
+            "scenario": scenario, "title": title, "method": method,
+            "status": _policy_status(db, scenario), "computed_at": now,
+        }
+        if scenario == "model-selection":
+            row.update({
+                "turns": n,
+                "baseline_cost_usd": round(baseline_cost, 4),
+                "actual_cost_usd": round(actual_cost, 4),
+                "saving_usd": round(saving, 4),
+                "saving_pct": round(100 * saving / baseline_cost, 1) if baseline_cost else 0.0,
+            })
+        else:
+            row.update({
+                "turns": 0, "baseline_cost_usd": 0.0, "actual_cost_usd": 0.0,
+                "saving_usd": 0.0, "saving_pct": 0.0,
+                "note": "Measured before/after pending — apply the policy, then measure over the experiment window.",
+            })
+        rows.append(row)
+    return rows
 
 
 def main() -> None:
@@ -224,13 +265,13 @@ def main() -> None:
         rec_kinds[r["type"]] = rec_kinds.get(r["type"], 0) + 1
     print(f"✅ reverse-ETL wrote {len(rec_rows)} recommendation rows for '{args.tenant}': {rec_kinds}")
 
-    # Measure the real before/after (counterfactual) saving and write it back too.
-    res_rows = build_optimization_result_rows(args.tenant, db.get_container_client("OptimizationTurns"))
+    # Measure before/after impact per OPTIMIZATION (scenario-keyed, all tenants).
+    res_rows = build_optimization_result_rows(db)
     for r in res_rows:
         container.upsert_item(r)
-    for r in res_rows:
-        print(f"✅ reverse-ETL wrote optimization_result for '{args.tenant}': "
-              f"turns={r['turns']} saving=${r['saving_usd']} ({r['saving_pct']}% vs all-premium baseline)")
+    ms = next((r for r in res_rows if r["scenario"] == "model-selection"), {})
+    print(f"✅ reverse-ETL wrote {len(res_rows)} optimization_result rows (scenario-keyed): "
+          f"model-selection turns={ms.get('turns')} saving=${ms.get('saving_usd')} ({ms.get('saving_pct')}% vs all-premium baseline)")
 
 
 if __name__ == "__main__":

@@ -158,7 +158,7 @@ That's reverse-ETL: Fabric-computed intelligence, landed back in the operational
 
 ## Activity 5: Watch Power BI Light Up
 
-Open the provided **`analytics/TravelAssistantAnalyticsReport.pbit`** in Power BI Desktop (the same report you connected in Module 07) and go to its **Business Impact** page. Before you ran the notebook it was empty; after your reverse-ETL write (and a mirror refresh), it **lights up** — the conversion funnel, the conversion-rate KPI, the biggest-leak callout, and the "why sessions don't convert" bar. The **Measured Saving** page lights up too, from your `optimization_result` row. **You didn't touch the report** — the insight flowed Cosmos → Fabric → reverse-ETL → Cosmos → mirror → Power BI.
+Open the provided **`analytics/TravelAssistantAnalyticsReport.pbit`** in Power BI Desktop (the same report you connected in Module 07) and go to its **Business Impact** page. Before you ran the notebook it was empty; after your reverse-ETL write (and a mirror refresh), it **lights up** — the conversion funnel, the conversion-rate KPI, the biggest-leak callout, and the "why sessions don't convert" bar. The **Measured Saving** page lights up too, from the scenario-keyed `optimization_result` row (`model-selection`). **You didn't touch the report** — the insight flowed Cosmos → Fabric → reverse-ETL → Cosmos → mirror → Power BI.
 
 > **Connecting the report (same as Module 07):** when prompted, enter **your own** mirror's **SQL analytics endpoint** and **database name** (`TravelAssistantAnalytics`) — these are parameters, so they point the report at *your* mirror. At the credentials prompt use the **Microsoft account / Organizational account** tab and **Sign in** (not Windows); click **OK/Continue** on the "multiple data sources" privacy prompt. If it shows stale data or the wrong server, fix it via **Home → Transform data → Manage Parameters**, and clear any cached endpoint under **File → Options and settings → Data source settings**.
 
@@ -182,7 +182,7 @@ That's the whole thesis in one gesture: **Power BI → Fabric UDF → Cosmos →
 
 - [ ] The read cell prints non-zero counts for `turns`, `trips`, `messages` from the **mirror**.
 - [ ] Your `cause` classification runs and the cause breakdown looks sane (biggest bucket ≈ `city_friction` on `funnel_demo`).
-- [ ] Your reverse-ETL write completes and `OptimizationInsights` has `funnel_stage` / `abandonment_cause` / `conversion_kpi` **and** `optimization_result` rows for the tenant.
+- [ ] Your reverse-ETL write completes: `OptimizationInsights` has `funnel_stage` / `abandonment_cause` / `conversion_kpi` rows for the tenant, plus a scenario-keyed `optimization_result` row for `model-selection` (under `tenantId="_optimizations"`).
 - [ ] The Power BI **Business Impact** page populates without any report edits.
 - [ ] (bonus) Clicking **Apply** in the report flips the `model-selection` policy to `active` in Cosmos (confirm on the Applied Optimizations page or in Cosmos Data Explorer), and **Revert** rolls it back.
 - [ ] You can explain, in your own words, why analytics runs in Fabric (not on Cosmos) and why reverse-ETL is what enables an agent to optimize *itself*.
