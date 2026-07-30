@@ -195,6 +195,15 @@ hooks:
         # swap a model in infra/main.bicep, add its price there (see analytics/docs/model-pricing.md).
         python data/seed_configuration.py
 
+        # Seed the Module 09 conversion-funnel demo tenant (funnel_demo) so the Fabric
+        # mirror + notebook have data. Only when analytics is deployed.
+        DEPLOY_ANALYTICS=$(azd env get-value DEPLOY_ANALYTICS 2>/dev/null || echo "true")
+        if [ "$DEPLOY_ANALYTICS" != "false" ]; then
+          echo ""
+          echo "Seeding the Module 09 funnel_demo analytics dataset..."
+          python ../../analytics/funnel_seed.py
+        fi
+
         # If GSI mode is enabled, seed 25K trips and manage throughput
         if [ "$DEPLOY_GSI" = "true" ]; then
           echo ""
@@ -301,6 +310,15 @@ hooks:
             # models azd actually deployed. Prices come from data/model_pricing.json — if you
             # swap a model in infra/main.bicep, add its price there (see analytics/docs/model-pricing.md).
             python data\seed_configuration.py
+
+            # Seed the Module 09 conversion-funnel demo tenant (funnel_demo) so the Fabric
+            # mirror + notebook have data. Only when analytics is deployed.
+            $deployAnalytics = (azd env get-value DEPLOY_ANALYTICS 2>$null)
+            if ($deployAnalytics -ne "false") {
+                Write-Host ""
+                Write-Host "Seeding the Module 09 funnel_demo analytics dataset..."
+                python ..\..\analytics\funnel_seed.py
+            }
 
             # If GSI mode is enabled, seed 25K trips and manage throughput
             if ($env:DEPLOY_GSI -eq "true") {

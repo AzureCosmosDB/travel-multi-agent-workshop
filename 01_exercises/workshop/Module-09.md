@@ -34,7 +34,7 @@ By the end you will be able to:
 ## Module Exercises
 
 1. [Activity 1: The Two Planes and the Mirror](#activity-1-the-two-planes-and-the-mirror)
-2. [Activity 2: Open the Notebook and Read the Mirror](#activity-2-open-the-notebook-and-read-the-mirror)
+2. [Activity 2: Provision the Workspace and Mirror, then Open the Notebook](#activity-2-provision-the-workspace-and-mirror-then-open-the-notebook)
 3. [Activity 3: Build the Decision (`cause` classification)](#activity-3-build-the-decision-cause-classification)
 4. [Activity 4: Reverse-ETL the Insights Back to Cosmos](#activity-4-reverse-etl-the-insights-back-to-cosmos)
 5. [Activity 5: Watch Power BI Light Up](#activity-5-watch-power-bi-light-up)
@@ -43,23 +43,75 @@ By the end you will be able to:
 
 ## Activity 1: The Two Planes and the Mirror
 
-Your `azd`/Fabric provisioning already created a **mirrored database** of the Cosmos analytics containers (see `analytics/fabric/README.md`). The mirror carries the tables this module needs — `OptimizationTurns`, `Trips`, `Messages`, and the reverse-ETL target `OptimizationInsights`.
+A **mirrored database** is a zero-ETL, near-real-time copy of your Cosmos analytics containers inside Fabric's OneLake. Analytics read *that* copy — never the transactional account. In the next activity you will create it; for now, understand what it is and why it exists.
+
+> **What `azd up` actually provisioned.** For the analytics path, `azd` created **only the Fabric F2 _capacity_** (compute) and the Cosmos containers. It did **not** create the Fabric workspace, the mirrored database, or the notebook — you stand those up in **Activity 2**.
+
+Once created, the mirror will carry these Cosmos containers as tables: `OptimizationTurns`, `Trips`, `OptimizationPolicies`, `Configuration`, `Messages`, and the reverse-ETL target `OptimizationInsights`. This module reads `OptimizationTurns`, `Trips`, and `Messages`, uses `Configuration` for pricing, and writes results back to `OptimizationInsights`.
 
 Two things to internalize:
 
 - **The analytical plane reads the mirror, not Cosmos.** The Spark notebook queries the mirror's **SQL analytics endpoint** — the transactional account isn't touched by analytics.
 - **Reverse-ETL is a deliberate, small write back.** You compute a lot in Fabric, then write a **handful of flat rows** back to Cosmos so the app can act cheaply.
 
-## Activity 2: Open the Notebook and Read the Mirror
+## Activity 2: Provision the Workspace and Mirror, then Open the Notebook
 
-Provisioning already placed the **`ConversionFunnelReverseETL`** notebook in your Fabric workspace, with its parameters pre-filled from your deployment (Cosmos endpoint/database + the mirror's SQL endpoint). Open it, confirm the parameters look right, and set `TENANT = "funnel_demo"`.
+You will create the Fabric workspace, the Cosmos mirror, and upload this module's notebook using a single PowerShell script. It reads your deployment settings from your `azd` environment automatically, so you only supply a workspace name and — for one unavoidable portal step — a connection id.
 
-Run the first two cells. The read cell pulls the mirrored tables via the SQL endpoint; the funnel cell (provided) aggregates turns into per-session stages — **engaged → searched → planned → confirmed** — and attaches a friction signal from the assistant `Messages`:
+> **Prerequisites:** you have run `azd up` for this workshop, and you are signed in with `az login` (and `azd auth login`) as a user with permission to create Fabric workspaces. Microsoft Fabric must be enabled for your tenant.
+
+### Step 1 — Run the provisioning script (Phase 1)
+
+Open a **new PowerShell terminal** at the repository root and run:
+
+```powershell
+cd analytics\fabric
+.\Provision-Fabric.ps1
+```
+
+The script auto-detects the workshop folder you deployed (e.g. `02_completed` or `01_exercises`) and its virtual environment. When prompted, accept the default workspace name (**`Multi-Agent Travel Workshop`**) or enter your own. It then runs **Phase 1**: it creates the workspace, assigns it to your F2 capacity, provisions the workspace identity, and grants the required Cosmos RBAC — then pauses.
+
+> Uploading the **completed** notebook (for the `02_completed` demo) instead of the learner version? Run `.\Provision-Fabric.ps1 -Solution`.
+
+### Step 2 — Create the Cosmos connection in the Fabric portal (manual, one time)
+
+Creating the Cosmos **connection** is the one step Fabric does not let us automate today, so the script pauses and walks you through it. You are **only creating a connection object** here — the script creates the mirrored database itself, using the connection id you provide. In [https://app.fabric.microsoft.com](https://app.fabric.microsoft.com):
+
+1. Click **Settings** (gear, top-right) → **Manage connections and gateways**. *(This is a **tenant-level** setting, not your workspace settings.)*
+2. On the **Connections** tab, click **+ New**.
+3. Set **Connection type** to **Azure Cosmos DB for NoSQL**, and use the Cosmos **endpoint** the script printed as the account URL.
+4. Set the **Authentication method** to **OAuth 2.0** (Organizational account), sign in, then click **Create**.
+5. Open the new connection → **Settings** and **copy its Connection ID** (a GUID). *Do not start the "New mirrored database" wizard — the script creates the mirror for you.*
+
+> **Paste tip:** in the VS Code terminal, paste with **Ctrl+Shift+V** (`Ctrl+V` shows a literal `^V`). Alternatively, press Enter to exit and re-run non-interactively: `.\Provision-Fabric.ps1 -ConnectionId <id>`.
+
+### Step 3 — Paste the connection id (Phase 2)
+
+Back in the PowerShell terminal, **paste the connection id** at the prompt and press Enter. The script runs **Phase 2**: it creates the mirrored database, starts replication, and uploads the **`ConversionFunnelReverseETL`** notebook with its parameters pre-filled from your deployment (Cosmos endpoint/database + the mirror's SQL endpoint). It saves `FABRIC_WORKSPACE_ID` and `FABRIC_MIRROR_ID` to your `azd` environment.
+
+### Step 4 — Verify in the Fabric portal
+
+Refresh your workspace. Confirm you see both:
+
+- a **mirrored database** whose tables show a *Replicating* / *Running* status, and
+- the **`ConversionFunnelReverseETL`** notebook.
+
+Your `azd up` deployment already **seeded a demo tenant, `funnel_demo`**, into your Cosmos `OptimizationTurns` / `Messages` / `Trips` containers (~120 sessions with a realistic mix of converted and abandoned outcomes). The mirror replicates it within a minute — so there is **nothing extra for you to run**; the notebook has data waiting.
+
+### Step 5 — Open the notebook and read the mirror
+
+Open the **`ConversionFunnelReverseETL`** notebook, confirm the pre-filled parameters look right, and set `TENANT = "funnel_demo"`.
+
+> **Run only the Parameters cell, then Section 1 (Read the mirror) and Section 2 (Build the funnel) — then stop.** Sections **3** and **5** contain the `TODO` exercises you complete later in **Activity 3** and **Activity 4**; don't run them yet.
+
+The read cell (Section 1) pulls the mirrored tables via the SQL endpoint; the funnel cell (Section 2, provided) aggregates turns into per-session stages — **engaged → searched → planned → confirmed** — and attaches a friction signal from the assistant `Messages`:
 
 - `searched` — the session delegated to a place search (`handoff_count > 0` / `agent_path` hit `find_places`).
 - `planned` — a turn reached the itinerary step.
 - `confirmed` — the session (or its user) has a booked `Trip`.
 - `city_reask` / `no_results` — friction flags mined from the assistant messages.
+
+> **Troubleshooting — `Error occurred while attempting to read a deletion vector`.** If the read cell throws this, it's a Fabric **SQL analytics endpoint metadata-sync lag**, not a data problem. Open your **mirrored database → SQL analytics endpoint** in the portal and click **Refresh** (metadata sync), confirm the F2 capacity isn't paused, wait ~1–2 minutes, then re-run the cell. If it persists, **Stop** and then **Start** replication on the mirrored database to force a clean re-snapshot, and re-run.
 
 *This is the analysis you would never run on Cosmos directly — it groups and joins across every session.*
 
@@ -104,6 +156,8 @@ That's reverse-ETL: Fabric-computed intelligence, landed back in the operational
 ## Activity 5: Watch Power BI Light Up
 
 Open the provided **`analytics/TravelAssistantAnalyticsReport.pbit`** in Power BI Desktop (the same report you connected in Module 07) and go to its **Business Impact** page. Before you ran the notebook it was empty; after your reverse-ETL write (and a mirror refresh), it **lights up** — the conversion funnel, the conversion-rate KPI, the biggest-leak callout, and the "why sessions don't convert" bar. **You didn't touch the report** — the insight flowed Cosmos → Fabric → reverse-ETL → Cosmos → mirror → Power BI.
+
+> **Connecting the report (same as Module 07):** when prompted, enter **your own** mirror's **SQL analytics endpoint** and **database name** (`TravelAssistantAnalytics`) — these are parameters, so they point the report at *your* mirror. At the credentials prompt use the **Microsoft account / Organizational account** tab and **Sign in** (not Windows); click **OK/Continue** on the "multiple data sources" privacy prompt. If it shows stale data or the wrong server, fix it via **Home → Transform data → Manage Parameters**, and clear any cached endpoint under **File → Options and settings → Data source settings**.
 
 *Stuck? Compare against `analytics/fabric/ConversionFunnelReverseETL_solution.ipynb`.*
 

@@ -18,12 +18,13 @@ It writes a set of sessions to the ``funnel_demo`` tenant with a controlled outc
     - no_results       : searched, the place search dead-ended ("couldn't find any…")
     - cart_abandon     : got a full itinerary, never confirmed (last-mile drop)
 
-Each session writes authentic-shaped Debug turns (agent_path, tokens, handoff_count),
-a few Messages carrying the friction signal, and — for converted sessions — a Trip
-(status=confirmed) that records the sessionId so conversion is session-level.
+Each session writes authentic-shaped OptimizationTurns (agent_path, tokens,
+handoff_count), a few Messages carrying the friction signal, and — for converted
+sessions — a Trip (status=confirmed) that records the sessionId so conversion is
+session-level.
 
-Deterministic (fixed seed) and idempotent (stable ids). Turns land in Debug/Messages/
-Trips (already used by the diagnostics + mirrored to Fabric).
+Deterministic (fixed seed) and idempotent (stable ids). Turns land in
+OptimizationTurns/Messages/Trips (read by the Module 09 notebook via the Fabric mirror).
 
 Usage (repo root; Cosmos via DefaultAzureCredential):
   python analytics/funnel_seed.py                 # ~120 sessions
@@ -49,7 +50,20 @@ from azure.cosmos import CosmosClient
 from azure.identity import DefaultAzureCredential
 from dotenv import load_dotenv
 
-load_dotenv(Path(__file__).resolve().parents[1] / "02_completed" / "python" / ".env")
+load_dotenv  # noqa: B018  (imported above; env resolution happens below)
+
+# Resolve the deployed Cosmos endpoint. Priority: an already-set COSMOSDB_ENDPOINT
+# (e.g. exported by azd during a hook) > a .env in the current directory (the deployed
+# tree's python/ dir, where azd postprovision runs) > the known workshop trees.
+_repo_root = Path(__file__).resolve().parents[1]
+if not os.environ.get("COSMOSDB_ENDPOINT"):
+    _env_candidates = [Path.cwd() / ".env"]
+    _env_candidates += [_repo_root / _tree / "python" / ".env" for _tree in ("01_exercises", "02_completed")]
+    for _env_path in _env_candidates:
+        if _env_path.exists():
+            load_dotenv(_env_path)
+            if os.environ.get("COSMOSDB_ENDPOINT"):
+                break
 
 TENANT = "funnel_demo"
 CITIES = ["Amsterdam", "Paris", "Tokyo", "Rome", "Barcelona", "London", "New York"]
@@ -80,29 +94,28 @@ def _pick_outcome(rng: random.Random) -> str:
     return OUTCOMES[0][0]
 
 
-def _debug_doc(tenant, user, session, stage, ts, idx):
+def _turn_doc(tenant, user, session, stage, ts, idx):
+    """Flat OptimizationTurns doc (matches record_optimization_turn's schema, plus
+    agent_path) so the Module 09 notebook can read it from the mirror."""
     path, in_r, out_r, handoffs = stage
     it = random.randint(*in_r)
     ot = random.randint(*out_r)
-    now = ts
-    timestamp = now.isoformat()
+    timestamp = ts.isoformat()
     return {
         "id": f"funnel::{session}::{idx}",
-        "debugLogId": f"funnel::{session}::{idx}",
-        "type": "debug_log",
+        "type": "optimization_turn",
         "tenantId": tenant, "userId": user, "sessionId": session,
+        "model_tier": "default",
+        "model_deployment": "gpt-5.1",
+        "model_name": "gpt-5.1-2025-11-13",
+        "input_tokens": it,
+        "output_tokens": ot,
+        "total_tokens": it + ot,
+        "cached_tokens": int(it * 0.7),
+        "handoff_count": handoffs,
+        "agent_path": path,
         "timeStamp": timestamp,
-        "propertyBag": [
-            {"key": "model_tier", "value": "default", "timeStamp": timestamp},
-            {"key": "model_deployment", "value": "gpt-5.1", "timeStamp": timestamp},
-            {"key": "model_name", "value": "gpt-5.1-2025-11-13", "timeStamp": timestamp},
-            {"key": "input_tokens", "value": it, "timeStamp": timestamp},
-            {"key": "output_tokens", "value": ot, "timeStamp": timestamp},
-            {"key": "total_tokens", "value": it + ot, "timeStamp": timestamp},
-            {"key": "cached_tokens", "value": int(it * 0.7), "timeStamp": timestamp},
-            {"key": "handoff_count", "value": handoffs, "timeStamp": timestamp},
-            {"key": "agent_path", "value": path, "timeStamp": timestamp},
-        ],
+        "turn_epoch": int(ts.timestamp()),
     }
 
 
@@ -171,7 +184,7 @@ def main() -> None:
     endpoint = os.environ["COSMOSDB_ENDPOINT"]
     db_name = os.environ.get("COSMOSDB_DATABASE_NAME", "TravelAssistant")
     db = CosmosClient(endpoint, DefaultAzureCredential()).get_database_client(db_name)
-    debug = db.get_container_client("Debug")
+    turns = db.get_container_client("OptimizationTurns")
     messages = db.get_container_client("Messages")
     trips = db.get_container_client("Trips")
 
@@ -187,7 +200,7 @@ def main() -> None:
         ts0 = now - timedelta(hours=args.hours) + step * i
         stages, msgs, converts = build_session(outcome, rng)
         for j, stage in enumerate(stages):
-            debug.upsert_item(_debug_doc(TENANT, user, session, stage, ts0 + timedelta(seconds=j * 30), j))
+            turns.upsert_item(_turn_doc(TENANT, user, session, stage, ts0 + timedelta(seconds=j * 30), j))
         for k, (role, content) in enumerate(msgs):
             messages.upsert_item(_msg_doc(TENANT, user, session, role, content, ts0 + timedelta(seconds=k * 20), k))
         if converts:
