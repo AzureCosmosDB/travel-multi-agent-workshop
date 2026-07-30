@@ -29,6 +29,7 @@ By the end you will be able to:
 - Describe **Mirroring** (zero-ETL Cosmos → Fabric) and **reverse-ETL** (insights back to Cosmos).
 - Compute a **conversion funnel** over the mirror in a Fabric Spark notebook.
 - Implement the **reverse-ETL write** that closes the loop.
+- **Act on analytics from the report** — flip an optimization policy in Cosmos from a Power BI **translytical** button (a Fabric User Data Function).
 - Connect the pattern to **L4/L5 autonomy**.
 
 ## Module Exercises
@@ -38,6 +39,7 @@ By the end you will be able to:
 3. [Activity 3: Build the Decision (`cause` classification)](#activity-3-build-the-decision-cause-classification)
 4. [Activity 4: Reverse-ETL the Insights Back to Cosmos](#activity-4-reverse-etl-the-insights-back-to-cosmos)
 5. [Activity 5: Watch Power BI Light Up](#activity-5-watch-power-bi-light-up)
+6. [Activity 6 (bonus): Apply an Optimization from the Report (translytical)](#activity-6-bonus-apply-an-optimization-from-the-report-translytical)
 
 ---
 
@@ -93,8 +95,9 @@ Back in the PowerShell terminal, **paste the connection id** at the prompt and p
 
 Refresh your workspace. Confirm you see both:
 
-- a **mirrored database** whose tables show a *Replicating* / *Running* status, and
-- the **`ConversionFunnelReverseETL`** notebook.
+- a **mirrored database** whose tables show a *Replicating* / *Running* status,
+- the **`ConversionFunnelReverseETL`** notebook, and
+- the **`optimization-apply-loop`** User Data Function — the translytical Apply/Revert you use in Activity 6 (the provisioning deployed it with the `azure-cosmos` library and your Cosmos endpoint already configured).
 
 Your `azd up` deployment already **seeded a demo tenant, `funnel_demo`**, into your Cosmos `OptimizationTurns` / `Messages` / `Trips` containers (~120 sessions with a realistic mix of converted and abandoned outcomes). The mirror replicates it within a minute — so there is **nothing extra for you to run**; the notebook has data waiting.
 
@@ -161,12 +164,27 @@ Open the provided **`analytics/TravelAssistantAnalyticsReport.pbit`** in Power B
 
 *Stuck? Compare against `analytics/fabric/ConversionFunnelReverseETL_solution.ipynb`.*
 
+## Activity 6 (bonus): Apply an Optimization from the Report (translytical)
+
+So far the report *reads* analytics. A **translytical task flow** lets it *act*: a button in Power BI calls a Fabric **User Data Function**, which writes back to Cosmos — the same operational store the agent reads per turn. The provisioning already deployed the `optimization-apply-loop` UDF (Activity 2, Step 4), so there is nothing to author; you just bind two buttons.
+
+1. In Power BI Desktop, enable **Options → Preview features → Translytical task flows**, then restart.
+2. On the report's **Applied Optimizations** page, add an **Apply** button: **Insert → Button**, then **Format → Action → Type = Data function** → your workspace → the **`apply_optimization`** function. Map its `scenario` parameter to `model-selection` and set `by = "powerbi"`. (Full steps: `analytics/PowerBI_Optimization_Build_Guide.md`, Page 4.)
+3. Duplicate it for **Revert** → the **`revert_optimization`** function.
+4. Click **Apply**. The UDF flips the `OptimizationPolicies` doc in Cosmos to `status=active`; the running agent honors capability-tiered model selection on its **next turn**. Click **Revert** to roll back — a safe, reversible policy flip, never a code change.
+
+That's the whole thesis in one gesture: **Power BI → Fabric UDF → Cosmos → the agent**. The analytical plane doesn't just observe the operational plane — it *steers* it.
+
+> **How it authenticates:** the UDF uses Fabric's managed Cosmos connection; the deploying user was granted **Cosmos DB Built-in Data Contributor** by the provisioning, so the writeback just works. Details: `analytics/fabric/udf/README.md`.
+
+
 ## Test Your Work
 
 - [ ] The read cell prints non-zero counts for `turns`, `trips`, `messages` from the **mirror**.
 - [ ] Your `cause` classification runs and the cause breakdown looks sane (biggest bucket ≈ `city_friction` on `funnel_demo`).
 - [ ] Your reverse-ETL write completes and `OptimizationInsights` has `funnel_stage` / `abandonment_cause` / `conversion_kpi` rows for the tenant.
 - [ ] The Power BI **Business Impact** page populates without any report edits.
+- [ ] (bonus) Clicking **Apply** in the report flips the `model-selection` policy to `active` in Cosmos (confirm on the Applied Optimizations page or in Cosmos Data Explorer), and **Revert** rolls it back.
 - [ ] You can explain, in your own words, why analytics runs in Fabric (not on Cosmos) and why reverse-ETL is what enables an agent to optimize *itself*.
 
 **[< Agent Optimization](./Module-08.md)** - **[Lessons Learned & The Future >](./Module-10.md)**

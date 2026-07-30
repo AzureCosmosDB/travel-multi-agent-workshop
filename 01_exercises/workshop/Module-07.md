@@ -237,6 +237,8 @@ Key ideas to understand (and to talk about):
 
 > **This module runs on Cosmos alone** — the Console and REST read `OptimizationTurns`/insights directly. The **Cosmos + Fabric via Mirroring** story (the analytical plane, the reverse-ETL loop, and the business-impact conversion funnel) is **Module 09** — that's where you'll see why this pairing is so powerful for AI applications.
 
+> **The same endpoint, upgraded in Module 09.** Today `GET /optimizations/<tenant>` computes the cards **in-app from Cosmos** — a fast "peek" that's perfect for detecting the opportunity here. After Module 09's reverse-ETL populates `OptimizationInsights`, the *same* endpoint automatically serves the **Fabric-computed** cards (`?source=auto`, the default) — the heavy aggregation moves off the operational path with no app change. Pass `?source=live` to force the in-app peek.
+
 ---
 
 ## Activity 5: Detect Opportunities
