@@ -141,14 +141,14 @@ sess = sess.withColumn(
      .otherwise(F.lit("no_engagement")))
 ```
 
-The next cell (provided) shapes the results into **flat** `OptimizationInsights` rows — `funnel_stage`, `abandonment_cause`, and a `conversion_kpi` row that even names the **biggest addressable leak**. Flat rows mean the report needs *no* session math.
+The next cell (provided) shapes the results into **flat** `OptimizationInsights` rows — `funnel_stage`, `abandonment_cause`, and a `conversion_kpi` row that even names the **biggest addressable leak**. Flat rows mean the report needs *no* session math. The **Section 4b** cell (also provided) then computes the **measured saving** — a counterfactual over the mirrored `OptimizationTurns` + `Configuration` pricing — into an `optimization_result` row (`result_df`).
 
 ## Activity 4: Reverse-ETL the Insights Back to Cosmos
 
-Scroll to the section headed **`## 5. TODO 2 — reverse-ETL the insights back to Cosmos`**. Its code cell contains a `# ---- TODO 2 ----` placeholder — this is the pattern this module teaches. **Replace that placeholder** with the write below. It sends the three DataFrames (`funnel_df`, `cause_df`, `kpi_df`) back to the Cosmos **`OptimizationInsights`** container using the Spark Cosmos connector (the `cosmos_write` options are already defined in the cell above; Fabric authenticates to Cosmos with your Entra token):
+First run the provided **Section 4b** cell (measured saving) so `result_df` exists. Then scroll to the section headed **`## 5. TODO 2 — reverse-ETL the insights back to Cosmos`**. Its code cell contains a `# ---- TODO 2 ----` placeholder — this is the pattern this module teaches. **Replace that placeholder** with the write below. It sends the four DataFrames (`funnel_df`, `cause_df`, `kpi_df`, `result_df`) back to the Cosmos **`OptimizationInsights`** container using the Spark Cosmos connector (the `cosmos_write` options are already defined in the cell above; Fabric authenticates to Cosmos with your Entra token):
 
 ```python
-for df in (funnel_df, cause_df, kpi_df):
+for df in (funnel_df, cause_df, kpi_df, result_df):
     df.write.format("cosmos.oltp").options(**cosmos_write).mode("append").save()
 ```
 
@@ -158,7 +158,7 @@ That's reverse-ETL: Fabric-computed intelligence, landed back in the operational
 
 ## Activity 5: Watch Power BI Light Up
 
-Open the provided **`analytics/TravelAssistantAnalyticsReport.pbit`** in Power BI Desktop (the same report you connected in Module 07) and go to its **Business Impact** page. Before you ran the notebook it was empty; after your reverse-ETL write (and a mirror refresh), it **lights up** — the conversion funnel, the conversion-rate KPI, the biggest-leak callout, and the "why sessions don't convert" bar. **You didn't touch the report** — the insight flowed Cosmos → Fabric → reverse-ETL → Cosmos → mirror → Power BI.
+Open the provided **`analytics/TravelAssistantAnalyticsReport.pbit`** in Power BI Desktop (the same report you connected in Module 07) and go to its **Business Impact** page. Before you ran the notebook it was empty; after your reverse-ETL write (and a mirror refresh), it **lights up** — the conversion funnel, the conversion-rate KPI, the biggest-leak callout, and the "why sessions don't convert" bar. The **Measured Saving** page lights up too, from your `optimization_result` row. **You didn't touch the report** — the insight flowed Cosmos → Fabric → reverse-ETL → Cosmos → mirror → Power BI.
 
 > **Connecting the report (same as Module 07):** when prompted, enter **your own** mirror's **SQL analytics endpoint** and **database name** (`TravelAssistantAnalytics`) — these are parameters, so they point the report at *your* mirror. At the credentials prompt use the **Microsoft account / Organizational account** tab and **Sign in** (not Windows); click **OK/Continue** on the "multiple data sources" privacy prompt. If it shows stale data or the wrong server, fix it via **Home → Transform data → Manage Parameters**, and clear any cached endpoint under **File → Options and settings → Data source settings**.
 
@@ -182,7 +182,7 @@ That's the whole thesis in one gesture: **Power BI → Fabric UDF → Cosmos →
 
 - [ ] The read cell prints non-zero counts for `turns`, `trips`, `messages` from the **mirror**.
 - [ ] Your `cause` classification runs and the cause breakdown looks sane (biggest bucket ≈ `city_friction` on `funnel_demo`).
-- [ ] Your reverse-ETL write completes and `OptimizationInsights` has `funnel_stage` / `abandonment_cause` / `conversion_kpi` rows for the tenant.
+- [ ] Your reverse-ETL write completes and `OptimizationInsights` has `funnel_stage` / `abandonment_cause` / `conversion_kpi` **and** `optimization_result` rows for the tenant.
 - [ ] The Power BI **Business Impact** page populates without any report edits.
 - [ ] (bonus) Clicking **Apply** in the report flips the `model-selection` policy to `active` in Cosmos (confirm on the Applied Optimizations page or in Cosmos Data Explorer), and **Revert** rolls it back.
 - [ ] You can explain, in your own words, why analytics runs in Fabric (not on Cosmos) and why reverse-ETL is what enables an agent to optimize *itself*.

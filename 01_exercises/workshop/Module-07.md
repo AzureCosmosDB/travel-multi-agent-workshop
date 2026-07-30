@@ -237,7 +237,7 @@ Key ideas to understand (and to talk about):
 
 > **This module runs on Cosmos alone** — the Console and REST read `OptimizationTurns`/insights directly. The **Cosmos + Fabric via Mirroring** story (the analytical plane, the reverse-ETL loop, and the business-impact conversion funnel) is **Module 09** — that's where you'll see why this pairing is so powerful for AI applications.
 
-> **The same endpoint, upgraded in Module 09.** Today `GET /optimizations/<tenant>` computes the cards **in-app from Cosmos** — a fast "peek" that's perfect for detecting the opportunity here. After Module 09's reverse-ETL populates `OptimizationInsights`, the *same* endpoint automatically serves the **Fabric-computed** cards (`?source=auto`, the default) — the heavy aggregation moves off the operational path with no app change. Pass `?source=live` to force the in-app peek.
+> **Where the heavy analytics actually run (Module 09).** Computing a recommendation card here is lightweight, so `GET /optimizations/<tenant>` does it **in-app from Cosmos** — a fast "peek" that's ideal for *detecting* the opportunity. The **cross-session aggregation and the measured before/after** are what belong in the analytical plane: in Module 09 you compute the **conversion funnel** and the **measured saving** over the Fabric mirror and reverse-ETL them into `OptimizationInsights`, where the report (and `GET /optimizations/<tenant>/result`) read them cheaply. Detect operationally; measure analytically.
 
 ---
 
