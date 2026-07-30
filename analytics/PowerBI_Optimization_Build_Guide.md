@@ -218,33 +218,7 @@ See `analytics/fabric/udf/README.md` for the UDF details. This is the translytic
 
 ---
 
-## Page 5: Business Impact — the conversion funnel (reverse-ETL)
-
-Answers: **Are we converting sessions into booked trips — and if not, why?**
-
-This page reads **pre-computed** rows from `'TravelAssistant OptimizationInsights'` — the output of the **reverse-ETL notebook** (Module 09). The heavy session-level analysis runs in Fabric; the report just displays flat rows, so there is **no session math in DAX**. The page is **empty until the notebook runs**, then it *lights up* — that's the Cosmos → Fabric → reverse-ETL loop made visible.
-
-> `OptimizationInsights` holds several row `type`s; **every visual on this page needs a visual-level filter on `type`.**
-
-Measures (add to `'TravelAssistant OptimizationInsights'`):
-
-```DAX
-Funnel Sessions   = CALCULATE(SUM('TravelAssistant OptimizationInsights'[sessions]), 'TravelAssistant OptimizationInsights'[type] = "funnel_stage")
-Cause Sessions     = CALCULATE(SUM('TravelAssistant OptimizationInsights'[sessions]), 'TravelAssistant OptimizationInsights'[type] = "abandonment_cause")
-Conversion Rate %  = CALCULATE(MAX('TravelAssistant OptimizationInsights'[conversion_rate]), 'TravelAssistant OptimizationInsights'[type] = "conversion_kpi")
-Biggest Leak       = CALCULATE(MAX('TravelAssistant OptimizationInsights'[biggest_leak]), 'TravelAssistant OptimizationInsights'[type] = "conversion_kpi")
-```
-
-Visuals:
-- **Funnel visual — the conversion funnel:** use the **Funnel** visual. Category `'…OptimizationInsights'[stage]`, Values `[Funnel Sessions]`, visual-level filter `type = "funnel_stage"`. **To order it engaged → searched → planned → confirmed:** first set the sort-by column — select the `stage` field → **Column tools → Sort by column → `stage_order`** — then on the visual, **… → Sort axis → `stage` → Sort ascending**. (You won't find `stage_order` in the visual's sort menu directly; it only lists fields in the visual, which is why `stage` must carry the order.)
-- **KPI cards:** `[Conversion Rate %]` and `[Biggest Leak]` (a Card showing *why* the biggest group of sessions leaked — e.g. `city_friction`).
-- **Bar — why sessions don't convert:** Axis `'…OptimizationInsights'[cause]`, Values `[Cause Sessions]`, visual-level filter `type = "abandonment_cause"`. Sort descending.
-
-> **Talking point:** the earlier pages cut *cost*; this page shows *conversion* — the business metric. And it doesn't leave you guessing: it names the biggest addressable leak (e.g. the agent re-asking the city) and points at the fix (SCEN-001). That's the reverse-ETL payoff — Fabric-computed intelligence, landed back where the app can act on it.
-
----
-
-## Page 6: Measured saving by optimization (reverse-ETL)
+## Page 5: Measured saving by optimization (reverse-ETL)
 
 Answers: **What did each optimization actually save?** — a measured number, not an estimate, and you can **switch between optimizations**.
 
@@ -260,13 +234,39 @@ Actual Cost USD   = CALCULATE(MAX('TravelAssistant OptimizationInsights'[actual_
 ```
 
 Visuals (each with a visual-level filter `type = "optimization_result"`):
-- **Scenario slicer:** add a **Slicer** on `'…OptimizationInsights'[scenario]` — this is how you **switch between optimizations**. Pick one and the cards below update. (`title` is a nicer label but may not appear until the mirror syncs it; `scenario` is always present.)
+- **Scenario slicer:** add a **Slicer** (or button slicer) on `'…OptimizationInsights'[scenario]`, single-select — this is how you **switch between optimizations**. **Add a visual-level filter `type = "optimization_result"` to the slicer itself** (lock/hide it), otherwise it also lists `scenario` values from `recommendation_card` rows (6 scenarios) and a blank `--` from the row types that have no scenario. With the filter it shows only the measured optimizations. (`title` is a nicer label but may not appear until the mirror syncs it; `scenario` is always present.)
 - **Cards:** `[Saving USD]` and `[Saving %]` — the headline "we saved $X (Y%)" for the selected optimization (`method="pending"` scenarios read $0 until measured).
-- **Clustered column — baseline vs actual:** values `[Baseline Cost USD]` and `[Actual Cost USD]`, so the gap *is* the saving.
+- **Clustered column — baseline vs actual:** leave the **X-axis empty** and put **both** `[Baseline Cost USD]` and `[Actual Cost USD]` on the **Y-axis** — you get two columns whose gap *is* the saving. (Simpler alternative: three **Cards** — `[Baseline Cost USD]`, `[Actual Cost USD]`, `[Saving USD]`.)
 
 > **Filtering note:** because these rows live under `tenantId = "_optimizations"`, keep this page **off** the tenant slicer used on other pages (or add a page-level filter `tenantId = "_optimizations"`).
 
 > **Talking point:** the recommendation cards *estimate* a saving; this page shows the **measured** one, per optimization — so apply → re-measure closes the loop with a real number.
+
+---
+
+## Page 6: Business Impact — the conversion funnel (reverse-ETL)
+
+Answers: **Are we converting sessions into booked trips — and if not, why?**
+
+This page reads **pre-computed** rows from `'TravelAssistant OptimizationInsights'` — the output of the **reverse-ETL notebook** (Module 09). The heavy session-level analysis runs in Fabric; the report just displays flat rows, so there is **no session math in DAX**. The page is **empty until the notebook runs**, then it *lights up* — that's the Cosmos → Fabric → reverse-ETL loop made visible.
+
+> `OptimizationInsights` holds several row `type`s; **every visual on this page needs a visual-level filter on `type`.** These filters are **structural** (they carve the right row-type out of the shared table), so in the Filters pane **lock** each one (padlock) — and ideally **hide** it (eye) — so a report consumer can't change/remove it and mix row types.
+
+Measures (add to `'TravelAssistant OptimizationInsights'`):
+
+```DAX
+Funnel Sessions   = CALCULATE(SUM('TravelAssistant OptimizationInsights'[sessions]), 'TravelAssistant OptimizationInsights'[type] = "funnel_stage")
+Cause Sessions     = CALCULATE(SUM('TravelAssistant OptimizationInsights'[sessions]), 'TravelAssistant OptimizationInsights'[type] = "abandonment_cause")
+Conversion Rate %  = CALCULATE(MAX('TravelAssistant OptimizationInsights'[conversion_rate]), 'TravelAssistant OptimizationInsights'[type] = "conversion_kpi")
+Biggest Leak       = CALCULATE(MAX('TravelAssistant OptimizationInsights'[biggest_leak]), 'TravelAssistant OptimizationInsights'[type] = "conversion_kpi")
+```
+
+Visuals:
+- **Funnel visual — the conversion funnel:** use the **Funnel** visual. Category `'…OptimizationInsights'[stage]`, Values `[Funnel Sessions]`, visual-level filter `type = "funnel_stage"`. **To order it engaged → searched → planned → confirmed:** first set the sort-by column — select the `stage` field → **Column tools → Sort by column → `stage_order`** — then on the visual, **… → Sort axis → `stage` → Sort ascending**. (You won't find `stage_order` in the visual's sort menu directly; it only lists fields in the visual, which is why `stage` must carry the order.)
+- **Cards:** `[Conversion Rate %]` (a **Card** or **KPI** visual — it's numeric) and `[Biggest Leak]` (use a plain **Card** visual, *not* KPI — `biggest_leak` is **text** like `city_friction`, and the KPI visual only accepts numeric values).
+- **Bar — why sessions don't convert:** use a **Stacked bar chart** (or Clustered — identical with one value). **Y-axis** = `'…OptimizationInsights'[cause]`, **X-axis** = `[Cause Sessions]`, **Legend** empty; visual-level filter `type = "abandonment_cause"`. Sort descending (**… → Sort axis → `[Cause Sessions]` → descending**). (Newer Power BI labels the wells **Y-axis/X-axis** rather than Axis/Values.)
+
+> **Talking point:** the earlier pages cut *cost*; this page shows *conversion* — the business metric. And it doesn't leave you guessing: it names the biggest addressable leak (e.g. the agent re-asking the city) and points at the fix (SCEN-001). That's the reverse-ETL payoff — Fabric-computed intelligence, landed back where the app can act on it.
 
 ---
 
