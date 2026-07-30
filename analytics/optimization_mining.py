@@ -13,7 +13,7 @@ Usage (repo root, with the v2 venv and Cosmos access via DefaultAzureCredential)
     python analytics/optimization_mining.py --tenant v2_analytics
 
 Env: reads COSMOSDB_ENDPOINT (+ COSMOSDB_DATABASE_NAME, default TravelAssistant)
-from 02_completed/python/.env, matching the running app.
+from the active azd environment (or either tree's python/.env), matching the running app.
 """
 from __future__ import annotations
 
@@ -28,8 +28,15 @@ from azure.cosmos import CosmosClient
 from azure.identity import DefaultAzureCredential
 from dotenv import load_dotenv
 
-ENV = Path(__file__).resolve().parents[1] / "02_completed" / "python" / ".env"
-load_dotenv(ENV)
+# Resolve the deployed Cosmos endpoint: an already-set COSMOSDB_ENDPOINT (e.g. exported
+# by azd) > a .env in the current dir > either workshop tree's python/.env.
+if not os.environ.get("COSMOSDB_ENDPOINT"):
+    _repo_root = Path(__file__).resolve().parents[1]
+    for _env_path in [Path.cwd() / ".env"] + [_repo_root / _t / "python" / ".env" for _t in ("01_exercises", "02_completed")]:
+        if _env_path.exists():
+            load_dotenv(_env_path)
+            if os.environ.get("COSMOSDB_ENDPOINT"):
+                break
 
 PLACE_RE = re.compile(
     r"hotel|restaurant|dining|activit|museum|things to do|place|eat|stay|attraction", re.I

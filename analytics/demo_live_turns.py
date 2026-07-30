@@ -115,7 +115,13 @@ def capture(tenant: str, session: str, retries: int = 6) -> None:
     except ImportError:
         print("capture needs azure-cosmos/azure-identity/python-dotenv; skipping")
         return
-    load_dotenv(Path(__file__).resolve().parents[1] / "02_completed" / "python" / ".env")
+    if not os.environ.get("COSMOSDB_ENDPOINT"):
+        _repo_root = Path(__file__).resolve().parents[1]
+        for _env_path in [Path.cwd() / ".env"] + [_repo_root / _t / "python" / ".env" for _t in ("01_exercises", "02_completed")]:
+            if _env_path.exists():
+                load_dotenv(_env_path)
+                if os.environ.get("COSMOSDB_ENDPOINT"):
+                    break
     endpoint = os.environ.get("COSMOSDB_ENDPOINT")
     if not endpoint:
         print("COSMOSDB_ENDPOINT not set; skipping capture")

@@ -48,7 +48,15 @@ from azure.cosmos import CosmosClient, PartitionKey  # noqa: E402
 from azure.identity import DefaultAzureCredential  # noqa: E402
 from dotenv import load_dotenv  # noqa: E402
 
-load_dotenv(_APP / ".env")
+# Resolve the deployed Cosmos endpoint: an already-set COSMOSDB_ENDPOINT (e.g. exported
+# by azd) > a .env in the current dir > either workshop tree's python/.env. _APP stays on
+# sys.path above because this reference reverse-ETL reuses the app's tested logic.
+if not os.environ.get("COSMOSDB_ENDPOINT"):
+    for _env_path in [Path.cwd() / ".env", _APP / ".env", _REPO / "01_exercises" / "python" / ".env"]:
+        if _env_path.exists():
+            load_dotenv(_env_path)
+            if os.environ.get("COSMOSDB_ENDPOINT"):
+                break
 
 INSIGHTS_CONTAINER = "OptimizationInsights"
 _STAGE_ORDER = {"engaged": 1, "searched": 2, "planned": 3, "confirmed": 4}
