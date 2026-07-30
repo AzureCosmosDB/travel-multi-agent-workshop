@@ -236,7 +236,7 @@ Biggest Leak       = CALCULATE(MAX('TravelAssistant OptimizationInsights'[bigges
 ```
 
 Visuals:
-- **Funnel visual — the conversion funnel:** use the **Funnel** visual. Category `'…OptimizationInsights'[stage]`, Values `[Funnel Sessions]`. **Sort by** `stage_order` (Visual → … → Sort axis → `stage_order`, ascending) so it reads engaged → searched → planned → confirmed. Visual-level filter `type = "funnel_stage"`.
+- **Funnel visual — the conversion funnel:** use the **Funnel** visual. Category `'…OptimizationInsights'[stage]`, Values `[Funnel Sessions]`, visual-level filter `type = "funnel_stage"`. **To order it engaged → searched → planned → confirmed:** first set the sort-by column — select the `stage` field → **Column tools → Sort by column → `stage_order`** — then on the visual, **… → Sort axis → `stage` → Sort ascending**. (You won't find `stage_order` in the visual's sort menu directly; it only lists fields in the visual, which is why `stage` must carry the order.)
 - **KPI cards:** `[Conversion Rate %]` and `[Biggest Leak]` (a Card showing *why* the biggest group of sessions leaked — e.g. `city_friction`).
 - **Bar — why sessions don't convert:** Axis `'…OptimizationInsights'[cause]`, Values `[Cause Sessions]`, visual-level filter `type = "abandonment_cause"`. Sort descending.
 
