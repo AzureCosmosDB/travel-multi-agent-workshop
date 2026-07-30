@@ -87,6 +87,10 @@ cd frontend; npm install; npm start
 
 URLs: API docs `:8000/docs`, MCP `:8080`, frontend `:4200`.
 
+## Configure, run & demo this solution
+
+**→ See the [User & Demo Guide](./USER_GUIDE.md)** — an end-to-end runbook for the complete solution: configure and deploy, stand up the Fabric analytics (`Provision-Fabric.ps1 -Solution`), run the app + Optimization Console + Power BI, drive traffic, and walk the full optimization + translytical demo narrative.
+
 ## Memory layer
 
 Memory is provided by the [`azure-cosmos-agent-memory`](https://pypi.org/project/azure-cosmos-agent-memory/) SDK (`pip install azure-cosmos-agent-memory`). The toolkit auto-creates its Cosmos DB `memories`, `memories_turns`, and `memories_summaries` containers on first run, so no Bicep container resources are needed for memory. Every 10 chat turns, a background auto-flush produces summaries, facts, and a `user_summary`. Memory records are partitioned by `(user_id, thread_id)`; `tenantId` remains for sessions, messages, and trips, but is no longer part of memory records. Memory prompts ship inside the toolkit, so `preference_extraction.prompty`, `memory_conflict_resolution.prompty`, and `summarizer.prompty` have been removed from this repo.
