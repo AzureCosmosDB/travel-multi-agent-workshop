@@ -204,6 +204,8 @@ Use the **`OptimizationPolicies`** table (schema-prefixed: `'TravelAssistant Opt
 
 Turn this page from *read-only* into *actionable*: bind **Apply** / **Revert** buttons to the Fabric **User Data Function** the provisioning deploys (`optimization-apply-loop`), so a click flips the `OptimizationPolicies` doc in Cosmos and the running agent honors it on its next turn. (The UDF functions **return a string** — a requirement for data-function buttons.)
 
+> **Optional, and gated by a tenant admin.** Translytical task flows are a **preview feature**: a Fabric admin must enable *Admin portal → Tenant settings → "Users can create and consume translytical task flows"* (search *translytical* / *task flow* / *data function*). **If it's off, the Workspace / Function set / Function dropdowns below never appear in the Service — with no error message.** If you can't get it enabled, skip this section: the **Optimization Console** (and the app's `POST /optimizations/{scenario}/apply|revert` API) perform the exact same policy flip without Power BI.
+
 > **Add these buttons in the Power BI *Service* (edit in the browser), not Desktop.** In the current rollout, the data-function button config UI (the Workspace / Function set / Data function dropdowns) reliably appears only in the Service — and the button only *fires* there anyway. So: finish the report in Desktop, **Publish**, then open it in the Service and add the buttons. The steps below are the same either way.
 
 1. **Options → Preview features → enable "Translytical task flows"**, then restart Power BI Desktop.

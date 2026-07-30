@@ -168,6 +168,8 @@ Open the provided **`analytics/TravelAssistantAnalyticsReport.pbit`** in Power B
 
 So far the report *reads* analytics. A **translytical task flow** lets it *act*: a button in Power BI calls a Fabric **User Data Function**, which writes back to Cosmos — the same operational store the agent reads per turn. The provisioning already deployed the `optimization-apply-loop` UDF (Activity 2, Step 4), so there is nothing to author; you just bind two buttons.
 
+> **Optional, and gated by a Fabric tenant admin.** Translytical task flows are a **preview feature** — an admin must enable *Admin portal → Tenant settings → "Users can create and consume translytical task flows"* (search *translytical* / *task flow* / *data function*). **If it's off, the button's Workspace / Function set / Function dropdowns never appear — with no error.** If you can't enable it, skip this activity: you can apply/revert the identical `model-selection` policy without Power BI via the app's optimization API (`POST /optimizations/model-selection/apply` · `/revert`), which the Optimization Console in the completed solution wraps with one-click buttons.
+
 > **Do this in the Power BI *Service* (edit in the browser), not Desktop.** In the current rollout the data-function button config UI appears reliably only in the Service, and the button only fires there anyway. So publish the finished report first, then add the buttons in the browser.
 
 1. In the Power BI **Service**, open the published report → **Edit**.

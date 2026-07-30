@@ -127,12 +127,16 @@ saving** over the mirror and **reverse-ETLs** them to Cosmos `OptimizationInsigh
 Power BI, the **Business Impact** and **Measured Saving** pages **light up** — you never
 touched the report. *Cosmos → Fabric → reverse-ETL → Cosmos → mirror → Power BI.*
 
-### Act 6 — Apply an optimization *(two ways)*
-- **From the Console/API:** apply **model-selection** — a one-click, reversible policy flip.
-- **From the report (translytical):** click **Apply** on the Power BI *Applied Optimizations*
-  page. It calls the Fabric **UDF**, which flips the policy in Cosmos; the agent honors
-  capability-tiered model selection on its **next turn**. *The analytical report just steered
-  the operational system.* Click **Revert** to undo.
+### Act 6 — Apply an optimization
+- **From the Console/API (primary):** apply **model-selection** — a one-click, reversible
+  policy flip. This is the reliable path; it needs nothing beyond the running app.
+- **From the report (translytical) — *optional, tenant-gated*:** click **Apply** on the Power BI
+  *Applied Optimizations* page. It calls the Fabric **UDF**, which flips the policy in Cosmos;
+  the agent honors capability-tiered model selection on its **next turn**. *The analytical report
+  just steered the operational system.* Click **Revert** to undo.
+  *Requires a Fabric admin to enable the **translytical task flows** preview tenant setting; if it's
+  off, the button's config dropdowns won't appear (no error). The Console performs the identical
+  flip either way — so the demo never depends on it.*
 
 ### Act 7 — Re-measure the payoff
 Re-run the simulator — now **policy-aware**, it serves the **tiered** mix:

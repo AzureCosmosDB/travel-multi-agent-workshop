@@ -25,9 +25,11 @@ Based on the official sample: <https://github.com/AzureCosmosDB/cosmos-fabric-sa
 
 `Provision-Fabric.ps1` (the Module 09 Fabric provisioning) deploys this UDF in Phase 2:
 it injects your Cosmos endpoint + database, installs `azure-cosmos`, publishes the
-functions, and grants the deploying user Cosmos data-plane write. **The only remaining
-step is wiring the Power BI buttons (Step 5).** The steps below are for reference, or if
-you want to author/customize the function by hand.
+functions, and grants the deploying user Cosmos data-plane write. That's everything the
+loop needs: the **Optimization Console** already applies/reverts policies through the app's
+`/optimizations` API. Wiring the Power BI buttons (Step 5) is an **optional, tenant-gated
+extra**. The steps below are for reference, or if you want to author/customize the function
+by hand.
 
 ## Values
 
@@ -121,7 +123,20 @@ $h     = @{ Authorization = "Bearer $token" }
 The function return is under the `output` field of the response (alongside
 `functionName`, `invocationId`, `status`, `errors`).
 
-## Step 5 — Wire the Power BI buttons (translytical task flow)
+## Step 5 — Wire the Power BI buttons (translytical task flow) — *optional*
+
+> **Optional enhancement — not required for the loop.** The primary, always-available way to
+> apply/revert an optimization is the **Optimization Console** (its Apply/Revert buttons call
+> the app's `/optimizations/{scenario}/apply|revert` API). The Power BI button below just
+> triggers that same policy flip from *inside the report* — a nicety, not a dependency.
+>
+> **Prerequisite — a Fabric tenant admin must enable a preview feature.** Translytical task
+> flows are in preview. An admin enables **Admin portal → Tenant settings → "Users can create
+> and consume translytical task flows"** (label varies by rollout — search *translytical* /
+> *task flow* / *data function*), optionally scoped to a security group you're in. Allow
+> ~15 min to propagate. **If it's off, the button's Workspace / Function set / Function
+> dropdowns simply never appear — with no error.** That missing-dropdowns symptom is the
+> tenant setting, not a report or UDF problem.
 
 The functions **return a string** — required for data-function buttons.
 
@@ -184,6 +199,7 @@ Add `azure-identity` in Library Management for option (b).
 
 1. Start the app + a policy-aware simulator: `Run-TrafficSimulator.ps1 -Tenant DemoLive -Forever`
    (baseline single-model until applied).
-2. In Power BI, click **Apply** on model-selection → the UDF flips the policy.
+2. Apply **model-selection** — from the **Optimization Console** (reliable), or the Power BI
+   **Apply** button if translytical task flows are enabled → the policy flips in Cosmos.
 3. Within ~15s the simulator prints `model policy changed -> TIERED`, cost/turn drops,
    and the `optimization_result` saving climbs — visible in the report. Click **Revert** to undo.
