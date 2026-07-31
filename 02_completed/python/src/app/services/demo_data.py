@@ -17,6 +17,8 @@ import random
 import time
 from typing import Any
 
+from azure.cosmos.exceptions import CosmosHttpResponseError
+
 from src.app.services import azure_cosmos_db as cosmos
 
 logger = logging.getLogger(__name__)
@@ -44,10 +46,21 @@ def refresh_turn_times(window_minutes: int = 120) -> dict[str, Any]:
         e = random.randint(start, now)
         doc["turn_epoch"] = e
         doc["timeStamp"] = _iso(e)
-        container.upsert_item(doc)
+        # Modest concurrency can still outrun the container's provisioned RU/s, so back
+        # off and retry on 429 (TooManyRequests) rather than failing the whole refresh.
+        for attempt in range(8):
+            try:
+                container.upsert_item(doc)
+                return
+            except CosmosHttpResponseError as exc:
+                if getattr(exc, "status_code", None) == 429 and attempt < 7:
+                    time.sleep(min(0.1 * (2 ** attempt), 2.0))
+                    continue
+                raise
 
     if docs:
-        with concurrent.futures.ThreadPoolExecutor(max_workers=16) as pool:
+        # Keep concurrency low so we don't spike RU and trigger sustained throttling.
+        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
             list(pool.map(_restamp, docs))
 
     logger.info("refresh_turn_times: re-stamped %d turns into the last %d min", len(docs), window_minutes)
