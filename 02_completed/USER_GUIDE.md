@@ -199,6 +199,18 @@ The agent's long-term memory health: **Total** vs **Scored** memories, **Avg Sal
 (procedural rules, which carry no salience by design) appear in the type/health views but are
 excluded from the salience-strength chart, so they don't masquerade as weak memories.
 
+### How to read the headline metrics
+
+| Metric | What it is | How to read it |
+|---|---|---|
+| **Cost per Outcome** | Est. cost ÷ confirmed trips | The real efficiency number — a cheap turn that never books isn't efficient. Lower is better, but only while confirmed trips hold steady. |
+| **Trivial %** | Share of turns that need no reasoning (greetings, acks, confirmations) | The size of the model-selection prize: those turns pay premium rates for nothing. Higher = bigger opportunity. |
+| **Est Cost USD** | List-price estimate of token spend | Directional, not a bill — reasoning-model "reasoning tokens" make projections rough, so trust the *measured* before/after over this. |
+| **Conversion Rate %** | Sessions that reach a confirmed trip | The business outcome. The funnel shows *where* the rest drop off; **biggest leak** names the fix (e.g. `city_friction` → SCEN-001). |
+| **Avg Salience** | Mean strength of *scored* memories (0–1) | How confident the agent's long-term memory is. Computed over scored memories only — procedural rules are unscored, not weak. |
+| **Supersession Rate %** | Share of memories overridden by newer ones | Conflict resolution at work: the agent correcting itself as a user's preferences change. |
+| **Saving USD / %** | Measured before/after per optimization | The *measured* payoff (a counterfactual for model-selection). Pending scenarios read $0 until you apply them and measure over an experiment window. |
+
 ---
 
 ## Tenants used (cheat sheet)
@@ -209,12 +221,36 @@ excluded from the salience-strength chart, so they don't masquerade as weak memo
 | `funnel_demo` | seeded by `azd up` | Fabric notebook → Business Impact + Measured Saving (Act 5) |
 | `DemoLive` | the traffic simulator | Power BI cost/turns + before/after (Acts 4, 7) |
 
-## Reset & stop the meter
+> **Reserved partitions aren't tenants.** In `OptimizationInsights` you'll also see the partition
+> keys **`_global_optimizations`** and **`_global_memory`**. These are **not** tenants — a *tenant*
+> is a customer with its own users (like `marvel`). They're reserved buckets for **global,
+> cross-tenant** rows (the measured-saving and memory-intelligence signals, which aren't scoped to
+> any one customer). Readers select by row `type`, so the partition value is just a container, not a
+> customer. (Same note lives in the build guide and the reverse-ETL notebook.)
 
-- **Pause the Fabric capacity when idle** (it bills while running): the Console's Fabric
-  controls, `POST /optimizations/fabric/capacity/suspend`, or the Azure/Fabric portal.
-- **Revert** any applied policy to return to baseline.
-- **Tear down:** `azd down` from `02_completed/`.
+## Tear down / stop costs
+
+**This deployment is provisioned, not serverless.** The three Container Apps, **Cosmos DB**, **Azure
+AI Foundry** (OpenAI), and the **Fabric capacity** all bill **continuously** — idle or not. There is
+no low-cost "idle" mode, so the only way to actually stop the charges is to **tear it down**.
+
+- **Delete everything (recommended when you're done):** from `02_completed/`, run
+  **`azd down --purge`** (add `--force` to skip prompts). This removes the resource group's Azure
+  resources — Container Apps, Cosmos, Foundry, and the Fabric capacity — and `--purge` frees
+  soft-deleted names (Key Vault / OpenAI) so you can cleanly redeploy later.
+- **Delete the Fabric workspace too.** The workspace, mirror, notebook, report, and UDF are **Fabric
+  artifacts** created by `Provision-Fabric.ps1` (not by `azd`), so `azd down` leaves them behind. In
+  the Fabric portal, open the workspace → **Workspace settings → Remove this workspace**. (They stop
+  working once the capacity is gone anyway — this just keeps your tenant tidy.)
+- **Only stepping away briefly?** You can **pause the Fabric capacity** (Console Fabric controls ·
+  `POST /optimizations/fabric/capacity/suspend` · or the Fabric portal) to stop the Fabric meter and
+  freeze analytics refresh. But that's a **small slice** of the total — Container Apps, Cosmos, and
+  Foundry keep billing — so it's a minor, temporary saving, **not** a substitute for tearing down.
+
+> **Resetting the *demo* is not a cost action.** To return the agent to baseline behavior after
+> applying an optimization, **Revert** the policy (Console/API or the report's *Applied
+> Optimizations* page). That flips a policy doc in Cosmos — it has nothing to do with billing, and
+> pausing/deleting the Fabric capacity does **not** revert it.
 
 ## Quick troubleshooting
 
