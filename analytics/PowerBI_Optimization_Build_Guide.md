@@ -226,7 +226,7 @@ See `analytics/fabric/udf/README.md` for the UDF details. This is the translytic
 
 Answers: **What did each optimization actually save?** — a measured number, not an estimate, and you can **switch between optimizations**.
 
-This reads the flat `optimization_result` rows the reverse-ETL writes into `'TravelAssistant OptimizationInsights'` — **one row per optimization**, keyed by `scenario` and stored under the reserved `tenantId = "_optimizations"` partition (so the axis is the *optimization*, never the tenant). `model-selection` carries a real **counterfactual** measurement (every captured turn priced under the model it actually ran on vs. the all-premium baseline); the behavior-changing scenarios show `method = "pending"` until their before/after is measured.
+This reads the flat `optimization_result` rows the reverse-ETL writes into `'TravelAssistant OptimizationInsights'` — **one row per optimization**, keyed by `scenario` and stored under the reserved partition key `tenantId = "_global_optimizations"` — **a reserved bucket, not a real tenant** (a *tenant* is a customer with its own users like `marvel`; these results are global/cross-tenant, so the axis is the *optimization*, never the tenant). `model-selection` carries a real **counterfactual** measurement (every captured turn priced under the model it actually ran on vs. the all-premium baseline); the behavior-changing scenarios show `method = "pending"` until their before/after is measured.
 
 Measures (add to `'TravelAssistant OptimizationInsights'`):
 
@@ -242,7 +242,7 @@ Visuals (each with a visual-level filter `type = "optimization_result"`):
 - **Cards:** `[Saving USD]` and `[Saving %]` — the headline "we saved $X (Y%)" for the selected optimization (`method="pending"` scenarios read $0 until measured).
 - **Clustered column — baseline vs actual:** leave the **X-axis empty** and put **both** `[Baseline Cost USD]` and `[Actual Cost USD]` on the **Y-axis** — you get two columns whose gap *is* the saving. (Simpler alternative: three **Cards** — `[Baseline Cost USD]`, `[Actual Cost USD]`, `[Saving USD]`.)
 
-> **Filtering note:** because these rows live under `tenantId = "_optimizations"`, keep this page **off** the tenant slicer used on other pages (or add a page-level filter `tenantId = "_optimizations"`).
+> **Filtering note:** because these rows live under `tenantId = "_global_optimizations"` (a reserved non-tenant bucket), keep this page **off** the tenant slicer used on other pages (or add a page-level filter `tenantId = "_global_optimizations"`).
 
 > **Talking point:** the recommendation cards *estimate* a saving; this page shows the **measured** one, per optimization — so apply → re-measure closes the loop with a real number.
 
@@ -300,4 +300,4 @@ Need a `.pbit` template later (e.g. for someone to open in Desktop)? Export one 
 
 **`Configuration`** — a small multi-entity config store keyed by `type`. Pricing rows have `type = "model_pricing"`, `model`, `input_price`, `output_price` (USD per 1M tokens); the `type = "model_selection_defaults"` doc carries the proposed tier/classifier policy. Filter `type = "model_pricing"` when joining for cost.
 
-**`OptimizationInsights`** — reverse-ETL output from the Fabric notebook, keyed by `type`: `funnel_stage` (`stage`, `stage_order`, `sessions`), `abandonment_cause` (`cause`, `sessions`), `conversion_kpi` (`engaged`, `confirmed`, `conversion_rate`, `biggest_leak`), and `optimization_result` (`scenario`, `title`, `method`, `status`, `turns`, `baseline_cost_usd`, `actual_cost_usd`, `saving_usd`, `saving_pct`) — **one row per optimization**, stored under `tenantId = "_optimizations"`. Powers the Business Impact + Measured Saving pages; every visual filters on `type`. (The `recommendation_card` and `turn_metrics` rows in this same container carry nested JSON the *app/console* reads — not for Power BI visuals.)
+**`OptimizationInsights`** — reverse-ETL output from the Fabric notebook, keyed by `type`: `funnel_stage` (`stage`, `stage_order`, `sessions`), `abandonment_cause` (`cause`, `sessions`), `conversion_kpi` (`engaged`, `confirmed`, `conversion_rate`, `biggest_leak`), and `optimization_result` (`scenario`, `title`, `method`, `status`, `turns`, `baseline_cost_usd`, `actual_cost_usd`, `saving_usd`, `saving_pct`) — **one row per optimization**, stored under `tenantId = "_global_optimizations"`. Powers the Business Impact + Measured Saving pages; every visual filters on `type`. (The `recommendation_card` and `turn_metrics` rows in this same container carry nested JSON the *app/console* reads — not for Power BI visuals.)

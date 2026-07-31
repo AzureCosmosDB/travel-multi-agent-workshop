@@ -59,7 +59,15 @@ if not os.environ.get("COSMOSDB_ENDPOINT"):
                 break
 
 INSIGHTS_CONTAINER = "OptimizationInsights"
-MEMORY_PARTITION = "_memory"   # reserved tenantId for global memory-intelligence rows
+
+# --- Reserved partition keys (NOT tenants) -------------------------------------------
+# OptimizationInsights is partitioned by /tenantId. A real *tenant* is a customer/workspace
+# with its own users (e.g. marvel -> tony/steve/bruce/peter; funnel_demo). Some rows are
+# GLOBAL / cross-tenant with no single customer -- memory intelligence (memories are keyed
+# by user, not tenant) and the scenario-keyed optimization results (measured across all
+# tenants). They still need a partition value, so they use reserved keys prefixed `_global_`.
+# Readers filter by `type`, so these never mix with real-tenant rows.
+MEMORY_PARTITION = "_global_memory"            # global memory-intelligence rows
 _STAGE_ORDER = {"engaged": 1, "searched": 2, "planned": 3, "confirmed": 4}
 
 
@@ -156,8 +164,9 @@ def build_recommendation_rows(tenant_id: str) -> list[dict]:
 # The applyable optimizations the report can switch between. model-selection is
 # measured (counterfactual); the behavior-changing ones are "pending" until a
 # before/after measurement is wired up. Scenario-keyed, stored under one reserved
-# partition so the report slices on `scenario`, never on tenant.
-MEASUREMENT_PARTITION = "_optimizations"
+# `_global_optimizations` partition key (NOT a tenant -- see the note by MEMORY_PARTITION)
+# so the report slices on `scenario`, never on tenant.
+MEASUREMENT_PARTITION = "_global_optimizations"
 OPTIMIZATION_SCENARIOS = [
     ("model-selection", "Capability-tiered model selection", "counterfactual"),
     ("memory-retention", "Memory retention (prune superseded)", "pending"),
@@ -201,7 +210,7 @@ def build_optimization_result_rows(db) -> list[dict]:
     """Measured before/after impact per OPTIMIZATION (scenario), not per tenant.
 
     Emits one flat ``optimization_result`` row per applyable scenario under a reserved
-    ``_optimizations`` partition, so a Power BI slicer on ``scenario`` switches between
+    ``_global_optimizations`` partition, so a Power BI slicer on ``scenario`` switches between
     optimizations. model-selection carries a real **counterfactual** measurement (price
     each captured turn under the model it actually ran on vs. the all-premium baseline,
     across all tenants); the behavior-changing scenarios are ``pending`` until a
@@ -241,7 +250,7 @@ def build_memory_intelligence_rows(db) -> list[dict]:
     """Memory-health signals over the ``memories`` container, flattened to insight rows
     (memory_kpi / memory_type / memory_salience / memory_health) — the reference twin of the
     notebook's Section 6. Global (not tenant-scoped): memories are keyed by user_id/thread_id,
-    so these rows live under the reserved ``_memory`` partition."""
+    so these rows live under the reserved ``_global_memory`` partition."""
     now = _now()
     try:
         items = list(db.get_container_client("memories").query_items(
@@ -332,7 +341,7 @@ def main() -> None:
         container.upsert_item(r)
     if mem_rows:
         mk = next((r for r in mem_rows if r["type"] == "memory_kpi"), {})
-        print(f"✅ reverse-ETL wrote {len(mem_rows)} memory rows (_memory): "
+        print(f"✅ reverse-ETL wrote {len(mem_rows)} memory rows (_global_memory): "
               f"total={mk.get('total_memories')} avg_salience={mk.get('avg_salience')} "
               f"superseded={mk.get('supersession_rate')}%")
 

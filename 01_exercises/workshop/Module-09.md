@@ -187,7 +187,7 @@ That's the whole thesis in one gesture: **Power BI → Fabric UDF → Cosmos →
 
 - [ ] The read cell prints non-zero counts for `turns`, `trips`, `messages` from the **mirror**.
 - [ ] Your `cause` classification runs and the cause breakdown looks sane (biggest bucket ≈ `city_friction` on `funnel_demo`).
-- [ ] Your reverse-ETL write completes: `OptimizationInsights` has `funnel_stage` / `abandonment_cause` / `conversion_kpi` rows for the tenant, plus a scenario-keyed `optimization_result` row for `model-selection` (under `tenantId="_optimizations"`).
+- [ ] Your reverse-ETL write completes: `OptimizationInsights` has `funnel_stage` / `abandonment_cause` / `conversion_kpi` rows for the tenant, plus a scenario-keyed `optimization_result` row for `model-selection` (under the reserved key `tenantId="_global_optimizations"`).
 - [ ] The Power BI **Business Impact** page populates without any report edits.
 - [ ] (bonus) Clicking **Apply** in the report flips the `model-selection` policy to `active` in Cosmos (confirm on the Applied Optimizations page or in Cosmos Data Explorer), and **Revert** rolls it back.
 - [ ] You can explain, in your own words, why analytics runs in Fabric (not on Cosmos) and why reverse-ETL is what enables an agent to optimize *itself*.

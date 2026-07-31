@@ -41,6 +41,17 @@ You implement two pieces:
 - **TODO 1** — classify *why* a session didn't convert (the analytics decision).
 - **TODO 2** — the **reverse-ETL write** back to Cosmos (the pattern this module teaches)."""
 
+CONFIG_MD = """## 0. Load the Cosmos connector (run this first)
+
+The reverse-ETL write (Section 5) uses the **Azure Cosmos DB Spark connector** (`cosmos.oltp`), which isn't in Fabric's default Spark runtime. Run the cell below **first** — it loads the connector plus the Fabric auth library and **restarts the Spark session** (takes ~1 minute). After it finishes, run the **Parameters** cell, then continue top to bottom."""
+
+CONFIG = '''%%configure -f
+{
+    "conf": {
+        "spark.jars.packages": "com.azure.cosmos.spark:azure-cosmos-spark_3-5_2-12:4.41.0,com.azure.cosmos.spark:fabric-cosmos-spark-auth_3:1.1.0"
+    }
+}'''
+
 PARAMS = '''# --- Parameters (overridable via RunNotebook parameterValues) ---
 # Cosmos (reverse-ETL write target — the OPERATIONAL store)
 COSMOS_ENDPOINT = ""            # https://<account>.documents.azure.com:443/
@@ -155,9 +166,70 @@ kpi_df = spark.createDataFrame([(
 
 print("funnel:", engaged, searched, planned, confirmed, "| biggest leak:", biggest)'''
 
+SAVING_MD = """## 4b. Measured saving — counterfactual, keyed by optimization (provided)
+
+A second reverse-ETL insight: the **measured** cost saving, keyed by the **optimization**
+(scenario) — not the tenant. We price every captured turn (all tenants) under the model it
+actually ran on vs. the single premium baseline (gpt-5.1), so the gap **is** the realized
+saving from capability-tiered model selection. This flat `optimization_result` row (stored
+under a reserved `_global_optimizations` partition key — a non-tenant bucket) feeds the
+report's **Measured Saving** page, where a `scenario` slicer switches between optimizations.
+Run this cell, then include `result_df` in the reverse-ETL write below."""
+
+SAVING = '''# ---- 4b. Measured saving: counterfactual, keyed by OPTIMIZATION (PROVIDED) ----
+# Price EVERY captured turn (all tenants) under the model it actually ran on vs. the
+# all-premium baseline (gpt-5.1). Keyed by scenario (the optimization), NOT by tenant,
+# and stored under a reserved "_global_optimizations" partition so the report slices on
+# `scenario`. Pricing comes from the mirrored Configuration table (type="model_pricing").
+BASELINE_DEPLOYMENT = "gpt-5.1"
+
+_pricing = (spark.read.format("jdbc")
+            .option("url", _jdbc)
+            .option("dbtable", f"[{SOURCE_SCHEMA}].[Configuration]")
+            .option("accessToken", _sql_token)
+            .load()
+            .where(F.col("type") == "model_pricing")
+            .select(F.col("model").alias("dep"),
+                    F.col("input_price").cast("double").alias("in_price"),
+                    F.col("output_price").cast("double").alias("out_price")))
+
+_base = _pricing.where(F.col("dep") == BASELINE_DEPLOYMENT).collect()
+b_in = float(_base[0]["in_price"]) if _base else 1.25
+b_out = float(_base[0]["out_price"]) if _base else 10.0
+
+# ALL turns (every tenant) - the optimization measurement is keyed by scenario, not tenant
+_all_turns = (spark.read.format("jdbc")
+              .option("url", _jdbc)
+              .option("dbtable", f"[{SOURCE_SCHEMA}].[OptimizationTurns]")
+              .option("accessToken", _sql_token)
+              .load())
+
+_priced = (_all_turns.join(_pricing, _all_turns["model_deployment"] == _pricing["dep"], "left")
+           .withColumn("in_price", F.coalesce(F.col("in_price"), F.lit(b_in)))
+           .withColumn("out_price", F.coalesce(F.col("out_price"), F.lit(b_out))))
+
+_agg = _priced.agg(
+    F.sum((F.col("input_tokens") * F.col("in_price") + F.col("output_tokens") * F.col("out_price")) / F.lit(1e6)).alias("actual"),
+    F.sum((F.col("input_tokens") * F.lit(b_in) + F.col("output_tokens") * F.lit(b_out)) / F.lit(1e6)).alias("baseline"),
+    F.count(F.lit(1)).alias("turns")).collect()[0]
+
+_actual = float(_agg["actual"] or 0.0)
+_baseline = float(_agg["baseline"] or 0.0)
+_n = int(_agg["turns"] or 0)
+_saving = _baseline - _actual
+_saving_pct = round(100 * _saving / _baseline, 1) if _baseline else 0.0
+
+result_df = spark.createDataFrame(
+    [("result::model-selection", "optimization_result", "_global_optimizations",
+      "model-selection", "Capability-tiered model selection", "counterfactual",
+      _n, round(_baseline, 4), round(_actual, 4), round(_saving, 4), _saving_pct, now)],
+    ["id", "type", "tenantId", "scenario", "title", "method", "turns",
+     "baseline_cost_usd", "actual_cost_usd", "saving_usd", "saving_pct", "computed_at"])
+print("measured saving (model-selection): $%.4f (%.1f%% vs all-premium baseline) over %d turns" % (_saving, _saving_pct, _n))'''
+
 TODO2_STUB = '''# ---- TODO 2: reverse-ETL — write the insight rows BACK to Cosmos (the pattern) ----
-# Write funnel_df, cause_df, kpi_df to the Cosmos OptimizationInsights container using the
-# Spark Cosmos connector (Fabric AAD). Use these options and mode("append") with the
+# Write funnel_df, cause_df, kpi_df, result_df to the Cosmos OptimizationInsights container
+# using the Spark Cosmos connector (Fabric AAD). Use these options and mode("append") with the
 # ItemOverwrite strategy so re-runs are idempotent.
 cosmos_write = {
     "spark.cosmos.accountEndpoint": COSMOS_ENDPOINT,
@@ -170,9 +242,9 @@ cosmos_write = {
     "spark.cosmos.write.strategy": "ItemOverwrite",
     "spark.cosmos.write.bulk.enabled": "true",
 }
-raise NotImplementedError("Write funnel_df, cause_df, kpi_df to Cosmos with format('cosmos.oltp')")
+raise NotImplementedError("Write funnel_df, cause_df, kpi_df, result_df to Cosmos with format('cosmos.oltp')")
 
-# for df in (funnel_df, cause_df, kpi_df):
+# for df in (funnel_df, cause_df, kpi_df, result_df):
 #     df.write.format("cosmos.oltp").options(**cosmos_write).mode("append").save()
 # print("Reverse-ETL complete -> the Power BI Business Impact page will light up.")'''
 
@@ -188,7 +260,7 @@ cosmos_write = {
     "spark.cosmos.write.strategy": "ItemOverwrite",
     "spark.cosmos.write.bulk.enabled": "true",
 }
-for df in (funnel_df, cause_df, kpi_df):
+for df in (funnel_df, cause_df, kpi_df, result_df):
     df.write.format("cosmos.oltp").options(**cosmos_write).mode("append").save()
 print("Reverse-ETL complete -> the Power BI Business Impact page will light up.")'''
 
@@ -198,10 +270,14 @@ TODO1_MD = "## 3. TODO 1 — classify the abandonment cause\nThis is the analyti
 BUILD_MD = "## 4. Shape the insight rows (provided)\nFlat rows, one value each, so they mirror cleanly and Power BI needs no session-math."
 TODO2_MD = "## 5. TODO 2 — reverse-ETL the insights back to Cosmos\nThe pattern that closes the loop: land Fabric-computed intelligence in the operational store."
 
-MEMORY_MD = "## 6. Memory intelligence (provided) — reverse-ETL memory health\nMemories aren't free: every recall retrieves and *pays* (tokens + latency) for what it pulls, so **stale, low-salience, and superseded** memories are cost with no benefit. This provided section reads the mirrored **`memories`** table (the same SQL-endpoint path as above), computes salience / health / supersession, and reverse-ETLs the result to `OptimizationInsights` under a reserved `_memory` tenant — the funnel pattern, for the **memory pillar**. The Power BI **Memory Intelligence** page reads these rows."
+MEMORY_MD = "## 6. Memory intelligence (provided) — reverse-ETL memory health\nMemories aren't free: every recall retrieves and *pays* (tokens + latency) for what it pulls, so **stale, low-salience, and superseded** memories are cost with no benefit. This provided section reads the mirrored **`memories`** table (the same SQL-endpoint path as above), computes salience / health / supersession, and reverse-ETLs the result to `OptimizationInsights` — the funnel pattern, for the **memory pillar**.\n\n> **Reserved partition key, not a tenant.** `OptimizationInsights` is partitioned by `/tenantId`, and a *tenant* here is a customer with its own users (e.g. `marvel`, `funnel_demo`). Memory is **global** — memories are keyed by user, not tenant — so these rows use a reserved partition key **`_global_memory`** (a bucket for non-tenant rows, distinguished by `type`), never a real tenant. The Power BI **Memory Intelligence** page reads them by `type`."
 
 MEMORY_CODE = '''# ---- memory intelligence: read mirrored `memories`, compute health, reverse-ETL (PROVIDED) ----
-MEMORY_PARTITION = "_memory"          # reserved tenantId for global (non-tenant) memory insights
+# `_global_memory` is a RESERVED partition key, NOT a tenant. OptimizationInsights is
+# partitioned by /tenantId; a tenant is a customer with users (marvel, funnel_demo). Memory is
+# global (memories are keyed by user_id/thread_id), so its rows use this reserved bucket and are
+# distinguished by `type` — they never mix with real per-tenant rows.
+MEMORY_PARTITION = "_global_memory"
 
 # memories are keyed by user_id/thread_id (NOT tenant) -> read the whole mirrored table via the
 # same SQL-endpoint JDBC path as read_sql, minus the tenant filter.
@@ -259,11 +335,13 @@ def notebook(solution: bool):
                      "kernelspec": {"name": "synapse_pyspark", "display_name": "Synapse PySpark"}},
         "cells": [
             md(INTRO),
+            md(CONFIG_MD), code(CONFIG),
             code(PARAMS, tags=["parameters"]),
             md(READ_MD), code(READ),
             md(FUNNEL_MD), code(FUNNEL),
             md(TODO1_MD), code(TODO1_SOLUTION if solution else TODO1_STUB),
             md(BUILD_MD), code(BUILD),
+            md(SAVING_MD), code(SAVING),
             md(TODO2_MD), code(TODO2_SOLUTION if solution else TODO2_STUB),
             md(MEMORY_MD), code(MEMORY_CODE),
         ],

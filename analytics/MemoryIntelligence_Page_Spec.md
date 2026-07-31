@@ -17,7 +17,9 @@ memories). Same detect → measure → apply → re-measure loop as `model-selec
 
 ## Prerequisite — run the notebook
 Run the notebook's **Section 6** once (it's provided — no TODO). It writes these flat rows to
-`OptimizationInsights` under a reserved `_memory` tenant:
+`OptimizationInsights` under the reserved partition key `_global_memory` — **a bucket for
+global (non-tenant) rows, not a real tenant** (a *tenant* is a customer with its own users like
+`marvel`; memory is global, keyed by user). The report reads them by `type`:
 
 | `type` | Fields | Feeds |
 |---|---|---|
