@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-07-31
 - **Deciders:** Mark Brown (@markjbrown), with agent analysis + external research
-- **Related:** `../vision/agent-analytics-and-optimization-vision.md`, `../optimization-scenarios/README.md`, `adr-0009-generalize-optimization-framework-product-alignment.md`, `adr-0001-optimization-loop-surface-architecture.md`, `adr-0008-optimization-apply-loop-model-selection.md`
+- **Related:** `../vision/agent-analytics-and-optimization-vision.md`, `../optimization-scenarios/README.md`, `adr-0009-generalize-optimization-framework-product-alignment.md`, `adr-0004-data-generation-redesign.md`, `adr-0001-optimization-loop-surface-architecture.md`, `adr-0008-optimization-apply-loop-model-selection.md`
 
 > **This ADR supersedes the *organizing principle* of the current analytics** (a hand-authored
 > scenario catalog surfaced through model-selection-centric dashboards). It **keeps** the plumbing
@@ -215,6 +215,39 @@ reverse-ETL + apply-loop + measurement framework.
 - **P3 — LLM-as-analyst** producing the discovered-opportunities feed (catalog becomes fixtures);
   rediscover `SCEN-001` from data as the canonical demo.
 - **P4 — Prompt optimizer (DSPy/GEPA)** for prompt-seam recommendations (aspirational L3+).
+
+## Cost & data-generation strategy (attendee path ≈ $0 LLM)
+
+Running **live agents** to generate telemetry is prohibitively expensive — hours and a large token
+bill (the owner's original approach, and the lesson behind the fixture-first pivot, ADR-0004). The
+agent-centric redesign **must not** reintroduce that cost, and it doesn't — because *generating
+telemetry* is separated from *running the analysis engine*:
+
+- **Re-graining to per-agent-execution is cost-neutral.** The nodes already run and already make their
+  LLM calls each turn; node-grain simply *records* each node's telemetry instead of rolling it up and
+  discarding it. **More rows, not more LLM calls.**
+- **Telemetry is fixture-first (no live agents for attendees):**
+  - The **golden fixture** is captured **once, by the maintainer**, at node grain (one expensive live
+    run, exported + committed — today's `debug.json` pattern, richer). Attendees load it offline via
+    `seed_data.py` → $0.
+  - The **traffic simulator** is upgraded to fabricate **agent-structured node executions** (synthetic,
+    weighted to realistic distributions) instead of flat turns — fixing the 36% no-agent gap — still
+    **no LLM**. Covers the "volume / watch-it-move-live" demos.
+- **Engine LLM cost (LLM-judge + LLM-analyst) is bounded by pre-baking:** the maintainer runs the judge
+  + analyst **once**; their outputs (per-node quality scores, discovered recommendation cards) are
+  **committed as fixtures**, so attendees see a fully-populated platform for $0. The teaching moment is
+  reading the notebook/code that *produces* them, and optionally running the judge on ~5 turns and the
+  analyst on the pre-computed aggregates once (cents, not hours).
+
+**Attendee path:** load fixtures → run the Fabric reverse-ETL (Spark/capacity cost only, no tokens) →
+explore scorecards + discovered opportunities → apply a policy → re-measure. **No live agents, no
+hours, no token bill.** The expensive generation is a maintainer's one-time job behind the committed
+fixtures — itself a teaching point ("here's the production engine; here's the cheap fixture path a
+workshop uses to demonstrate it").
+
+**Phase constraints this imposes:** **P0** must (re)capture the node-grain golden fixture *and* upgrade
+the simulator to node-grain; **P1/P3** (judge, analyst) must ship **pre-baked outputs** with an
+optional small-sample live run — never a full-dataset attendee run.
 
 ## Consequences
 
