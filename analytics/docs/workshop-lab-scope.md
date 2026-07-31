@@ -38,7 +38,7 @@ on. It supersedes the single-module plan in `workshop-integration.md` §5–§6 
         one-click APPLY / REVERT via the /optimizations REST API
 ```
 
-- **Power BI** (`TravelAssistantReport.pbit`, exists) — read-only deep visualization.
+- **Power BI** (`TravelAssistantAnalyticsReport.pbix`, exists) — read-only deep visualization.
 - **Optimization Console** (to build) — provided web app on its own port; shows the reverse-ETL'd
   insights/cards and applies optimizations via REST. Learners *use* it; they don't build it.
 - **REST `/optimizations`** (exists) — the apply/revert/recommend API both surfaces call.
@@ -108,7 +108,7 @@ Console apply/revert, verify tool.
 3. **Optimization Console** (provided web app, own port): read insights/cards from Cosmos + apply via
    REST. Small, framework-light (does **not** need to be Angular; a minimal static+fetch app is fine).
 4. **Fabric notebook + reverse-ETL** (`fabric-notebooks-retl` todo): compute recommendation cards/KPIs
-   in Fabric and write `OptimizationInsights` back to Cosmos for the Console. Extend `TravelAssistantNotebook.ipynb`.
+   in Fabric and write `OptimizationInsights` back to Cosmos for the Console. Extend `fabric/ConversionFunnelReverseETL.ipynb`.
 5. **Module docs 07 + 08** authored to the outlines above; renumber Lessons `08 → 09`; update `Home.md`
    + Module-06 nav.
 6. **`02_completed` convergence** (later): adopt the shared layer + Bicep.

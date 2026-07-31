@@ -176,9 +176,9 @@ Cosmos workload" story live:
   `POST /v1.0/myorg/groups/{id}/datasets/{ds}/executeQueries` (DAX) → **88 turns, 48.9% trivial,
   $0.49 est cost, 8 confirmed trips, $0.061 cost/outcome** (including simulated turns) — i.e. it reads
   the mirror in near-real-time with no dataset refresh.
-- **Report visuals + `.pbit` template + attendee-usability test** — best finalized in **Power BI Desktop**:
-  connect to the **`TravelAssistantV2AnalyticsModel`** semantic model (live connection → real-time),
-  build the visuals, and save the `.pbit`. `analytics/TravelAssistantReport.pbit` is the v1 template to adapt.
+- **Report visuals + attendee-usability test** — the committed **`analytics/TravelAssistantAnalyticsReport.pbix`**
+  is auto-imported by `Provision-Fabric.ps1`; to rebuild/customize it, use DirectQuery over the mirror per
+  [`../PowerBI_Optimization_Build_Guide.md`](../PowerBI_Optimization_Build_Guide.md) and **Save As** the `.pbix`.
 
 ## IDs (dev)
 
