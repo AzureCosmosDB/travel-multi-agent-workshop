@@ -64,9 +64,24 @@ the completed `ConversionFunnelReverseETL` notebook, deploys the `optimization-a
 
 ## 2. Run
 
-**Hosted:** open the **`FRONTEND_URI`** from `azd up` (retrieve it anytime with `azd env get-value FRONTEND_URI`). The **Optimization Console** is served from the *same* container at **`<FRONTEND_URI>/console/`** — no separate process needed; it auto-targets the deployed API.
+### Hosted (the deployed apps) — nothing to start
 
-**Local** — from `02_completed/`, in separate terminals:
+`azd up` already deployed the app — just open the URLs. Get `FRONTEND_URI` anytime with
+`azd env get-value FRONTEND_URI` (from `02_completed/`).
+
+| Open | URL | Notes |
+|---|---|---|
+| **Travel Assistant app** | `<FRONTEND_URI>` | Sign in as a seeded demo user — `tony`, `steve`, `bruce`, or `peter` (all under tenant **`marvel`**). |
+| **Optimization Console** | `<FRONTEND_URI>/console/` | Served from the *same* container; auto-targets the deployed API. Set **Tenant = `marvel`**. |
+| **API docs (Swagger)** | `<FRONTEND_URI>/api/docs` | The API itself has **internal** ingress — you reach it through the frontend's `/api` proxy, not directly. |
+| **Analytics report** | your **Fabric workspace** → `TravelAssistantAnalyticsReport` | Auto-imported and pointed at your mirror (Section 1). |
+
+The **traffic simulator** (Acts 4/7) writes **straight to Cosmos** (`az login` + your deployment's
+`COSMOSDB_ENDPOINT`), so it drives the hosted demo from your machine with **no local servers running**.
+
+### Local (for development)
+
+Run the stack yourself — from `02_completed/`, in separate terminals:
 
 ```powershell
 # MCP tool server
@@ -88,6 +103,10 @@ the seeded demo users (`tony`, `steve`, `bruce`, `peter`, all under tenant **`ma
 
 The arc: **talk to the agent → see the signal → see the analytics → generate traffic →
 measure in Fabric → apply an optimization → re-measure the payoff.**
+
+> Everything below works against your **deployed** apps — "the frontend" means `<FRONTEND_URI>` and
+> "the Console" means `<FRONTEND_URI>/console/` — or your local servers from Section 2, whichever
+> you're running. The report + notebook always live in your **Fabric workspace**.
 
 ### Act 1 — Talk to the assistant *(multi-agent · memory · semantic search)*
 In the frontend, plan a trip: *"Plan a 3-day trip to Amsterdam for two."* Then ask for
