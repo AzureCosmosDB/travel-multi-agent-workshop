@@ -159,6 +159,7 @@ The `azd up` command will:
    - 5 trips, 14 long-term memories, and 28 memory turns
    - Conversation history: 40 sessions and 642 messages
    - Analytics/optimization baseline: 321 `Debug` turn logs, 321 `OptimizationTurns`, and 1 `OptimizationPolicy`, spanning the `marvel` (4 users) and `analytics_demo` (12 personas) tenants
+   - Module 09 conversion-funnel dataset: ~120 `funnel_demo` sessions with their own `OptimizationTurns`, `Messages`, and `Trips` (this is why your `OptimizationTurns` / `Messages` / `Trips` totals appear higher than the per-tenant figures above)
    - Model pricing + selection defaults in the `Configuration` container
 
 ### Expected Output
