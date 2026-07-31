@@ -78,12 +78,26 @@ Agent Scorecards · Portfolio · Discovered Opportunities → apply (policy) →
                                                       (3) SURFACES + the existing apply-loop
 ```
 
-### Layer 1 — Instrumentation: make the **agent** first-class
+### Layer 1 — Instrumentation: capture at the **agent-execution** grain
 
-Attribute every turn to its agent and capture the tunable levers per agent. Most fields already
-exist (`agent_selected`, `agent_path`, `handoff_count`, tokens, `model_*`); add the missing ones
-(quality/eval score via LLM-judge, memory-recall usage per turn, tool-call outcome, a *measured*
-complexity signal — see below). Output: a per-turn record keyed by **agent** with the levers on it.
+The current telemetry is **turn-grained** — one `OptimizationTurns` row per turn with `agent_path` as
+a *string* and a single `total_tokens` / `model_tier`. That was shaped for the model-selection story
+and **cannot attribute cost/quality to an individual agent** within a multi-agent turn (verified live:
+for `supervisor,find_places,create_or_update_itinerary` there is one token figure, not one per node).
+
+Re-grain to **one record per agent execution (LangGraph node invocation)** — which the runtime already
+emits (we process `on_chat_model_end` per node in the streaming path and currently aggregate it away).
+Proposed node-grain schema:
+
+```
+{ tenantId, userId, sessionId, turn_id, seq, agent, model_deployment,
+  input_tokens, output_tokens, reasoning_tokens, latency_ms,
+  tool_calls[], recall_used, complexity, outcome_link, timeStamp }
+```
+
+The per-turn view stays a rollup; the **Agent Scorecard reads the node grain**. Also add the missing
+dimension signals: an LLM-judge **quality** score, **memory-recall usage** per node, **tool-call
+outcomes**, and a **measured complexity** signal (replacing the keyword tier — see below).
 
 ### Layer 2 — The analysis engine (this is "what analyzes it")
 
@@ -158,8 +172,13 @@ goal is to *build* the Cosmos+Fabric loop), but their metric taxonomies are dire
   (`trivial=gpt-5-nano, routine=gpt-5-mini, complex=gpt-5.1`).
 - **Scenarios are hard-coded builders:** `build_recommendations()` calls six fixed functions
   (redesign doc §1); catalog + discovery methods in `optimization-scenarios/README.md`.
-- **Per-agent signal already captured but unused:** `agent_selected`/`agent_path`/`handoff_count` in
-  Debug (`export_conversations.py:123`); nothing aggregates by agent.
+- **Per-agent signal is turn-grained, not agent-grained (grounded live, 02, 1,330 turns,
+  2026-07-31):** the app has 3 path agents — `supervisor`, `find_places`,
+  `create_or_update_itinerary`. `agent_path` is a *sequence* string on the turn (e.g.
+  `supervisor,find_places,create_or_update_itinerary`); **480/1,330 (36%) have no `agent_path`** (the
+  synthetic simulator traffic carries no agent structure); and the turn holds a single
+  `total_tokens` / `model_tier`, so **per-agent cost/quality is not derivable** at the turn grain.
+  This corrects an earlier "no new instrumentation" assumption — P0 requires the node-grain re-capture.
 - **Vision already asks for it:** L1 examples include "Agent performance analysis," "Workflow
   bottleneck identification" (`vision/…-vision.md` §Maturity).
 - **State of the art (external research, 2025–26):**
@@ -185,9 +204,11 @@ priors; replace the keyword complexity tier with a measured, per-agent model-fit
 reverse-ETL + apply-loop + measurement framework.
 
 **Phasing (proposed):**
-- **P0 — Agent Scorecard from existing signal.** Aggregate today's Debug/turn data by `agent` into a
-  per-agent scorecard (cost, tokens, tool/handoff patterns, model mix, trivial-share, outcome
-  contribution). *No new instrumentation; immediate "see your agents" win; great teaching moment.*
+- **P0 — Re-grain to per-agent-execution + Agent Scorecard.** Capture one row per LangGraph node
+  invocation (agent, model, tokens, latency, tool calls, recall, complexity), then build the
+  per-`(agent × dimension)` scorecard over it. *This is an instrumentation change, **not** just
+  aggregation — the current per-turn rollup can't attribute cost/quality to an agent (see Evidence).*
+  Delivers the "see your agents" view + the canonical teaching moment.
 - **P1 — Statistical detectors + relative baselines.** Baseline per (agent × dimension); emit
   anomaly rows; thresholds become derived. Recompute counterfactual model-fit per agent.
 - **P2 — Measured complexity signal** replacing the keyword tier; per-agent model-fit recommendation.
@@ -215,6 +236,8 @@ reverse-ETL + apply-loop + measurement framework.
   the keyword heuristic.
 - Analyst prompt + guardrails; how the SCEN fixtures validate rediscovery.
 - Sequencing vs PR #73 (this is a follow-up initiative, not a #73 change).
+- The **traffic simulator emits no agent structure** (36% attribution gap): for per-agent analysis it
+  must produce node-level executions, or be replaced by real / behavioral-probe traffic.
 
 ## References
 
