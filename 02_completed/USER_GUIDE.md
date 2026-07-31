@@ -182,8 +182,8 @@ workspace — it's already pointed at your mirror). What each one tells you, and
 > away but only reaches the report once you apply it — and *lens* cards (`cost-per-outcome`,
 > `agent-path-cost`) never become policies, so they stay Console-only.
 
-### Optimization Overview
-![Optimization Overview](../analytics/media/report_optimization_overview.png)
+### Model Selection — Baseline
+![Model Selection — Baseline](../analytics/media/report_optimization_overview.png)
 The fleet-level baseline a trace can't give you: **Total Turns**, **Trivial %** (share of turns that
 need no reasoning), **Est Cost USD**, and **Cost per Outcome** (cost ÷ confirmed trips — the number
 to actually optimize), plus turns by model. The *Trivial % by Turn Minute* line is a live pulse as
@@ -195,14 +195,14 @@ Spend and cache-hit rate grouped by the tier that served each turn, with a per-d
 breakdown. Before you optimize it's all one tier; after model-selection it splits — and you judge
 on **cost per outcome**, not per turn.
 
-### Optimization Opportunity
-![Optimization Opportunity](../analytics/media/report_optimization_opportunity.png)
+### Model Selection — Opportunity
+![Model Selection — Opportunity](../analytics/media/report_optimization_opportunity.png)
 Quantifies the model-selection opportunity: the **Trivial %** gauge plus a plain-language
 recommendation and impact. The stacked *Total Turns by Turn Minute and Model Tier* shows the tier
-mix over time. **Pages 1–3 (Overview, Cost by Tier, and this page) all build the single
-model-selection case** — they're *not* a general "all optimizations" view. The other optimizations
-live on **Applied Optimizations** and **Measured Savings**, and the other pillars on **Business
-Impact** and **Memory Intelligence**.
+mix over time. **Pages 1–3 (Model Selection — Baseline, Cost by Tier, and this page) all build the
+single model-selection case** — they're *not* a general "all optimizations" view. The other
+optimizations live on **Applied Optimizations** and **Measured Savings**, and the other dimensions on
+**Business Impact** and **Memory Intelligence**.
 
 ### Applied Optimizations
 ![Applied Optimizations](../analytics/media/report_applied_optimizations.png)

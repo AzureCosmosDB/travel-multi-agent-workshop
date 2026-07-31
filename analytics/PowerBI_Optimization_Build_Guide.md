@@ -173,9 +173,9 @@ python analytics/ab_demo_seed.py            # writes before_demo + after_demo (2
 
 ---
 
-## Page 1: Optimization Overview
+## Page 1: Model Selection — Baseline
 
-![Optimization Overview report page](media/report_optimization_overview.png)
+![Model Selection — Baseline report page](media/report_optimization_overview.png)
 
 Answers: **What are our agents doing, and what does it cost?**
 
@@ -199,16 +199,16 @@ Answers: **Where does spend go once tiering is applied?**
   - **Card / Gauge — `[Cache Hit %]`** (~76% observed).
   - **Clustered bar — cache hit % by tier:** Axis `'TravelAssistant OptimizationTurns'[model_tier]`, Values `[Cache Hit %]`.
 
-## Page 3: The Optimization Opportunity
+## Page 3: Model Selection — Opportunity
 
-![Optimization Opportunity report page](media/report_optimization_opportunity.png)
+![Model Selection — Opportunity report page](media/report_optimization_opportunity.png)
 
 Answers: **Which turns are wasteful, and what's the recommended fix?**
 
 - **Gauge / KPI — Trivial %** (~20–25% in the sample data; set the gauge target to taste).
 - **Stacked column — turns by tier over time:** Axis `Turn Minute` (Step 3), Legend `model_tier`, Values `[Total Turns]`.
 - **Text box** describing the SCEN-007 model-selection recommendation. Suggested copy:
-  > **The Optimization Opportunity — Model Selection (SCEN-007)**
+  > **Model Selection — Opportunity (SCEN-007)**
   > A meaningful share of agent turns are *trivial* — greetings, acknowledgements, and short confirmations that need no reasoning (~a quarter of turns in the sample data; it varies with your traffic). Today every turn runs on the same premium model, so we pay the same for "thanks!" as for "plan my 5-day trip to Tokyo."
   > **Recommendation:** route trivial turns to a cheaper model (`gpt-5-nano`) and reserve the larger model for complex requests. Trivial turns cost ~25× less on `gpt-5-nano` than the default `gpt-5.1` (input $0.05 vs $1.25; output $0.40 vs $10.00 per 1M tokens) — no quality loss on turns that were never reasoning. **Impact:** lower Cost per Outcome while confirmed trips stay flat.
 

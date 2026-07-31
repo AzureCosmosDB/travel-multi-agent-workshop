@@ -175,7 +175,7 @@ Open **`TravelAssistantAnalyticsReport`** in your **Fabric workspace** (the prov
 ![Measured Savings report page](../../analytics/media/report_measured_savings.png)
 *The **Measured Saving** page: pick a scenario in the slicer — **model-selection** shows the real counterfactual saving; the behavior-changing scenarios stay "pending" until applied and re-measured.*
 
-And the **turn-level pages** — *Optimization Overview*, *Cost by Tier*, *Optimization Opportunity* — are already populated and **moving**, fed by the `DemoLive` stream you started back in **Activity 2**. Turn on **page auto-refresh** (Format → Page refresh) and filter to `DemoLive` to watch turns land live over **DirectQuery** — Cosmos → mirror → Power BI, no report edits. (Done watching? **Ctrl+C** the simulator terminal.)
+And the **turn-level pages** — *Model Selection — Baseline*, *Cost by Tier*, *Model Selection — Opportunity* — are already populated and **moving**, fed by the `DemoLive` stream you started back in **Activity 2**. Turn on **page auto-refresh** (Format → Page refresh) and filter to `DemoLive` to watch turns land live over **DirectQuery** — Cosmos → mirror → Power BI, no report edits. (Done watching? **Ctrl+C** the simulator terminal.)
 
 > **The report is already connected.** `Provision-Fabric.ps1` (Phase 3) imported it and set its `MirrorSQLEndpoint` / `MirrorDatabase` parameters to *your* mirror, so it queries live over DirectQuery with no sign-in prompts. If a page shows stale data, give the mirror a moment to replicate and refresh the page; the report itself needs no edits.
 

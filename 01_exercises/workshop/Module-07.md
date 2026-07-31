@@ -275,8 +275,8 @@ You're not fixing anything yet — you're building the *insight* that Module 08 
 
 The north-star metric for an agent system isn't tokens per turn — it's **cost per successful outcome** (e.g., cost per confirmed trip). A cheap turn that never leads to a booking isn't efficient; an expensive turn that closes one may be.
 
-![Optimization Overview report page](../../analytics/media/report_optimization_overview.png)
-*The report's **Optimization Overview** page puts **Cost per Outcome** (cost ÷ confirmed trips) front and centre, next to Total Turns, Trivial %, and Est Cost — the fleet-level baseline this activity measures.*
+![Model Selection — Baseline report page](../../analytics/media/report_optimization_overview.png)
+*The report's **Model Selection — Baseline** page puts **Cost per Outcome** (cost ÷ confirmed trips) front and centre, next to Total Turns, Trivial %, and Est Cost — the fleet-level baseline this activity measures.*
 
 ```powershell
 # per-tier cost breakdown from your captured turns

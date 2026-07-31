@@ -106,16 +106,21 @@ wired scenarios as **dimension-tagged worked examples**. Phase the work:
 
 **Phase 1 — clarity (low-risk, ship with/near #73):**
 - Rename overclaiming report pages so they don't imply generality: **Optimization Overview →
-  "Model Selection — Baseline"**, **Optimization Opportunity → "Model Selection — Opportunity"**
-  (or fold Pages 1–3 under a "Model Selection" section). Keep **Measured Savings** and **Memory
-  Intelligence**.
-- Rename the field **`model_tier` → `task_tier`** (a.k.a. capability tier) — it describes the turn's
-  difficulty, not the model. (Touches capture, reverse-ETL, report, docs.)
-- Frame **Applied Optimizations** as the apply/revert surface (parity with the Console).
-- Reconcile the taxonomy: pick **one** canonical term ("dimensions" vs "pillars") and use it
-  everywhere (report, Console, Module 07, vision/ADRs).
+  "Model Selection — Baseline"**, **Optimization Opportunity → "Model Selection — Opportunity"**.
+  Keep **Cost by Tier**, **Measured Savings**, and **Memory Intelligence**. (Display-name only — no
+  data/field changes.)
+- Frame **Applied Optimizations** as the apply/revert surface (parity with the Console) in the docs.
+- Reconcile the taxonomy: **canonical term = "the eight optimization dimensions."** Active/learner
+  surfaces (Module 07, scenarios catalog, report, Console, USER_GUIDE) use "dimensions"; the older
+  "six pillars" wording is left **as-is in the frozen vision doc and Accepted ADRs** (ADR process:
+  don't rewrite history) — new content uses "dimensions."
 
 **Phase 2 — the generalized framework in-product (follow-up design + PR):**
+- **`model_tier → task_tier`** (a.k.a. capability tier) — deferred here on purpose: it's a
+  cross-cutting **data** migration (~15 code files across both trees, ~745 records in `debug.json` /
+  `optimization_turns.json`, the notebook, the `.pbix` field binding), it re-seeds Cosmos, and it
+  breaks the deployed report until re-imported. It belongs with the other data-model work, not the
+  clarity pass.
 - **Tag every recommendation/scenario/result row with its dimension** (`dimension` field on
   `recommendation_card` / `optimization_result`), sourced from the SCEN-NNN catalog.
 - Add a **Portfolio / Overview page** that is a *real* overview: per-dimension coverage (has data?
