@@ -1,108 +1,81 @@
 # Memory Intelligence — report page build spec
 
-A small, high-value addition to `TravelAssistantAnalyticsReport.pbix`: **one page** that
-surfaces the **flagship memory-intelligence signals** — how much the agent has learned, how
-confident it is (salience), and how much of that knowledge is stale or superseded. It's the
-*"see the problem"* half of the **`memory-retention`** optimization the app already ships
-(the Optimization Console can soft-prune superseded memories). Same detect → measure → apply →
-re-measure loop as `model-selection`, but for the **memory pillar** — the north-star of
-`analytics/docs/vision/agent-analytics-and-optimization-vision.md` ("which memories are stale
-or ineffective?").
+A small, high-value page for `TravelAssistantAnalyticsReport.pbix` that surfaces the flagship
+**memory-intelligence** signals — how much the agent has learned, how confident it is (salience),
+and how much of that knowledge is stale or superseded. It's the *"see the problem"* half of the
+**`memory-retention`** optimization the app already ships (the Console soft-prunes superseded
+memories). Same detect → measure → apply → re-measure loop as `model-selection`, for the
+**memory pillar** — the north-star of `analytics/docs/vision/agent-analytics-and-optimization-vision.md`.
 
-> **Why an analytics platform and not LangSmith:** trace/observability tools answer *per-run*
-> questions (what prompt, which tool, how many tokens). They can't tell you *"across my whole
-> user base, X% of memories are never recalled and Y% are superseded"* — that's longitudinal,
-> cross-entity analytics over the app's own state, which is exactly what Fabric + Power BI over
-> mirrored Cosmos is for.
+> **The analytics are computed in the notebook, not in Power BI.** `ConversionFunnelReverseETL`
+> **Section 6 (Memory intelligence)** reads the mirrored `memories` table and reverse-ETLs the
+> result to `OptimizationInsights` — exactly like the conversion funnel. So this page reads the
+> **same `OptimizationInsights` table already in the report** (filtered to the `memory_*` row
+> types); **no new table, no raw DAX over `memories`.**
 
 ---
 
-## Prerequisite
-`Provision-Fabric.ps1` now mirrors the **`memories`** container (added to `MIRROR_TABLES`), so
-after (re)provisioning the mirror it appears in the model as **`TravelAssistant memories`**
-(DirectQuery, same SQL endpoint as the other tables).
+## Prerequisite — run the notebook
+Run the notebook's **Section 6** once (it's provided — no TODO). It writes these flat rows to
+`OptimizationInsights` under a reserved `_memory` tenant:
 
-## `memories` schema (top-level, scalar — what the report uses)
-| Field | Type | Use |
+| `type` | Fields | Feeds |
 |---|---|---|
-| `salience` | double (0–1) | confidence/value of the memory — the core signal |
-| `type` | string (`fact`, `episodic`, `turn`, …) | memory-type breakdown |
-| `confidence` | double | extraction confidence (optional) |
-| `created_at` / `updated_at` | timestamp | age / recency |
-| `superseded` | bool *(present only on superseded memories)* | conflict-resolution / staleness |
-| `user_id`, `role`, `tags`, `content` | — | slicing / detail |
-| `embedding` | array | **exclude** (large vector — uncheck it when loading) |
-| `metadata` | object | nested (category/subject/predicate) — mirrors as JSON; optional/advanced |
+| `memory_kpi` | `total_memories`, `avg_salience`, `supersession_rate`, `low_salience_rate` | KPI cards |
+| `memory_type` | `label` (fact/episodic/…), `count` | Memories by type |
+| `memory_salience` | `label` (High/Medium/Low tier), `count` | Salience distribution |
+| `memory_health` | `label` (Active/Superseded/Low-value), `count` | Memory health |
 
-> When you add the table, **uncheck `embedding`** (and `content_hash`, `prompt_id`,
-> `prompt_version`) to keep the model lean.
+The mirror carries them back into the report's **`TravelAssistant OptimizationInsights`** table —
+the same one the **Business Impact** page reads.
 
----
-
-## Step 1 — Add the `memories` table
-In Desktop, use the same DirectQuery source as the existing tables (the mirror SQL endpoint /
-`MirrorSQLEndpoint` parameter) and select **`memories`**. It loads as `TravelAssistant memories`.
-
-## Step 2 — Calculated columns
+## Measures (over the existing OptimizationInsights table)
 ```DAX
-Salience Tier =
-SWITCH(
-    TRUE(),
-    'TravelAssistant memories'[salience] >= 0.8, "High (0.8–1.0)",
-    'TravelAssistant memories'[salience] >= 0.5, "Medium (0.5–0.8)",
-    "Low (<0.5)"
-)
-```
-```DAX
-Memory Health =
-SWITCH(
-    TRUE(),
-    -- 'superseded' may not exist until a conflict supersedes a memory; see note below
-    COALESCE('TravelAssistant memories'[superseded], FALSE()) = TRUE(), "Superseded",
-    'TravelAssistant memories'[salience] < 0.5, "Low-value",
-    "Active"
-)
+Total Memories =
+    CALCULATE(SUM('TravelAssistant OptimizationInsights'[total_memories]),
+              'TravelAssistant OptimizationInsights'[type] = "memory_kpi")
+
+Avg Memory Salience =
+    CALCULATE(MAX('TravelAssistant OptimizationInsights'[avg_salience]),
+              'TravelAssistant OptimizationInsights'[type] = "memory_kpi")
+
+Supersession Rate % =
+    CALCULATE(MAX('TravelAssistant OptimizationInsights'[supersession_rate]),
+              'TravelAssistant OptimizationInsights'[type] = "memory_kpi")
+
+Memory Bucket Count = SUM('TravelAssistant OptimizationInsights'[count])
 ```
 
-## Step 3 — Measures
-```DAX
-Total Memories = COUNTROWS('TravelAssistant memories')
-Avg Salience   = AVERAGE('TravelAssistant memories'[salience])
-Superseded Memories =
-    CALCULATE([Total Memories], 'TravelAssistant memories'[Memory Health] = "Superseded")
-Supersession Rate % = DIVIDE([Superseded Memories], [Total Memories]) * 100
-Low-Salience % =
-    DIVIDE(
-        CALCULATE([Total Memories], 'TravelAssistant memories'[salience] < 0.5),
-        [Total Memories]
-    ) * 100
-```
+## The page (one page, 4 visuals)
+Add a page named **Memory Intelligence**. Each *bucket* visual gets a **visual-level filter on
+`type`** so it only sees its own rows.
 
-> **If the `superseded` column doesn't exist yet:** the Fabric mirror only creates columns for
-> fields present in the data, and `superseded` appears only once conflict resolution supersedes
-> a memory. To make it light up, run a **preference-conflict** conversation (or the data
-> enricher) so the agent supersedes an earlier memory — exactly the signal the `memory-retention`
-> optimization acts on. Until then, drop the two superseded measures/segment; the salience and
-> type visuals work immediately.
+1. **KPI cards (top row):** `Total Memories` · `Avg Memory Salience` (3 decimals) · `Supersession Rate %`.
+   *What it tells you:* how much the agent knows, how confident it is, and how much has been
+   overridden by newer preferences (conflict resolution at work).
+2. **Memories by Type** — donut. *Visual filter:* `type is memory_type`. Legend = `label`,
+   Values = `Memory Bucket Count`. *The mix of durable facts vs. episodic/turn memories.*
+3. **Salience Distribution** — clustered column. *Visual filter:* `type is memory_salience`.
+   X-axis = `label`, Y = `Memory Bucket Count`. *A large **Low** tier signals over-extraction —
+   recall pays to wade through memories it never uses.*
+4. **Memory Health** — donut. *Visual filter:* `type is memory_health`. Legend = `label`,
+   Values = `Memory Bucket Count`. *Active vs. **Superseded** vs. **Low-value**; Superseded +
+   Low-value is the addressable waste the `memory-retention` optimization prunes.*
 
-## Step 4 — The page (keep it to one page, 4 visuals)
-Add a page named **Memory Intelligence**:
+> **`superseded` lights up later:** the Fabric mirror only creates the `superseded` column once
+> conflict resolution has superseded a memory. Until then Memory Health shows Active/Low-value and
+> `Supersession Rate %` is 0 — drive a preference-conflict conversation (or the data enricher) to
+> make it appear. The salience and type visuals work immediately.
 
-1. **KPI cards (top row):** `Total Memories` · `Avg Salience` (3 decimals) · `Supersession Rate %`.
-   *What it tells you:* how much the agent knows, how confident it is, and how much knowledge
-   has been overridden by newer preferences (conflict resolution at work).
-2. **Memories by Type** — donut, Legend = `type`, Values = `Total Memories`.
-   *What it tells you:* the mix of durable facts vs. episodic/turn memories.
-3. **Salience Distribution** — clustered column, X-axis = `Salience Tier`, Y = `Total Memories`.
-   *What it tells you:* how much of memory is high-confidence vs. low-value noise. A large
-   Low tier signals **over-extraction** — retrieval pays to wade through memories it never uses.
-4. **Memory Health** — donut, Legend = `Memory Health`, Values = `Total Memories`.
-   *What it tells you:* Active vs. Superseded vs. Low-value. Superseded + Low-value is the
-   **addressable waste** the `memory-retention` optimization prunes.
+## Save back to the repo
+**File → Save As → `analytics/TravelAssistantAnalyticsReport.pbix`** (overwrite), then commit.
+The provisioning auto-imports it, so every deployment ships with the Memory Intelligence page.
 
 ## The optimization tie-in (the point)
-Memories aren't free: every recall retrieves and pays (tokens + latency) for the memories it
-pulls. **Stale, never-recalled, low-salience, and superseded memories are pure cost with no
-benefit** — and they can dilute answer quality. This page *measures* that; the **Optimization
-Console → `memory-retention`** *acts* on it (reversible soft-prune of superseded memories).
-That's the memory-pillar instance of the same closed loop as `model-selection`.
+Memories aren't free: every recall retrieves and *pays* (tokens + latency) for what it pulls, so
+**stale, never-recalled, low-salience, and superseded** memories are pure cost that can also
+dilute answer quality. This page *measures* it; the **Optimization Console → `memory-retention`**
+*acts* on it (reversible soft-prune). It's the memory-pillar instance of the same closed loop as
+`model-selection` — and it's something an **analytics platform is uniquely able to show**: trace
+tools tell you what one run did, but only cross-entity analytics over your app's own memory state
+can tell you *"X% of memories are never recalled and Y% are superseded."*

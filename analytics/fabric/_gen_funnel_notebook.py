@@ -198,6 +198,59 @@ TODO1_MD = "## 3. TODO 1 — classify the abandonment cause\nThis is the analyti
 BUILD_MD = "## 4. Shape the insight rows (provided)\nFlat rows, one value each, so they mirror cleanly and Power BI needs no session-math."
 TODO2_MD = "## 5. TODO 2 — reverse-ETL the insights back to Cosmos\nThe pattern that closes the loop: land Fabric-computed intelligence in the operational store."
 
+MEMORY_MD = "## 6. Memory intelligence (provided) — reverse-ETL memory health\nMemories aren't free: every recall retrieves and *pays* (tokens + latency) for what it pulls, so **stale, low-salience, and superseded** memories are cost with no benefit. This provided section reads the mirrored **`memories`** table (the same SQL-endpoint path as above), computes salience / health / supersession, and reverse-ETLs the result to `OptimizationInsights` under a reserved `_memory` tenant — the funnel pattern, for the **memory pillar**. The Power BI **Memory Intelligence** page reads these rows."
+
+MEMORY_CODE = '''# ---- memory intelligence: read mirrored `memories`, compute health, reverse-ETL (PROVIDED) ----
+MEMORY_PARTITION = "_memory"          # reserved tenantId for global (non-tenant) memory insights
+
+# memories are keyed by user_id/thread_id (NOT tenant) -> read the whole mirrored table via the
+# same SQL-endpoint JDBC path as read_sql, minus the tenant filter.
+mem = (spark.read.format("jdbc")
+       .option("url", _jdbc)
+       .option("dbtable", f"[{SOURCE_SCHEMA}].[memories]")
+       .option("accessToken", _sql_token).load())
+if "embedding" in mem.columns:
+    mem = mem.drop("embedding")       # skip the large vector column
+
+# 'superseded' exists only once conflict resolution has superseded a memory
+_sup = F.col("superseded") if "superseded" in mem.columns else F.lit(False)
+mem = (mem
+       .withColumn("salience_tier",
+                   F.when(F.col("salience") >= 0.8, "High (0.8-1.0)")
+                    .when(F.col("salience") >= 0.5, "Medium (0.5-0.8)")
+                    .otherwise("Low (<0.5)"))
+       .withColumn("memory_health",
+                   F.when(_sup == True, "Superseded")
+                    .when(F.col("salience") < 0.5, "Low-value")
+                    .otherwise("Active")))
+
+total = mem.count()
+a = mem.agg(F.avg("salience").alias("avg"),
+            F.sum(F.when(_sup == True, 1).otherwise(0)).alias("sup"),
+            F.sum(F.when(F.col("salience") < 0.5, 1).otherwise(0)).alias("low")).collect()[0]
+avg_sal = round(float(a["avg"] or 0), 3)
+sup_pct = round(100 * int(a["sup"] or 0) / max(total, 1), 1)
+low_pct = round(100 * int(a["low"] or 0) / max(total, 1), 1)
+
+mem_kpi_df = spark.createDataFrame(
+    [(f"memkpi::{MEMORY_PARTITION}", "memory_kpi", MEMORY_PARTITION, total, avg_sal, sup_pct, low_pct, now)],
+    ["id", "type", "tenantId", "total_memories", "avg_salience", "supersession_rate", "low_salience_rate", "computed_at"])
+
+def _mem_buckets(col, rowtype):
+    rs = mem.groupBy(col).count().collect()
+    data = [(f"{rowtype}::{MEMORY_PARTITION}::{r[col]}", rowtype, MEMORY_PARTITION, str(r[col]), int(r["count"]), now)
+            for r in rs]
+    return spark.createDataFrame(
+        data or [(f"{rowtype}::none", rowtype, MEMORY_PARTITION, "none", 0, now)],
+        ["id", "type", "tenantId", "label", "count", "computed_at"])
+
+for df in (mem_kpi_df,
+           _mem_buckets("type", "memory_type"),
+           _mem_buckets("salience_tier", "memory_salience"),
+           _mem_buckets("memory_health", "memory_health")):
+    df.write.format("cosmos.oltp").options(**cosmos_write).mode("append").save()
+print(f"Memory reverse-ETL complete -> {total} memories, avg salience {avg_sal}, {sup_pct}% superseded, {low_pct}% low-salience")'''
+
 
 def notebook(solution: bool):
     return {
@@ -212,6 +265,7 @@ def notebook(solution: bool):
             md(TODO1_MD), code(TODO1_SOLUTION if solution else TODO1_STUB),
             md(BUILD_MD), code(BUILD),
             md(TODO2_MD), code(TODO2_SOLUTION if solution else TODO2_STUB),
+            md(MEMORY_MD), code(MEMORY_CODE),
         ],
     }
 

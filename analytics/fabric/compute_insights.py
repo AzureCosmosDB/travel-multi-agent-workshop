@@ -59,6 +59,7 @@ if not os.environ.get("COSMOSDB_ENDPOINT"):
                 break
 
 INSIGHTS_CONTAINER = "OptimizationInsights"
+MEMORY_PARTITION = "_memory"   # reserved tenantId for global memory-intelligence rows
 _STAGE_ORDER = {"engaged": 1, "searched": 2, "planned": 3, "confirmed": 4}
 
 
@@ -236,6 +237,57 @@ def build_optimization_result_rows(db) -> list[dict]:
     return rows
 
 
+def build_memory_intelligence_rows(db) -> list[dict]:
+    """Memory-health signals over the ``memories`` container, flattened to insight rows
+    (memory_kpi / memory_type / memory_salience / memory_health) — the reference twin of the
+    notebook's Section 6. Global (not tenant-scoped): memories are keyed by user_id/thread_id,
+    so these rows live under the reserved ``_memory`` partition."""
+    now = _now()
+    try:
+        items = list(db.get_container_client("memories").query_items(
+            "SELECT c.salience, c.type, c.superseded FROM c", enable_cross_partition_query=True))
+    except Exception:
+        return []
+    total = len(items)
+    if total == 0:
+        return []
+
+    def _tier(s: float) -> str:
+        s = s or 0
+        return "High (0.8-1.0)" if s >= 0.8 else "Medium (0.5-0.8)" if s >= 0.5 else "Low (<0.5)"
+
+    def _health(m: dict) -> str:
+        if m.get("superseded"):
+            return "Superseded"
+        return "Low-value" if (m.get("salience") or 0) < 0.5 else "Active"
+
+    superseded = sum(1 for m in items if m.get("superseded"))
+    low = sum(1 for m in items if (m.get("salience") or 0) < 0.5)
+    avg_sal = round(sum((m.get("salience") or 0) for m in items) / total, 3)
+
+    rows = [{
+        "id": f"memkpi::{MEMORY_PARTITION}", "type": "memory_kpi", "tenantId": MEMORY_PARTITION,
+        "total_memories": total, "avg_salience": avg_sal,
+        "supersession_rate": round(100 * superseded / total, 1),
+        "low_salience_rate": round(100 * low / total, 1), "computed_at": now,
+    }]
+
+    def _buckets(keyfn, rowtype: str) -> list[dict]:
+        counts: dict[str, int] = {}
+        for m in items:
+            k = str(keyfn(m))
+            counts[k] = counts.get(k, 0) + 1
+        return [{
+            "id": f"{rowtype}::{MEMORY_PARTITION}::{k}", "type": rowtype, "tenantId": MEMORY_PARTITION,
+            "label": k, "count": v, "computed_at": now,
+        } for k, v in counts.items()]
+
+    rows += _buckets(lambda m: m.get("type", "unknown"), "memory_type")
+    rows += _buckets(lambda m: _tier(m.get("salience")), "memory_salience")
+    rows += _buckets(_health, "memory_health")
+    return rows
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description="Reverse-ETL: compute insights -> OptimizationInsights.")
     ap.add_argument("--tenant", required=True)
@@ -272,6 +324,17 @@ def main() -> None:
     ms = next((r for r in res_rows if r["scenario"] == "model-selection"), {})
     print(f"✅ reverse-ETL wrote {len(res_rows)} optimization_result rows (scenario-keyed): "
           f"model-selection turns={ms.get('turns')} saving=${ms.get('saving_usd')} ({ms.get('saving_pct')}% vs all-premium baseline)")
+
+    # Memory intelligence rows (memory_kpi / memory_type / memory_salience / memory_health)
+    # for the Power BI Memory Intelligence page — twin of the notebook's Section 6.
+    mem_rows = build_memory_intelligence_rows(db)
+    for r in mem_rows:
+        container.upsert_item(r)
+    if mem_rows:
+        mk = next((r for r in mem_rows if r["type"] == "memory_kpi"), {})
+        print(f"✅ reverse-ETL wrote {len(mem_rows)} memory rows (_memory): "
+              f"total={mk.get('total_memories')} avg_salience={mk.get('avg_salience')} "
+              f"superseded={mk.get('supersession_rate')}%")
 
 
 if __name__ == "__main__":
