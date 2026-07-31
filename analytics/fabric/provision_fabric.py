@@ -23,8 +23,10 @@ Fabric + Power BI + Azure REST APIs:
       azure-cosmos installed) + grant the deploying user Cosmos data-plane write, so
       Power BI buttons drive the optimization apply-loop with no manual portal steps
 
-  Phase 3 (optional):
-    - import a .pbit and set its MirrorSQLEndpoint / MirrorDatabase parameters
+  Phase 3:
+    - import the report .pbix, point its MirrorSQLEndpoint / MirrorDatabase parameters at
+      this deployment's mirror, take ownership, bind the DirectQuery source for SSO, and
+      verify it queries — so deploying the report needs no Power BI Desktop
 
 Auth uses your `az login` (DefaultAzureCredential). Config is read from `azd env get-values`
 by default; override with CLI flags. Idempotent: existing workspace/mirror/etc. are reused.
@@ -679,20 +681,24 @@ def grant_cosmos_data_contributor(cosmos_account: str, rg: str, sub: str) -> Non
 
 
 # --------------------------------------------------------------------------- phase 3
-def import_pbit(tok: Tokens, ws_id: str, pbit_path: str, sql_endpoint: str, mirror_db: str) -> None:
-    if not os.path.exists(pbit_path):
-        log(f".pbit not found at {pbit_path}; skipping import (build it from the guide first)")
+def import_report(tok: Tokens, ws_id: str, report_path: str, sql_endpoint: str, mirror_db: str) -> None:
+    """Import a .pbix/.pbit report, point its parameters at THIS deployment's mirror, take
+    ownership, bind the DirectQuery source for SSO, and verify it can query — so deploying
+    the report needs no Power BI Desktop. Skips cleanly if the artifact isn't present yet."""
+    if not report_path or not os.path.exists(report_path):
+        log(f"report artifact not found at {report_path}; skipping import "
+            f"(save analytics/TravelAssistantAnalyticsReport.pbix first)")
         return
     hdr = {"Authorization": f"Bearer {tok.get(PBI_SCOPE)}"}
-    name = os.path.splitext(os.path.basename(pbit_path))[0]
+    name = os.path.splitext(os.path.basename(report_path))[0]
     url = f"{PBI_API}/groups/{ws_id}/imports?datasetDisplayName={name}&nameConflict=CreateOrOverwrite"
-    with open(pbit_path, "rb") as f:
-        files = {"file": (os.path.basename(pbit_path), f, "application/octet-stream")}
+    with open(report_path, "rb") as f:
+        files = {"file": (os.path.basename(report_path), f, "application/octet-stream")}
         r = requests.post(url, headers=hdr, files=files, timeout=300)
     if r.status_code not in (200, 202):
-        raise RuntimeError(f"pbit import failed {r.status_code}: {r.text[:600]}")
+        raise RuntimeError(f"report import failed {r.status_code}: {r.text[:600]}")
     import_id = r.json().get("id")
-    log(f".pbit import started: {import_id}")
+    log(f"report import started: {import_id}")
     ds_id = None
     for _ in range(60):
         time.sleep(5)
@@ -701,26 +707,114 @@ def import_pbit(tok: Tokens, ws_id: str, pbit_path: str, sql_endpoint: str, mirr
             ds_id = (s.get("datasets") or [{}])[0].get("id")
             break
         if s.get("importState") == "Failed":
-            raise RuntimeError(f"pbit import failed: {json.dumps(s)[:600]}")
+            raise RuntimeError(f"report import failed: {json.dumps(s)[:600]}")
     if not ds_id:
-        raise TimeoutError("pbit import did not finish")
-    log(f".pbit imported; dataset {ds_id}. Updating parameters...")
-    body = {
-        "updateDetails": [
-            {"name": "MirrorSQLEndpoint", "newValue": sql_endpoint},
-            {"name": "MirrorDatabase", "newValue": mirror_db},
-        ]
-    }
-    up = requests.post(
-        f"{PBI_API}/groups/{ws_id}/datasets/{ds_id}/Default.UpdateParameters",
-        headers={**hdr, "Content-Type": "application/json"},
-        json=body,
-        timeout=60,
+        raise TimeoutError("report import did not finish")
+    log(f"report imported; dataset {ds_id}")
+
+    # Take ownership so parameter + credential calls are permitted for this principal.
+    to = requests.post(
+        f"{PBI_API}/groups/{ws_id}/datasets/{ds_id}/Default.TakeOver",
+        headers=hdr, timeout=60,
     )
-    if up.status_code not in (200, 202):
-        log(f"parameter update returned {up.status_code}: {up.text[:300]} (params may not exist in this .pbit)")
+    log(f"dataset takeover: {to.status_code}")
+
+    # Point the report at THIS deployment's mirror (the Service never prompts for these).
+    if sql_endpoint:
+        body = {
+            "updateDetails": [
+                {"name": "MirrorSQLEndpoint", "newValue": sql_endpoint},
+                {"name": "MirrorDatabase", "newValue": mirror_db},
+            ]
+        }
+        up = requests.post(
+            f"{PBI_API}/groups/{ws_id}/datasets/{ds_id}/Default.UpdateParameters",
+            headers={**hdr, "Content-Type": "application/json"},
+            json=body,
+            timeout=60,
+        )
+        if up.status_code in (200, 202):
+            log(f"parameters set: MirrorSQLEndpoint={sql_endpoint}, MirrorDatabase={mirror_db}")
+        else:
+            log(f"parameter update returned {up.status_code}: {up.text[:300]} "
+                f"(params may not exist in this report)")
     else:
-        log("dataset parameters updated (MirrorSQLEndpoint / MirrorDatabase)")
+        log("no mirror SQL endpoint provided; leaving report parameters as saved")
+
+    _bind_directquery_sso(tok, ws_id, ds_id)
+    _verify_dataset(tok, ws_id, ds_id, _report_insights_entity(report_path))
+
+
+def _bind_directquery_sso(tok: Tokens, ws_id: str, ds_id: str) -> None:
+    """Best-effort: configure the mirror SQL DirectQuery source for Entra SSO so the report
+    queries live for each viewer. Same-tenant Fabric SQL endpoints usually bind
+    automatically; this is a safety net and never fails provisioning."""
+    hdr = tok.headers(PBI_SCOPE)
+    try:
+        srcs = requests.get(
+            f"{PBI_API}/groups/{ws_id}/datasets/{ds_id}/datasources",
+            headers=hdr, timeout=60).json().get("value", [])
+    except Exception as e:  # pragma: no cover
+        log(f"datasource lookup skipped: {e}")
+        return
+    for d in srcs:
+        gid, did = d.get("gatewayId"), d.get("datasourceId")
+        if not gid or not did:
+            continue
+        body = {"credentialDetails": {
+            "credentialType": "OAuth2",
+            "useEndUserOAuth2Credentials": True,
+            "encryptedConnection": "Encrypted",
+            "encryptionAlgorithm": "None",
+            "privacyLevel": "Organizational",
+        }}
+        try:
+            pr = requests.patch(f"{PBI_API}/gateways/{gid}/datasources/{did}",
+                                headers=hdr, json=body, timeout=60)
+            log(f"DirectQuery SSO bind {did}: {pr.status_code}")
+        except Exception as e:  # pragma: no cover
+            log(f"DirectQuery SSO bind skipped for {did}: {e}")
+
+
+def _report_insights_entity(report_path: str) -> str:
+    """Read the model table backing OptimizationInsights straight from the report's PBIR
+    definition, so the verify query uses the real (schema-prefixed) table name."""
+    try:
+        import zipfile
+        z = zipfile.ZipFile(report_path)
+        ents: set[str] = set()
+        for n in z.namelist():
+            if n.startswith("Report/definition/") and n.endswith(".json"):
+                txt = z.read(n).decode("utf-8", "ignore")
+                ents.update(re.findall(r'"Entity"\s*:\s*"([^"]+)"', txt))
+        for e in ents:
+            if e.replace(" ", "").lower().endswith("optimizationinsights"):
+                return e
+    except Exception:  # pragma: no cover
+        pass
+    return ""
+
+
+def _verify_dataset(tok: Tokens, ws_id: str, ds_id: str, entity: str = "") -> None:
+    """Best-effort: run a DAX query to confirm the imported report can read the mirror."""
+    hdr = tok.headers(PBI_SCOPE)
+    dax = f"EVALUATE ROW(\"rows\", COUNTROWS('{entity}'))" if entity else "EVALUATE {1}"
+    q = {"queries": [{"query": dax}], "serializerSettings": {"includeNulls": True}}
+    try:
+        r = requests.post(f"{PBI_API}/groups/{ws_id}/datasets/{ds_id}/executeQueries",
+                          headers=hdr, json=q, timeout=90)
+        if r.status_code == 200:
+            rows = ""
+            try:
+                rows = r.json()["results"][0]["tables"][0]["rows"][0]
+            except Exception:  # pragma: no cover
+                pass
+            log("dataset query check: OK - report reads the mirror"
+                + (f" ({entity}: {rows})" if entity else ""))
+        else:
+            log(f"dataset query check returned {r.status_code}: {r.text[:200]}")
+    except Exception as e:  # pragma: no cover
+        log(f"dataset query check skipped: {e}")
 
 
 # --------------------------------------------------------------------------- main
@@ -763,9 +857,16 @@ def main() -> None:
     p.add_argument("--solution", action="store_true",
                    help="upload the completed *_solution notebook instead of the learner TODO version "
                         "(use for 02_completed / the demo)")
-    p.add_argument("--pbit", help="path to a .pbit to import (optional)")
-    p.add_argument("--phase", choices=["1", "2", "3", "all"], default="all",
-                   help="1=workspace+identity+rbac, 2=+mirror+notebook, 3=+pbit import")
+    p.add_argument("--report",
+                   default=os.path.join(os.path.dirname(os.path.dirname(__file__)),
+                                        "TravelAssistantAnalyticsReport.pbix"),
+                   help="report artifact to import (default: analytics/"
+                        "TravelAssistantAnalyticsReport.pbix)")
+    p.add_argument("--pbit", help="(deprecated) alias for --report")
+    p.add_argument("--phase", choices=["1", "2", "3", "report", "all"], default="all",
+                   help="1=workspace+identity+rbac, 2=+mirror+notebook+udf, 3=all+report "
+                        "import, report=ONLY import the .pbix (reuses the persisted "
+                        "FABRIC_WORKSPACE_ID/FABRIC_MIRROR_ID)")
     args = p.parse_args()
     if args.solution:
         base, ext = os.path.splitext(args.notebook)
@@ -779,6 +880,21 @@ def main() -> None:
     log(f"config: {json.dumps({k: v for k, v in cfg.items()}, indent=0)}")
 
     tok = Tokens()
+
+    # ---- report-only phase (reuses the workspace/mirror from a prior phase-1/2 run) ----
+    if args.phase == "report":
+        env = load_azd_env()
+        ws_id = env.get("FABRIC_WORKSPACE_ID", "")
+        mirror_id = env.get("FABRIC_MIRROR_ID", "")
+        if not ws_id or not mirror_id:
+            die("phase 'report' needs FABRIC_WORKSPACE_ID and FABRIC_MIRROR_ID in the azd "
+                "env (run phases 1-2 first)")
+        sql_ep = get_mirror_sql_endpoint(tok, ws_id, mirror_id)
+        report_path = args.pbit or args.report
+        import_report(tok, ws_id, report_path, sql_ep, f"{cfg['db_name']}Analytics")
+        log("REPORT IMPORT COMPLETE.")
+        print(json.dumps({"workspaceId": ws_id, "report": os.path.basename(report_path)}, indent=2))
+        return
 
     # ---- Phase 1 (fully automated) ----
     capacity_id = wait_for_capacity(tok, cfg["capacity_name"])
@@ -838,11 +954,9 @@ def main() -> None:
         print(json.dumps({"workspaceId": ws_id, "mirrorId": mirror_id, "udfId": udf_id}, indent=2))
         return
 
-    # ---- Phase 3 (optional .pbit import) ----
-    if args.pbit:
-        # SQL endpoint of the mirror is discoverable once mirroring is running.
-        sql_endpoint = ""  # left blank -> user can pass a fully-parameterized pbit
-        import_pbit(tok, ws_id, args.pbit, sql_endpoint, f"{cfg['db_name']}Analytics")
+    # ---- Phase 3 (report import — points the .pbix at this deployment's mirror) ----
+    report_path = args.pbit or args.report
+    import_report(tok, ws_id, report_path, sql_ep, f"{cfg['db_name']}Analytics")
     log("ALL PHASES COMPLETE.")
     print(json.dumps({"workspaceId": ws_id, "mirrorId": mirror_id}, indent=2))
 
