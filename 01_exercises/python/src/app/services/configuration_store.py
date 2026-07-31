@@ -44,6 +44,7 @@ CONTAINER_NAME = "Configuration"
 
 TYPE_MODEL_PRICING = "model_pricing"
 TYPE_MODEL_SELECTION_DEFAULTS = "model_selection_defaults"
+TYPE_MEMORY_CONFIG = "memory_config"
 
 _CACHE_TTL_SECONDS = 60
 
@@ -143,6 +144,22 @@ def get_model_selection_defaults() -> Optional[dict[str, Any]]:
     """The single ``model_selection_defaults`` doc, or None if not seeded."""
     docs = get_docs(TYPE_MODEL_SELECTION_DEFAULTS)
     return docs[0] if docs else None
+
+
+def get_memory_config() -> dict[str, float]:
+    """Memory salience thresholds from the Configuration container, with built-in
+    fallback defaults so callers never break if the row isn't seeded."""
+    docs = get_docs(TYPE_MEMORY_CONFIG)
+    row = docs[0] if docs else {}
+
+    def _f(key: str, default: float) -> float:
+        try:
+            return float(row.get(key, default))
+        except (TypeError, ValueError):
+            return default
+
+    return {"salience_high": _f("salience_high", 0.8),
+            "salience_medium": _f("salience_medium", 0.5)}
 
 
 def upsert(doc: dict[str, Any]) -> Optional[dict[str, Any]]:

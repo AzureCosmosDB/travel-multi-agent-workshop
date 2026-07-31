@@ -261,17 +261,31 @@ def build_memory_intelligence_rows(db) -> list[dict]:
     if total == 0:
         return []
 
+    # Salience tier thresholds come from the Configuration container (type="memory_config") —
+    # the single source of truth shared with the notebook, so the tiers never drift. Falls
+    # back to the built-in defaults if the row isn't seeded.
+    hi, med = 0.8, 0.5
+    try:
+        cfg = list(db.get_container_client("Configuration").query_items(
+            "SELECT * FROM c WHERE c.type='memory_config'", enable_cross_partition_query=True))
+        if cfg:
+            hi = float(cfg[0].get("salience_high", hi))
+            med = float(cfg[0].get("salience_medium", med))
+    except Exception:
+        pass
+    high_l, med_l, low_l = f"High (>={hi})", f"Medium ({med}-{hi})", f"Low (<{med})"
+
     def _tier(s: float) -> str:
         s = s or 0
-        return "High (0.8-1.0)" if s >= 0.8 else "Medium (0.5-0.8)" if s >= 0.5 else "Low (<0.5)"
+        return high_l if s >= hi else med_l if s >= med else low_l
 
     def _health(m: dict) -> str:
         if m.get("superseded"):
             return "Superseded"
-        return "Low-value" if (m.get("salience") or 0) < 0.5 else "Active"
+        return "Low-value" if (m.get("salience") or 0) < med else "Active"
 
     superseded = sum(1 for m in items if m.get("superseded"))
-    low = sum(1 for m in items if (m.get("salience") or 0) < 0.5)
+    low = sum(1 for m in items if (m.get("salience") or 0) < med)
     avg_sal = round(sum((m.get("salience") or 0) for m in items) / total, 3)
 
     rows = [{

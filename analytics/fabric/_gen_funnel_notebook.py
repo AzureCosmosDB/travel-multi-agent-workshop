@@ -288,22 +288,34 @@ mem = (spark.read.format("jdbc")
 if "embedding" in mem.columns:
     mem = mem.drop("embedding")       # skip the large vector column
 
+# Salience tier thresholds come from the mirrored Configuration table (type="memory_config") —
+# the single source of truth shared with compute_insights.py, so the tiers never drift. Falls
+# back to the built-in defaults if the row isn't seeded.
+_mc = (spark.read.format("jdbc")
+       .option("url", _jdbc)
+       .option("dbtable", f"[{SOURCE_SCHEMA}].[Configuration]")
+       .option("accessToken", _sql_token).load()
+       .where(F.col("type") == "memory_config").collect())
+SAL_HIGH = float(_mc[0]["salience_high"]) if _mc else 0.8
+SAL_MED = float(_mc[0]["salience_medium"]) if _mc else 0.5
+HIGH_L, MED_L, LOW_L = f"High (>={SAL_HIGH})", f"Medium ({SAL_MED}-{SAL_HIGH})", f"Low (<{SAL_MED})"
+
 # 'superseded' exists only once conflict resolution has superseded a memory
 _sup = F.col("superseded") if "superseded" in mem.columns else F.lit(False)
 mem = (mem
        .withColumn("salience_tier",
-                   F.when(F.col("salience") >= 0.8, "High (0.8-1.0)")
-                    .when(F.col("salience") >= 0.5, "Medium (0.5-0.8)")
-                    .otherwise("Low (<0.5)"))
+                   F.when(F.col("salience") >= SAL_HIGH, HIGH_L)
+                    .when(F.col("salience") >= SAL_MED, MED_L)
+                    .otherwise(LOW_L))
        .withColumn("memory_health",
                    F.when(_sup == True, "Superseded")
-                    .when(F.col("salience") < 0.5, "Low-value")
+                    .when(F.col("salience") < SAL_MED, "Low-value")
                     .otherwise("Active")))
 
 total = mem.count()
 a = mem.agg(F.avg("salience").alias("avg"),
             F.sum(F.when(_sup == True, 1).otherwise(0)).alias("sup"),
-            F.sum(F.when(F.col("salience") < 0.5, 1).otherwise(0)).alias("low")).collect()[0]
+            F.sum(F.when(F.col("salience") < SAL_MED, 1).otherwise(0)).alias("low")).collect()[0]
 avg_sal = round(float(a["avg"] or 0), 3)
 sup_pct = round(100 * int(a["sup"] or 0) / max(total, 1), 1)
 low_pct = round(100 * int(a["low"] or 0) / max(total, 1), 1)

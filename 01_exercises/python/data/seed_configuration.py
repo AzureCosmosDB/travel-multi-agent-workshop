@@ -53,6 +53,7 @@ CONTAINER_NAME = "Configuration"
 
 DATA_DIR = Path(__file__).resolve().parent
 PRICING_REFERENCE = DATA_DIR / "model_pricing.json"
+MEMORY_CONFIG_REFERENCE = DATA_DIR / "memory_config.json"
 
 # Allow importing the app's service modules (src.app...) when run from python/.
 _PYTHON_DIR = str(DATA_DIR.parent)
@@ -87,6 +88,19 @@ def load_model_selection_defaults() -> dict:
         if isinstance(params, dict) and params.get("tiers"):
             return dict(params)
     return dict(_FALLBACK_MODEL_SELECTION_DEFAULTS)
+
+
+def load_memory_config() -> dict:
+        """Memory salience thresholds from the committed reference (fallback if absent).
+        Single source of truth shared by the Fabric notebook + compute_insights so the tier
+        boundaries never drift between the two."""
+        fallback = {"salience_high": 0.8, "salience_medium": 0.5}
+        try:
+            with open(MEMORY_CONFIG_REFERENCE, encoding="utf-8") as f:
+                data = json.load(f)
+            return {k: float(data.get(k, v)) for k, v in fallback.items()}
+        except Exception:  # noqa: BLE001
+            return fallback
 
 
 def _now_iso() -> str:
@@ -221,7 +235,16 @@ def main() -> int:
     })
     print("  ✓ model_selection_defaults")
 
-    print(f"✅ Configuration seeded: {priced} model_pricing row(s) + defaults")
+    container.upsert_item({
+        "id": "memory_config",
+        "type": "memory_config",
+        **load_memory_config(),
+        "updated_epoch": now_epoch,
+        "updated_at": _now_iso(),
+    })
+    print("  ✓ memory_config")
+
+    print(f"✅ Configuration seeded: {priced} model_pricing row(s) + defaults + memory_config")
     return 0
 
 

@@ -31,6 +31,13 @@ global (non-tenant) rows, not a real tenant** (a *tenant* is a customer with its
 The mirror carries them back into the report's **`TravelAssistant OptimizationInsights`** table —
 the same one the **Business Impact** page reads.
 
+> **Tier boundaries are config-driven.** The salience tier cutoffs live in the `Configuration`
+> container (`type = "memory_config"`, seeded from `python/data/memory_config.json`: `salience_high`
+> 0.8, `salience_medium` 0.5) — the same single-source-of-truth pattern as model pricing. Both the
+> notebook (Section 6) and `compute_insights.py` read them, and the `memory_salience` **labels
+> reflect the configured values** (e.g. `High (>=0.8)`), so changing the thresholds re-buckets the
+> chart with no code edits.
+
 ## Measures (over the existing OptimizationInsights table)
 ```DAX
 Total Memories =
