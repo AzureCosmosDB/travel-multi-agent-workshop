@@ -23,13 +23,24 @@ global (non-tenant) rows, not a real tenant** (a *tenant* is a customer with its
 
 | `type` | Fields | Feeds |
 |---|---|---|
-| `memory_kpi` | `total_memories`, `avg_salience`, `supersession_rate`, `low_salience_rate` | KPI cards |
+| `memory_kpi` | `total_memories`, `scored_memories`, `avg_salience`, `supersession_rate`, `low_salience_rate` | KPI cards |
 | `memory_type` | `label` (fact/episodic/…), `count` | Memories by type |
-| `memory_salience` | `label` (High/Medium/Low tier), `count` | Salience distribution |
-| `memory_health` | `label` (Active/Superseded/Low-value), `count` | Memory health |
+| `memory_salience` | `label` (High/Medium/Low tier, or **Unscored**), `count` | Salience distribution |
+| `memory_health` | `label` (Active/Superseded/Low-value, or **Unscored**), `count` | Memory health |
 
 The mirror carries them back into the report's **`TravelAssistant OptimizationInsights`** table —
 the same one the **Business Impact** page reads.
+
+> **Some memories carry no salience — that's by design.** Salience is a retrieval-strength score
+> for *extracted preference claims* (facts and episodics). **Procedural** memories are per-user
+> "operating rules" the agent always applies, so they aren't scored (`salience` is NULL). Those
+> land in an explicit **`Unscored`** bucket in both `memory_salience` and `memory_health` — never
+> folded into `Low`/`Low-value`, so the two views stay consistent and unscored rules aren't
+> mistaken for weak memories. The salience KPIs (`avg_salience`, `low_salience_rate`,
+> `supersession_rate`) are computed over **scored memories only**; `scored_memories` exposes that
+> denominator while `total_memories` still counts everything. **In the visuals, filter `Unscored`
+> out of the Salience Distribution chart** (it's a not-applicable category there) — procedural
+> memories remain visible in *Memories by Type*, which is where they belong.
 
 > **Tier boundaries are config-driven.** The salience tier cutoffs live in the `Configuration`
 > container (`type = "memory_config"`, seeded from `python/data/memory_config.json`: `salience_high`
@@ -42,6 +53,10 @@ the same one the **Business Impact** page reads.
 ```DAX
 Total Memories =
     CALCULATE(SUM('TravelAssistant OptimizationInsights'[total_memories]),
+              'TravelAssistant OptimizationInsights'[type] = "memory_kpi")
+
+Scored Memories =
+    CALCULATE(SUM('TravelAssistant OptimizationInsights'[scored_memories]),
               'TravelAssistant OptimizationInsights'[type] = "memory_kpi")
 
 Avg Memory Salience =
@@ -59,14 +74,16 @@ Memory Bucket Count = SUM('TravelAssistant OptimizationInsights'[count])
 Add a page named **Memory Intelligence**. Each *bucket* visual gets a **visual-level filter on
 `type`** so it only sees its own rows.
 
-1. **KPI cards (top row):** `Total Memories` · `Avg Memory Salience` (3 decimals) · `Supersession Rate %`.
-   *What it tells you:* how much the agent knows, how confident it is, and how much has been
-   overridden by newer preferences (conflict resolution at work).
+1. **KPI cards (top row):** `Total Memories` · `Scored Memories` · `Avg Memory Salience` (3 decimals) · `Supersession Rate %`.
+   *What it tells you:* how much the agent knows (and how much of it is salience-scored), how
+   confident it is, and how much has been overridden by newer preferences (conflict resolution at
+   work). *`Avg Memory Salience` and the rates are over scored memories only.*
 2. **Memories by Type** — donut. *Visual filter:* `type is memory_type`. Legend = `label`,
    Values = `Memory Bucket Count`. *The mix of durable facts vs. episodic/turn memories.*
-3. **Salience Distribution** — clustered column. *Visual filter:* `type is memory_salience`.
-   X-axis = `label`, Y = `Memory Bucket Count`. *A large **Low** tier signals over-extraction —
-   recall pays to wade through memories it never uses.*
+3. **Salience Distribution** — clustered column. *Visual filter:* `type is memory_salience`
+   **AND `label is not Unscored`**. X-axis = `label`, Y = `Memory Bucket Count`. *A large **Low**
+   tier signals over-extraction — recall pays to wade through memories it never uses. `Unscored`
+   (procedural rules) is excluded here since it has no strength score.*
 4. **Memory Health** — donut. *Visual filter:* `type is memory_health`. Legend = `label`,
    Values = `Memory Bucket Count`. *Active vs. **Superseded** vs. **Low-value**; Superseded +
    Low-value is the addressable waste the `memory-retention` optimization prunes.*

@@ -299,30 +299,42 @@ _mc = (spark.read.format("jdbc")
 SAL_HIGH = float(_mc[0]["salience_high"]) if _mc else 0.8
 SAL_MED = float(_mc[0]["salience_medium"]) if _mc else 0.5
 HIGH_L, MED_L, LOW_L = f"High (>={SAL_HIGH})", f"Medium ({SAL_MED}-{SAL_HIGH})", f"Low (<{SAL_MED})"
+# Some memory types (e.g. procedural) carry no salience score. NULL salience is its own
+# "Unscored" tier in BOTH breakdowns below — never folded into "Low"/"Low-value", so the
+# salience and health views stay consistent and unscored memories aren't mistaken for weak ones.
+UNSCORED_L = "Unscored"
 
 # 'superseded' exists only once conflict resolution has superseded a memory
 _sup = F.col("superseded") if "superseded" in mem.columns else F.lit(False)
 mem = (mem
        .withColumn("salience_tier",
-                   F.when(F.col("salience") >= SAL_HIGH, HIGH_L)
+                   F.when(F.col("salience").isNull(), UNSCORED_L)
+                    .when(F.col("salience") >= SAL_HIGH, HIGH_L)
                     .when(F.col("salience") >= SAL_MED, MED_L)
                     .otherwise(LOW_L))
        .withColumn("memory_health",
                    F.when(_sup == True, "Superseded")
+                    .when(F.col("salience").isNull(), UNSCORED_L)
                     .when(F.col("salience") < SAL_MED, "Low-value")
                     .otherwise("Active")))
 
 total = mem.count()
+# Salience KPIs are computed over SCORED memories only (salience IS NOT NULL). Unscored
+# memories (e.g. procedural guidance rules) have no strength score, so folding them into
+# these denominators would understate avg salience and skew the health rates. total_memories
+# still counts everything; scored_memories exposes the salience denominator explicitly.
 a = mem.agg(F.avg("salience").alias("avg"),
+            F.sum(F.when(F.col("salience").isNotNull(), 1).otherwise(0)).alias("scored"),
             F.sum(F.when(_sup == True, 1).otherwise(0)).alias("sup"),
             F.sum(F.when(F.col("salience") < SAL_MED, 1).otherwise(0)).alias("low")).collect()[0]
+scored = int(a["scored"] or 0)
 avg_sal = round(float(a["avg"] or 0), 3)
-sup_pct = round(100 * int(a["sup"] or 0) / max(total, 1), 1)
-low_pct = round(100 * int(a["low"] or 0) / max(total, 1), 1)
+sup_pct = round(100 * int(a["sup"] or 0) / max(scored, 1), 1)
+low_pct = round(100 * int(a["low"] or 0) / max(scored, 1), 1)
 
 mem_kpi_df = spark.createDataFrame(
-    [(f"memkpi::{MEMORY_PARTITION}", "memory_kpi", MEMORY_PARTITION, total, avg_sal, sup_pct, low_pct, now)],
-    ["id", "type", "tenantId", "total_memories", "avg_salience", "supersession_rate", "low_salience_rate", "computed_at"])
+    [(f"memkpi::{MEMORY_PARTITION}", "memory_kpi", MEMORY_PARTITION, total, scored, avg_sal, sup_pct, low_pct, now)],
+    ["id", "type", "tenantId", "total_memories", "scored_memories", "avg_salience", "supersession_rate", "low_salience_rate", "computed_at"])
 
 def _mem_buckets(col, rowtype):
     rs = mem.groupBy(col).count().collect()
@@ -337,7 +349,7 @@ for df in (mem_kpi_df,
            _mem_buckets("salience_tier", "memory_salience"),
            _mem_buckets("memory_health", "memory_health")):
     df.write.format("cosmos.oltp").options(**cosmos_write).mode("append").save()
-print(f"Memory reverse-ETL complete -> {total} memories, avg salience {avg_sal}, {sup_pct}% superseded, {low_pct}% low-salience")'''
+print(f"Memory reverse-ETL complete -> {total} memories ({scored} scored), avg salience {avg_sal}, {sup_pct}% superseded, {low_pct}% low-salience (of scored)")'''
 
 
 def notebook(solution: bool):

@@ -274,25 +274,36 @@ def build_memory_intelligence_rows(db) -> list[dict]:
     except Exception:
         pass
     high_l, med_l, low_l = f"High (>={hi})", f"Medium ({med}-{hi})", f"Low (<{med})"
+    # Some memory types (e.g. procedural guidance rules) carry no salience score. NULL salience
+    # is its own "Unscored" tier in BOTH breakdowns below — never folded into "Low"/"Low-value" —
+    # so the salience and health views stay consistent and unscored memories aren't mistaken for
+    # weak ones. The salience KPIs (avg/rates) are computed over SCORED memories only.
+    unscored_l = "Unscored"
 
-    def _tier(s: float) -> str:
-        s = s or 0
+    def _tier(s) -> str:
+        if s is None:
+            return unscored_l
         return high_l if s >= hi else med_l if s >= med else low_l
 
     def _health(m: dict) -> str:
         if m.get("superseded"):
             return "Superseded"
-        return "Low-value" if (m.get("salience") or 0) < med else "Active"
+        s = m.get("salience")
+        if s is None:
+            return unscored_l
+        return "Low-value" if s < med else "Active"
 
+    scored = [m for m in items if m.get("salience") is not None]
+    n_scored = len(scored)
     superseded = sum(1 for m in items if m.get("superseded"))
-    low = sum(1 for m in items if (m.get("salience") or 0) < med)
-    avg_sal = round(sum((m.get("salience") or 0) for m in items) / total, 3)
+    low = sum(1 for m in scored if m["salience"] < med)
+    avg_sal = round(sum(m["salience"] for m in scored) / n_scored, 3) if n_scored else 0.0
 
     rows = [{
         "id": f"memkpi::{MEMORY_PARTITION}", "type": "memory_kpi", "tenantId": MEMORY_PARTITION,
-        "total_memories": total, "avg_salience": avg_sal,
-        "supersession_rate": round(100 * superseded / total, 1),
-        "low_salience_rate": round(100 * low / total, 1), "computed_at": now,
+        "total_memories": total, "scored_memories": n_scored, "avg_salience": avg_sal,
+        "supersession_rate": round(100 * superseded / max(n_scored, 1), 1),
+        "low_salience_rate": round(100 * low / max(n_scored, 1), 1), "computed_at": now,
     }]
 
     def _buckets(keyfn, rowtype: str) -> list[dict]:
