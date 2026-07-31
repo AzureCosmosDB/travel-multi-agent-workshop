@@ -55,7 +55,7 @@ cd ..\analytics\fabric
 ```
 
 It reads your `azd` environment, prompts for a workspace name and — for one portal step —
-a Cosmos connection id (**New → Mirrored Azure Cosmos DB**, sign in with your
+a Cosmos connection id (**Manage connections and gateways → New → Azure Cosmos DB v2**, sign in with your
 **Organizational account**, copy the connection id). It then creates the mirror, uploads
 the completed `ConversionFunnelReverseETL` notebook, deploys the `optimization-apply-loop`
 **UDF**, and grants your account Cosmos write access. Details: `analytics/fabric/README.md`.

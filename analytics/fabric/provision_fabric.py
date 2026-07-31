@@ -914,11 +914,13 @@ def main() -> None:
     connection_id = args.connection_id
     if not connection_id:
         print("\n" + "=" * 78)
-        print("MANUAL STEP — create the Cosmos connection (one time):")
-        print(f"  1. Open the workspace in the Fabric portal (id {ws_id}).")
-        print("  2. New -> Mirrored Azure Cosmos DB -> sign in with your Organizational")
-        print(f"     account (OAuth2). Host: {cfg['cosmos_endpoint']}")
-        print("  3. Once the connection exists, copy its connection id.")
+        print("MANUAL STEP - create the Cosmos connection (one time):")
+        print("  1. Fabric portal -> Settings (gear) -> Manage connections and gateways -> Connections -> + New.")
+        print("  2. Connection type: Azure Cosmos DB v2 -> OAuth 2.0 (Organizational account) -> sign in -> Create.")
+        print(f"     Account URL: {cfg['cosmos_endpoint']}")
+        print(f"     (Can't copy it? Azure portal -> Cosmos account '{cfg['cosmos_account']}' in "
+              f"resource group '{cfg['rg']}' -> Overview -> copy the URI.)")
+        print("  3. Open the connection -> Settings -> copy its Connection ID (a GUID).")
         print("=" * 78)
         connection_id = input("Paste the Cosmos connection id (or blank to stop after phase 1): ").strip()
         if not connection_id:

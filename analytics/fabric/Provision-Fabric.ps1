@@ -205,16 +205,19 @@ if (-not $ConnectionId -and $saved -and $saved.ConnectionId) {
 }
 if (-not $ConnectionId) {
     $cosmosEndpoint = ''
+    $rgName = ''
     Push-Location $WorkshopRoot
     try {
-        $cosmosEndpoint = (azd env get-values 2>$null |
-            Select-String -Pattern '^COSMOSDB_ENDPOINT=' |
-            ForEach-Object { ($_ -split '=', 2)[1].Trim().Trim('"') } |
-            Select-Object -First 1)
+        $vals = azd env get-values 2>$null
+        $cosmosEndpoint = ($vals | Select-String -Pattern '^COSMOSDB_ENDPOINT=' |
+            ForEach-Object { ($_ -split '=', 2)[1].Trim().Trim('"') } | Select-Object -First 1)
+        $rgName = ($vals | Select-String -Pattern '^RG_NAME=' |
+            ForEach-Object { ($_ -split '=', 2)[1].Trim().Trim('"') } | Select-Object -First 1)
     }
     finally {
         Pop-Location
     }
+    $cosmosAccount = if ($cosmosEndpoint) { ($cosmosEndpoint -replace 'https://', '').Split('.')[0] } else { '' }
     Write-Section 'Manual step - create the Cosmos connection (one time)'
     Write-Host 'You only need to create a CONNECTION object here - this script creates the' -ForegroundColor Yellow
     Write-Host 'mirrored database itself, using the connection id you provide below.' -ForegroundColor Yellow
@@ -223,9 +226,13 @@ if (-not $ConnectionId) {
     Write-Host '  1. Click  Settings (gear, top-right)  ->  Manage connections and gateways.'
     Write-Host '     (This is a tenant-level setting, not your workspace settings.)'
     Write-Host '  2. On the  Connections  tab, click  + New.'
-    Write-Host '  3. Connection type:  Azure Cosmos DB for NoSQL.'
+    Write-Host '  3. Connection type:  Azure Cosmos DB v2.'
     if ($cosmosEndpoint) {
         Write-Host "     Account / URL:  $cosmosEndpoint"
+    }
+    if ($cosmosAccount) {
+        Write-Host "     (Can't copy the URL above? In the Azure portal, open Cosmos account" -ForegroundColor DarkGray
+        Write-Host "      '$cosmosAccount' in resource group '$rgName'  ->  Overview  ->  copy its URI.)" -ForegroundColor DarkGray
     }
     Write-Host '     Authentication method:  OAuth 2.0 (Organizational account)  ->  sign in,'
     Write-Host '     then click  Create.'

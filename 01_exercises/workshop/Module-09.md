@@ -81,7 +81,7 @@ Creating the Cosmos **connection** is the one step Fabric does not let us automa
 
 1. Click **Settings** (gear, top-right) → **Manage connections and gateways**. *(This is a **tenant-level** setting, not your workspace settings.)*
 2. On the **Connections** tab, click **+ New**.
-3. Set **Connection type** to **Azure Cosmos DB for NoSQL**, and use the Cosmos **endpoint** the script printed as the account URL.
+3. Set **Connection type** to **Azure Cosmos DB v2**, and use the Cosmos **endpoint** the script printed as the account URL. *(Can't copy the URL? The script also prints the Cosmos **account name** and **resource group** — open that account in the Azure portal → **Overview** → copy its **URI**.)*
 4. Set the **Authentication method** to **OAuth 2.0** (Organizational account), sign in, then click **Create**.
 5. Open the new connection → **Settings** and **copy its Connection ID** (a GUID). *Do not start the "New mirrored database" wizard — the script creates the mirror for you.*
 
