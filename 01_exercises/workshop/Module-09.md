@@ -161,6 +161,12 @@ That's reverse-ETL: Fabric-computed intelligence, landed back in the operational
 
 Open **`TravelAssistantAnalyticsReport`** in your **Fabric workspace** (the provisioning auto-imported it and already pointed it at your mirror — no Power BI Desktop, no connection prompts) and go to its **Business Impact** page. Before you ran the notebook it was empty; after your reverse-ETL write (and a mirror refresh), it **lights up** — the conversion funnel, the conversion-rate KPI, the biggest-leak callout, and the "why sessions don't convert" bar. The **Measured Saving** page lights up too, from the scenario-keyed `optimization_result` row (`model-selection`). **You didn't touch the report** — the insight flowed Cosmos → Fabric → reverse-ETL → Cosmos → mirror → Power BI.
 
+![Business Impact report page](../../analytics/media/report_business_impact.png)
+*The **Business Impact** page after your reverse-ETL write: the conversion funnel (engaged → searched → planned → confirmed), the conversion-rate KPI, and the named **biggest leak**.*
+
+![Measured Savings report page](../../analytics/media/report_measured_savings.png)
+*The **Measured Saving** page: pick a scenario in the slicer — **model-selection** shows the real counterfactual saving; the behavior-changing scenarios stay "pending" until applied and re-measured.*
+
 > **The report is already connected.** `Provision-Fabric.ps1` (Phase 3) imported it and set its `MirrorSQLEndpoint` / `MirrorDatabase` parameters to *your* mirror, so it queries live over DirectQuery with no sign-in prompts. If a page shows stale data, give the mirror a moment to replicate and refresh the page; the report itself needs no edits.
 
 *Stuck? Compare against `analytics/fabric/ConversionFunnelReverseETL_solution.ipynb`.*
@@ -168,6 +174,9 @@ Open **`TravelAssistantAnalyticsReport`** in your **Fabric workspace** (the prov
 ## Activity 6 (bonus): Apply an Optimization from the Report (translytical)
 
 So far the report *reads* analytics. A **translytical task flow** lets it *act*: a button in Power BI calls a Fabric **User Data Function**, which writes back to Cosmos — the same operational store the agent reads per turn. The provisioning already deployed the `optimization-apply-loop` UDF (Activity 2, Step 4), so there is nothing to author; you just bind two buttons.
+
+![Applied Optimizations report page with the Apply Optimization button](../../analytics/media/report_applied_optimizations.png)
+*The **Applied Optimizations** page lists every policy and its state. **Apply Optimization** calls the Fabric UDF to flip the selected policy in Cosmos — the agent honors it on its next turn — and **Revert** rolls it back.*
 
 > **Optional, and gated by a Fabric tenant admin.** Translytical task flows are a **preview feature** — an admin must enable *Admin portal → Tenant settings → "Users can create and consume translytical task flows"* (search *translytical* / *task flow* / *data function*). **If it's off, the button's Workspace / Function set / Function dropdowns never appear — with no error.** If you can't enable it, skip this activity: you can apply/revert the identical `model-selection` policy without Power BI via the app's optimization API (`POST /optimizations/model-selection/apply` · `/revert`), which the Optimization Console in the completed solution wraps with one-click buttons.
 

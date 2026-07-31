@@ -127,15 +127,12 @@ Power BI, the **Business Impact** and **Measured Saving** pages **light up** —
 touched the report. *Cosmos → Fabric → reverse-ETL → Cosmos → mirror → Power BI.*
 
 ### Act 6 — Apply an optimization
-- **From the Console/API (primary):** apply **model-selection** — a one-click, reversible
-  policy flip. This is the reliable path; it needs nothing beyond the running app.
-- **From the report (translytical) — *optional, tenant-gated*:** click **Apply** on the Power BI
+- **From the Console/API:** apply **model-selection** — a one-click, reversible policy flip.
+- **From the report (translytical write-back):** click **Apply Optimization** on the Power BI
   *Applied Optimizations* page. It calls the Fabric **UDF**, which flips the policy in Cosmos;
   the agent honors capability-tiered model selection on its **next turn**. *The analytical report
-  just steered the operational system.* Click **Revert** to undo.
-  *Requires a Fabric admin to enable the **translytical task flows** preview tenant setting; if it's
-  off, the button's config dropdowns won't appear (no error). The Console performs the identical
-  flip either way — so the demo never depends on it.*
+  just steered the operational system.* Click **Revert** to undo. *(The Console/API perform the
+  identical flip, so you always have a non-Power-BI path.)*
 
 ### Act 7 — Re-measure the payoff
 Re-run the simulator — now **policy-aware**, it serves the **tiered** mix:
@@ -147,6 +144,60 @@ Re-run the simulator — now **policy-aware**, it serves the **tiered** mix:
 Re-run the notebook and watch the **Measured Saving** page: cost per turn drops and the
 saving % climbs — a **measured** before/after, not an estimate. Revert to show it return to
 baseline.
+
+---
+
+## Reading the dashboards
+
+The auto-deployed **`TravelAssistantAnalyticsReport`** has **seven pages** (open it in your Fabric
+workspace — it's already pointed at your mirror). What each one tells you, and how to use it:
+
+### Optimization Overview
+![Optimization Overview](../analytics/media/report_optimization_overview.png)
+The fleet-level baseline a trace can't give you: **Total Turns**, **Trivial %** (share of turns that
+need no reasoning), **Est Cost USD**, and **Cost per Outcome** (cost ÷ confirmed trips — the number
+to actually optimize), plus turns by model. The *Trivial % by Turn Minute* line is a live pulse as
+traffic flows.
+
+### Cost by Tier
+![Cost by Tier](../analytics/media/report_cost_by_tier.png)
+Spend and cache-hit rate grouped by the tier that served each turn, with a per-deployment
+breakdown. Before you optimize it's all one tier; after model-selection it splits — and you judge
+on **cost per outcome**, not per turn.
+
+### Optimization Opportunity
+![Optimization Opportunity](../analytics/media/report_optimization_opportunity.png)
+Quantifies the model-selection opportunity: the **Trivial %** gauge plus a plain-language
+recommendation and impact. The stacked *Total Turns by Turn Minute and Model Tier* shows the tier
+mix over time.
+
+### Applied Optimizations
+![Applied Optimizations](../analytics/media/report_applied_optimizations.png)
+The governance/audit log: every policy the loop proposed, applied, or reverted — with status,
+version, who proposed it, and when it last changed. **Click *Apply Optimization*** to activate the
+selected policy: the Fabric **User Data Function** flips the policy doc in Cosmos and the agent
+honors it on its **next turn**; **Revert** rolls it back. The analytical report writes straight back
+to the operational store.
+
+### Measured Savings
+![Measured Savings](../analytics/media/report_measured_savings.png)
+The **measured** (not estimated) before/after per optimization. Pick a scenario in the slicer:
+**model-selection** shows the real counterfactual (baseline vs actual cost, saving $ and %); the
+behavior-changing scenarios read **$0** with a *pending* note until you apply them and measure over
+an experiment window.
+
+### Business Impact
+![Business Impact](../analytics/media/report_business_impact.png)
+The conversation **conversion funnel** (engaged → searched → planned → confirmed) with the
+**conversion rate** and the **biggest leak**, plus a breakdown of *why* sessions don't convert.
+Empty until the reverse-ETL notebook runs — then it lights up.
+
+### Memory Intelligence
+![Memory Intelligence](../analytics/media/report_memory_intelligence.png)
+The agent's long-term memory health: **Total** vs **Scored** memories, **Avg Salience**, and
+**Supersession Rate**, plus salience distribution, memory-type mix, and health. *Unscored* memories
+(procedural rules, which carry no salience by design) appear in the type/health views but are
+excluded from the salience-strength chart, so they don't masquerade as weak memories.
 
 ---
 

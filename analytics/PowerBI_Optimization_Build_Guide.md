@@ -175,6 +175,8 @@ python analytics/ab_demo_seed.py            # writes before_demo + after_demo (2
 
 ## Page 1: Optimization Overview
 
+![Optimization Overview report page](media/report_optimization_overview.png)
+
 Answers: **What are our agents doing, and what does it cost?**
 
 - **KPI Cards** (top row): `[Total Turns]`, `[Est Cost USD]`, `[Trivial %]`, `[Cost per Outcome]`, `[Confirmed Trips]`.
@@ -185,6 +187,8 @@ Answers: **What are our agents doing, and what does it cost?**
   > - **Filtering the time axis:** for a live demo, use a relative UTC filter such as the last hour. For the shipped `.pbit` with static seed data, use a fixed filter (`is on or after <date>`) or none.
 
 ## Page 2: Cost by Tier
+
+![Cost by Tier report page](media/report_cost_by_tier.png)
 
 Answers: **Where does spend go once tiering is applied?**
 
@@ -197,6 +201,8 @@ Answers: **Where does spend go once tiering is applied?**
 
 ## Page 3: The Optimization Opportunity
 
+![Optimization Opportunity report page](media/report_optimization_opportunity.png)
+
 Answers: **Which turns are wasteful, and what's the recommended fix?**
 
 - **Gauge / KPI — Trivial %** (~20–25% in the sample data; set the gauge target to taste).
@@ -207,6 +213,8 @@ Answers: **Which turns are wasteful, and what's the recommended fix?**
   > **Recommendation:** route trivial turns to a cheaper model (`gpt-5-nano`) and reserve the larger model for complex requests. Trivial turns cost ~25× less on `gpt-5-nano` than the default `gpt-5.1` (input $0.05 vs $1.25; output $0.40 vs $10.00 per 1M tokens) — no quality loss on turns that were never reasoning. **Impact:** lower Cost per Outcome while confirmed trips stay flat.
 
 ## Page 4: Applied Optimizations (governance / audit)
+
+![Applied Optimizations report page](media/report_applied_optimizations.png)
 
 Answers: **What optimizations have we proposed or applied, and what's their state?**
 
@@ -219,9 +227,9 @@ Use the **`OptimizationPolicies`** table (schema-prefixed: `'TravelAssistant Opt
 
 ### Apply / Revert from the report (translytical task flow)
 
-Turn this page from *read-only* into *actionable*: bind **Apply** / **Revert** buttons to the Fabric **User Data Function** the provisioning deploys (`optimization-apply-loop`), so a click flips the `OptimizationPolicies` doc in Cosmos and the running agent honors it on its next turn. (The UDF functions **return a string** — a requirement for data-function buttons.)
+Turn this page from *read-only* into *actionable*: the **Apply Optimization** and **Revert** buttons are bound to the Fabric **User Data Function** the provisioning deploys (`optimization-apply-loop`). Clicking **Apply Optimization** flips the selected `OptimizationPolicies` doc in Cosmos, and the running agent honors the change on its **next turn**; **Revert** rolls it back. The report *writes back* to the operational store — Power BI → Fabric UDF → Cosmos — closing the loop inside one surface. (The UDF functions **return a string** — a requirement for data-function buttons.)
 
-> **Optional, and gated by a tenant admin.** Translytical task flows are a **preview feature**: a Fabric admin must enable *Admin portal → Tenant settings → "Users can create and consume translytical task flows"* (search *translytical* / *task flow* / *data function*). **If it's off, the Workspace / Function set / Function dropdowns below never appear in the Service — with no error message.** If you can't get it enabled, skip this section: the **Optimization Console** (and the app's `POST /optimizations/{scenario}/apply|revert` API) perform the exact same policy flip without Power BI.
+> **One-time enablement.** Translytical task flows are a Fabric **preview**: a tenant admin enables *Admin portal → Tenant settings → "Users can create and consume translytical task flows"* (search *translytical* / *task flow* / *data function*), and the buttons are configured in the Power BI **Service** (the Workspace / Function set / Function dropdowns appear there). The **Optimization Console** and the `POST /optimizations/{scenario}/apply|revert` API perform the identical policy flip, so you always have a non-Power-BI path too.
 
 > **Add these buttons in the Power BI *Service* (edit in the browser), not Desktop.** In the current rollout, the data-function button config UI (the Workspace / Function set / Data function dropdowns) reliably appears only in the Service — and the button only *fires* there anyway. So: finish the report in Desktop, **Publish**, then open it in the Service and add the buttons. The steps below are the same either way.
 
@@ -238,6 +246,8 @@ See `analytics/fabric/udf/README.md` for the UDF details. This is the translytic
 ---
 
 ## Page 5: Measured saving by optimization (reverse-ETL)
+
+![Measured Savings report page](media/report_measured_savings.png)
 
 Answers: **What did each optimization actually save?** — a measured number, not an estimate, and you can **switch between optimizations**.
 
@@ -278,6 +288,8 @@ Visuals (each with a visual-level filter `type = "optimization_result"`):
 
 ## Page 6: Business Impact — the conversion funnel (reverse-ETL)
 
+![Business Impact report page](media/report_business_impact.png)
+
 Answers: **Are we converting sessions into booked trips — and if not, why?**
 
 This page reads **pre-computed** rows from `'TravelAssistant OptimizationInsights'` — the output of the **reverse-ETL notebook** (Module 09). The heavy session-level analysis runs in Fabric; the report just displays flat rows, so there is **no session math in DAX**. The page is **empty until the notebook runs**, then it *lights up* — that's the Cosmos → Fabric → reverse-ETL loop made visible.
@@ -303,6 +315,8 @@ Visuals:
 ---
 
 ## Page 7: Memory Intelligence (reverse-ETL)
+
+![Memory Intelligence report page](media/report_memory_intelligence.png)
 
 Answers: **What does the agent remember, how confident is it, and how much of that memory is waste?**
 
