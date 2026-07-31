@@ -1,8 +1,8 @@
-# Power BI Report Build Guide — Agent Optimization Analytics
+# Power BI Report Build Guide
 
 > **You usually don't need this guide.** The finished report (`analytics/TravelAssistantAnalyticsReport.pbix`) is **auto-deployed to your Fabric workspace** by `Provision-Fabric.ps1` (Phase 3), already pointed at your mirror — attendees never open Power BI Desktop. This guide is for **maintainers** who want to **rebuild or customize** that report.
 
-Build the **Agent Optimization** report in Power BI Desktop against your **Fabric mirrored database** of the Travel Assistant analytics. It produces the committed **`.pbix`** the provisioning imports (the script overrides its `MirrorSQLEndpoint` / `MirrorDatabase` parameters per deployment).
+Build the full **Travel Assistant Analytics** report in Power BI Desktop against your **Fabric mirrored database** — the **Agent Optimization** pages (1–6) *and* the **Memory Intelligence** page (7). It produces the committed **`.pbix`** the provisioning imports (the script overrides its `MirrorSQLEndpoint` / `MirrorDatabase` parameters per deployment).
 
 Use **DirectQuery over the mirrored database SQL endpoint**. Build the report from DAX measures over the raw mirrored tables — a re-pointable, parameterized `.pbix`, with no separate semantic model to create.
 
@@ -274,6 +274,57 @@ Visuals:
 
 ---
 
+## Page 7: Memory Intelligence (reverse-ETL)
+
+Answers: **What does the agent remember, how confident is it, and how much of that memory is waste?**
+
+Like Business Impact, this page reads **pre-computed** rows from `'TravelAssistant OptimizationInsights'` — produced by the **reverse-ETL notebook** (Module 09, **Section 6**), which flattens the `memories` container into memory KPIs and distributions. No memory math in DAX; the page is **empty until the notebook runs**, then it lights up.
+
+> **Run the Module 09 notebook (Section 6) first.** The `memory_*` rows — and the `avg_salience` column the `Avg Memory Salience` card needs — only exist after Section 6 runs. If you connected before that, refresh the model schema (**Transform data → Refresh Preview → Close & Apply**) so the new column surfaces.
+
+> Same as Page 6: `OptimizationInsights` holds several row `type`s, so **every visual here needs a visual-level filter on `type`.** **Lock** (padlock) and **hide** (eye) each structural filter so a consumer can't mix row types.
+
+**Some memories carry no salience — by design.** Salience is a retrieval-strength score for *extracted preference claims* (facts/episodics). **Procedural** memories are per-user operating rules the agent always applies, so they're unscored (`salience` is NULL). They land in an explicit **`Unscored`** bucket in the salience and health breakdowns — never folded into Low/Low-value — so the two views reconcile. The salience KPIs are computed over **scored** memories only.
+
+Measures (add to `'TravelAssistant OptimizationInsights'`):
+
+```DAX
+Memory Bucket Count = SUM('TravelAssistant OptimizationInsights'[count])
+
+Total Memories =
+    CALCULATE([Memory Bucket Count], 'TravelAssistant OptimizationInsights'[type] = "memory_type")
+
+Scored Memories =
+    CALCULATE([Memory Bucket Count],
+              'TravelAssistant OptimizationInsights'[type] = "memory_salience",
+              'TravelAssistant OptimizationInsights'[label] <> "Unscored")
+
+Avg Memory Salience =
+    CALCULATE(MAX('TravelAssistant OptimizationInsights'[avg_salience]),
+              'TravelAssistant OptimizationInsights'[type] = "memory_kpi")
+
+Supersession Rate % =
+    DIVIDE(
+        CALCULATE([Memory Bucket Count],
+                  'TravelAssistant OptimizationInsights'[type] = "memory_health",
+                  'TravelAssistant OptimizationInsights'[label] = "Superseded"),
+        [Scored Memories]) * 100
+```
+
+> **Format `Total Memories` and `Scored Memories` as whole numbers** (select the measure → **Measure tools → Format = Whole number**, 0 decimals) — otherwise cards show `1,252.00`. `Total Memories`, `Scored Memories`, and `Supersession Rate %` are **derived from the bucket rows** (columns already in the model), so they work even if the `memory_kpi` scalar columns haven't surfaced yet; only `Avg Memory Salience` needs the `avg_salience` column. `Supersession Rate %` correctly reads **0** even before any memory is superseded (there's simply no `Superseded` bucket row yet).
+
+Visuals:
+- **KPI cards (top row):** use the **Card** visual — **not** the **KPI** visual (the KPI visual needs a Trend axis + target and renders **blank** with just a measure). Four cards: `Total Memories` · `Scored Memories` · `Avg Memory Salience` (3 decimals) · `Supersession Rate %`.
+- **Memories by Type** — **Donut**. Legend `label`, Values `[Memory Bucket Count]`, visual-level filter `type = "memory_type"`. *The mix of durable facts vs. episodic vs. procedural.*
+- **Salience Distribution** — **Clustered column**. X-axis `label`, Y `[Memory Bucket Count]`, visual-level filter `type = "memory_salience"` **and `label ≠ "Unscored"`** (case-sensitive — capital U). *A large **Low** tier signals over-extraction; `Unscored` (procedural rules) is excluded here since it has no strength score.*
+- **Memory Health** — **Donut**. Legend `label`, Values `[Memory Bucket Count]`, visual-level filter `type = "memory_health"`. *Active vs. **Superseded** vs. **Low-value** vs. **Unscored**; Superseded + Low-value is the waste the `memory-retention` optimization prunes.*
+
+> **Rename `label` per visual** so the three visuals don't all show a generic "label" axis/legend title (the same column is reused across row types): select the visual → in the **Build** pane, double-click `label` in the Axis/Legend well (or right-click → **Rename for this visual**) → **`Memory Type`**, **`Salience Tier`**, **`Health Status`** respectively.
+
+> **Talking point:** memories aren't free — every recall retrieves and *pays* (tokens + latency) for what it pulls, so stale, low-salience, and superseded memories are pure cost that can dilute quality. This page is the memory-pillar instance of the same **detect → measure → apply → re-measure** loop as model selection; the **`memory-retention`** optimization is the reversible action that prunes the waste. It's something only cross-entity analytics can reveal — trace tools show one run, but only analytics over your app's own memory state can say *"X% of memories are never recalled and Y% are superseded."*
+
+---
+
 ## Step 6: Save and Export
 
 ### Save as .pbix (the shipped artifact)
@@ -288,7 +339,7 @@ Need a `.pbit` template later (e.g. for someone to open in Desktop)? Export one 
 ## Real-time notes
 
 - **DirectQuery** queries the mirror SQL endpoint live. Use **Refresh** on a page, or set a page **auto-refresh** interval (Format → Page refresh) for a hands-free live demo while the traffic simulator runs.
-- The **Business Impact** page (Page 5) refreshes when the Module 09 reverse-ETL notebook rewrites `OptimizationInsights` and the mirror carries the new rows through.
+- The **Business Impact** (Page 6) and **Memory Intelligence** (Page 7) pages refresh when the Module 09 reverse-ETL notebook rewrites `OptimizationInsights` and the mirror carries the new rows through.
 
 ## Table reference (mirrored columns)
 

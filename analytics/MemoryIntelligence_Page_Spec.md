@@ -56,8 +56,11 @@ Total Memories =
               'TravelAssistant OptimizationInsights'[type] = "memory_kpi")
 
 Scored Memories =
-    CALCULATE(SUM('TravelAssistant OptimizationInsights'[scored_memories]),
-              'TravelAssistant OptimizationInsights'[type] = "memory_kpi")
+    CALCULATE(SUM('TravelAssistant OptimizationInsights'[count]),
+              'TravelAssistant OptimizationInsights'[type] = "memory_salience",
+              'TravelAssistant OptimizationInsights'[label] <> "Unscored")
+    -- Derived from the salience buckets (High+Medium+Low) rather than the stored
+    -- scored_memories column, so it needs no DirectQuery schema refresh to work.
 
 Avg Memory Salience =
     CALCULATE(MAX('TravelAssistant OptimizationInsights'[avg_salience]),
@@ -74,7 +77,10 @@ Memory Bucket Count = SUM('TravelAssistant OptimizationInsights'[count])
 Add a page named **Memory Intelligence**. Each *bucket* visual gets a **visual-level filter on
 `type`** so it only sees its own rows.
 
-1. **KPI cards (top row):** `Total Memories` · `Scored Memories` · `Avg Memory Salience` (3 decimals) · `Supersession Rate %`.
+1. **KPI cards (top row)** — use the **Card** visual (one per measure), **not** the **KPI** visual.
+   *(The KPI visual needs a Trend axis + target and renders blank with just a measure; Card shows
+   the scalar directly.)* Cards: `Total Memories` · `Scored Memories` · `Avg Memory Salience`
+   (3 decimals) · `Supersession Rate %`.
    *What it tells you:* how much the agent knows (and how much of it is salience-scored), how
    confident it is, and how much has been overridden by newer preferences (conflict resolution at
    work). *`Avg Memory Salience` and the rates are over scored memories only.*
@@ -87,6 +93,15 @@ Add a page named **Memory Intelligence**. Each *bucket* visual gets a **visual-l
 4. **Memory Health** — donut. *Visual filter:* `type is memory_health`. Legend = `label`,
    Values = `Memory Bucket Count`. *Active vs. **Superseded** vs. **Low-value**; Superseded +
    Low-value is the addressable waste the `memory-retention` optimization prunes.*
+
+> **Clean up the axis/legend titles.** Visuals 2–4 all bind the shared `label` column, so each
+> would otherwise show a generic **"label"** axis/legend title (the same column is reused across
+> row types). **Rename the field per visual** — this renames it *for that visual only*, not the
+> model column: select the visual → in the **Build** pane, double-click `label` in the Axis/Legend
+> well (or right-click → **Rename for this visual**) → type a meaningful name: **`Memory Type`**
+> (Memories by Type), **`Salience Tier`** (Salience Distribution), **`Health Status`** (Memory
+> Health). Optionally rename `Memory Bucket Count` → **`Memories`** on the value axes. The renames
+> are stored in the report and travel with the `.pbix`.
 
 > **`superseded` lights up later:** the Fabric mirror only creates the `superseded` column once
 > conflict resolution has superseded a memory. Until then Memory Health shows Active/Low-value and

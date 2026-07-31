@@ -438,11 +438,11 @@ The report's Memory Intelligence page shows the distribution across all three ty
 
 ### Option A: Build from Scratch (Recommended)
 
-Build the report manually in Power BI Desktop. See [`PowerBI_Build_Guide.md`](PowerBI_Build_Guide.md) for detailed step-by-step instructions including exact visual types, table names, column assignments, and descriptions of what each visual tells you. This is the recommended approach as it gives you full control over the report layout and ensures compatibility with your data.
+Build the report manually in Power BI Desktop. See [`PowerBI_Optimization_Build_Guide.md`](PowerBI_Optimization_Build_Guide.md) for detailed step-by-step instructions including exact visual types, table names, column assignments, and descriptions of what each visual tells you. This is the recommended approach as it gives you full control over the report layout and ensures compatibility with your data.
 
 ### Option B: Use the Pre-built Template
 
-> **Note:** The `.pbit` template and `.pbix` file included in this repository are **untested** and may not work correctly with your Lakehouse schema. If you encounter issues loading or refreshing the template, use **Option A** above to build the report from scratch using the [`PowerBI_Build_Guide.md`](PowerBI_Build_Guide.md).
+> **Note:** The `.pbit` template and `.pbix` file included in this repository are **untested** and may not work correctly with your Lakehouse schema. If you encounter issues loading or refreshing the template, use **Option A** above to build the report from scratch using the [`PowerBI_Optimization_Build_Guide.md`](PowerBI_Optimization_Build_Guide.md).
 
 A Power BI template is included in this repository:
 
@@ -569,6 +569,6 @@ Open the SQL Analytics Endpoint in your Fabric workspace and paste queries from 
 | `TravelAssistantNotebook.ipynb` | Fabric Spark notebook -- reads mirrored data, flattens JSON, writes analytical Delta tables |
 | `sql_endpoint_queries.sql` | SQL queries for the Fabric SQL Analytics Endpoint (optional) |
 | `TravelAssistantReport.pbit` | Power BI template — prompts for SQL endpoint on open |
-| `PowerBI_Build_Guide.md` | Step-by-step guide for building the report from scratch |
+| `PowerBI_Optimization_Build_Guide.md` | Step-by-step guide for building the report from scratch |
 | `.venv/` | Python virtual environment for the scripts (httpx) |
 | `README.md` | This guide |
