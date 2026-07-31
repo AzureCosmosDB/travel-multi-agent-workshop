@@ -124,25 +124,29 @@ Create these with **New column** (right-click the table → **New column**) — 
 
 ```DAX
 -- Table: 'TravelAssistant OptimizationTurns'
-TurnTime =
+Turn Time =
 VAR e    = 'TravelAssistant OptimizationTurns'[turn_epoch]
 VAR days = INT ( e / 86400 )
 VAR sod  = e - days * 86400
 RETURN ( DATE(1970,1,1) + days ) + TIME ( INT ( sod / 3600 ), INT ( MOD ( sod, 3600 ) / 60 ), MOD ( sod, 60 ) )
 
-TurnMinute =
+Turn Minute =
 VAR e    = 'TravelAssistant OptimizationTurns'[turn_epoch]
 VAR days = INT ( e / 86400 )
 VAR sod  = e - days * 86400
 RETURN ( DATE(1970,1,1) + days ) + TIME ( INT ( sod / 3600 ), INT ( MOD ( sod, 3600 ) / 60 ), 0 )
 
 -- Table: 'TravelAssistant OptimizationPolicies'
-PolicyUpdated = DATE(1970,1,1) + 'TravelAssistant OptimizationPolicies'[updated_epoch] / 86400.0
+Policy Updated =
+VAR e    = 'TravelAssistant OptimizationPolicies'[updated_epoch]
+VAR days = INT ( e / 86400 )
+VAR sod  = e - days * 86400
+RETURN ( DATE(1970,1,1) + days ) + TIME ( INT ( sod / 3600 ), INT ( MOD ( sod, 3600 ) / 60 ), MOD ( sod, 60 ) )
 ```
 
 > **Why the split-out `days`/`TIME()` form (not `DATE(1970,1,1) + epoch/86400`)?** Over **DirectQuery**, adding a ~46,000 date-serial to a tiny minute/second fraction loses sub-day precision when the expression folds to the mirror's SQL — every row within the same day collapses to one value, so a minute-level time axis shows a single point. Building the date from an **integer** day serial and adding the time-of-day via **`TIME()`** keeps the minutes distinct.
 
-Use `TurnMinute` on time axes (set **X-axis Type = Continuous**, plain field) and `TurnTime` for detail.
+Use `Turn Minute` on time axes (set **X-axis Type = Continuous**, plain field) and `Turn Time` for detail.
 
 ---
 
@@ -176,8 +180,8 @@ Answers: **What are our agents doing, and what does it cost?**
 - **KPI Cards** (top row): `[Total Turns]`, `[Est Cost USD]`, `[Trivial %]`, `[Cost per Outcome]`, `[Confirmed Trips]`.
   > Use a **Card** visual or **Multi-row card**, not the **KPI** visual.
 - **Donut / bar — Model usage:** Axis `'TravelAssistant OptimizationTurns'[model_deployment]`, Values `[Total Turns]`.
-- **Line — Turns over time:** Axis `TurnMinute` (Step 3), Values `[Total Turns]`. Set the X-axis **Type = Continuous** (Format visual → X axis).
-  > Use the plain `TurnMinute` field, not the auto **Date Hierarchy**. Use `TurnTime` for finer detail.
+- **Line — Turns over time:** Axis `Turn Minute` (Step 3), Values `[Total Turns]`. Set the X-axis **Type = Continuous** (Format visual → X axis).
+  > Use the plain `Turn Minute` field, not the auto **Date Hierarchy**. Use `Turn Time` for finer detail.
   > - **Filtering the time axis:** for a live demo, use a relative UTC filter such as the last hour. For the shipped `.pbit` with static seed data, use a fixed filter (`is on or after <date>`) or none.
 
 ## Page 2: Cost by Tier
@@ -196,7 +200,7 @@ Answers: **Where does spend go once tiering is applied?**
 Answers: **Which turns are wasteful, and what's the recommended fix?**
 
 - **Gauge / KPI — Trivial %** (~20–25% in the sample data; set the gauge target to taste).
-- **Stacked column — turns by tier over time:** Axis `TurnMinute` (Step 3), Legend `model_tier`, Values `[Total Turns]`.
+- **Stacked column — turns by tier over time:** Axis `Turn Minute` (Step 3), Legend `model_tier`, Values `[Total Turns]`.
 - **Text box** describing the SCEN-007 model-selection recommendation. Suggested copy:
   > **The Optimization Opportunity — Model Selection (SCEN-007)**
   > A meaningful share of agent turns are *trivial* — greetings, acknowledgements, and short confirmations that need no reasoning (~a quarter of turns in the sample data; it varies with your traffic). Today every turn runs on the same premium model, so we pay the same for "thanks!" as for "plan my 5-day trip to Tokyo."
@@ -208,8 +212,8 @@ Answers: **What optimizations have we proposed or applied, and what's their stat
 
 Use the **`OptimizationPolicies`** table (schema-prefixed: `'TravelAssistant OptimizationPolicies'`).
 
-- **Table (main visual):** columns `scenario_id`, `title`, `status`, `apply_mode`, `version`, `proposed_by`, `PolicyUpdated`. Each row is a policy the optimization loop proposed/applied/reverted (e.g., SCEN-007 *Capability-tiered model selection*, SCEN-001 *Active-trip city context*).
-  > Use the `PolicyUpdated` calculated column (Step 3). Set **Data type = Date/time**. Turn the visual's **Totals row Off** (Format → Totals).
+- **Table (main visual):** columns `scenario_id`, `title`, `status`, `apply_mode`, `version`, `proposed_by`, `Policy Updated`. Each row is a policy the optimization loop proposed/applied/reverted (e.g., SCEN-007 *Capability-tiered model selection*, SCEN-001 *Active-trip city context*).
+  > Use the `Policy Updated` calculated column (Step 3). Set **Data type = Date/time**. Turn the visual's **Totals row Off** (Format → Totals).
 - **Cards:** `[Active Policies]`, `[Latest Policy Change]` (Step 3).
 - **Conditional formatting** (optional): color the `status` column — `active` green, `staged`/`proposed` amber, `reverted` grey.
 
@@ -367,11 +371,11 @@ Need a `.pbit` template later (e.g. for someone to open in Desktop)? Export one 
 
 ## Table reference (mirrored columns)
 
-**`OptimizationTurns`** — `tenantId`, `userId`, `sessionId`, `model_tier`, `model_deployment`, `model_name`, `input_tokens`, `output_tokens`, `total_tokens`, `cached_tokens`, `handoff_count`, `timeStamp` *(text, ISO-8601)*, `turn_epoch` *(bigint, epoch seconds of the turn — use this for the `TurnTime`/`TurnMinute` columns)*.
+**`OptimizationTurns`** — `tenantId`, `userId`, `sessionId`, `model_tier`, `model_deployment`, `model_name`, `input_tokens`, `output_tokens`, `total_tokens`, `cached_tokens`, `handoff_count`, `timeStamp` *(text, ISO-8601)*, `turn_epoch` *(bigint, epoch seconds of the turn — use this for the `Turn Time`/`Turn Minute` columns)*.
 
 **`Trips`** — `tenantId`, `userId`, `tripId`, `status` (planning/confirmed/completed), `destination`, …
 
-**`OptimizationPolicies`** — `scenario_id`, `title`, `status` (proposed/active/staged/reverted), `apply_mode`, `params`, `proposed_change`, `version`, `proposed_by`, `created_at`, `updated_at`, `created_epoch`, `updated_epoch` *(bigint epoch seconds — use `updated_epoch` for `PolicyUpdated`)*.
+**`OptimizationPolicies`** — `scenario_id`, `title`, `status` (proposed/active/staged/reverted), `apply_mode`, `params`, `proposed_change`, `version`, `proposed_by`, `created_at`, `updated_at`, `created_epoch`, `updated_epoch` *(bigint epoch seconds — use `updated_epoch` for `Policy Updated`)*.
 
 **`Configuration`** — a small multi-entity config store keyed by `type`. Pricing rows have `type = "model_pricing"`, `model`, `input_price`, `output_price` (USD per 1M tokens); the `type = "model_selection_defaults"` doc carries the proposed tier/classifier policy. Filter `type = "model_pricing"` when joining for cost.
 
