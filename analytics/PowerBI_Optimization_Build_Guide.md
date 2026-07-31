@@ -235,11 +235,24 @@ Saving USD        = CALCULATE(MAX('TravelAssistant OptimizationInsights'[saving_
 Saving %          = CALCULATE(MAX('TravelAssistant OptimizationInsights'[saving_pct]),        'TravelAssistant OptimizationInsights'[type] = "optimization_result")
 Baseline Cost USD = CALCULATE(MAX('TravelAssistant OptimizationInsights'[baseline_cost_usd]), 'TravelAssistant OptimizationInsights'[type] = "optimization_result")
 Actual Cost USD   = CALCULATE(MAX('TravelAssistant OptimizationInsights'[actual_cost_usd]),   'TravelAssistant OptimizationInsights'[type] = "optimization_result")
+Result Note       = CALCULATE(MAX('TravelAssistant OptimizationInsights'[note]),              'TravelAssistant OptimizationInsights'[type] = "optimization_result")
 ```
+
+> **`Result Note` needs the `note` column**, which is newer than the other `optimization_result` fields — if it isn't in the field list, refresh the model schema (**Transform data → Refresh Preview → Close & Apply**). To avoid the refresh, derive it from `method` (already in the model) instead:
+>
+> ```DAX
+> Result Note =
+>     VAR _m =
+>         CALCULATE(MAX('TravelAssistant OptimizationInsights'[method]),
+>                   'TravelAssistant OptimizationInsights'[type] = "optimization_result")
+>     RETURN IF(_m = "pending",
+>         "Measured before/after pending - apply the policy, then measure over the experiment window.", "")
+> ```
 
 Visuals (each with a visual-level filter `type = "optimization_result"`):
 - **Scenario slicer:** add a **Slicer** (or button slicer) on `'…OptimizationInsights'[scenario]`, single-select — this is how you **switch between optimizations**. **Add a visual-level filter `type = "optimization_result"` to the slicer itself** (lock/hide it), otherwise it also lists `scenario` values from `recommendation_card` rows (6 scenarios) and a blank `--` from the row types that have no scenario. With the filter it shows only the measured optimizations. (`title` is a nicer label but may not appear until the mirror syncs it; `scenario` is always present.)
 - **Cards:** `[Saving USD]` and `[Saving %]` — the headline "we saved $X (Y%)" for the selected optimization (`method="pending"` scenarios read $0 until measured).
+- **`Result Note` card:** add a **Card** bound to `[Result Note]`. For a `pending` scenario it explains the $0 ("Measured before/after pending…"); for `model-selection` it's blank. This keeps the page from looking broken when a not-yet-measured optimization is selected.
 - **Clustered column — baseline vs actual:** leave the **X-axis empty** and put **both** `[Baseline Cost USD]` and `[Actual Cost USD]` on the **Y-axis** — you get two columns whose gap *is* the saving. (Simpler alternative: three **Cards** — `[Baseline Cost USD]`, `[Actual Cost USD]`, `[Saving USD]`.)
 
 > **Filtering note:** because these rows live under `tenantId = "_global_optimizations"` (a reserved non-tenant bucket), keep this page **off** the tenant slicer used on other pages (or add a page-level filter `tenantId = "_global_optimizations"`).
