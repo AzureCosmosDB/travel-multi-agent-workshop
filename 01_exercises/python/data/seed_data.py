@@ -229,6 +229,20 @@ def seed_memories(database) -> None:
         upload_items_concurrent(memories_container, memories, "memories")
 
 
+def _rebase_turn_times(items: List[Dict[str, Any]], window_minutes: int = 120) -> None:
+    """Spread OptimizationTurns timestamps uniformly across the last ``window_minutes``
+    (ending now), in place. The seed JSON bakes fixed historical dates, which make the
+    analytics report's time-series charts look stale/bunched on every deploy; re-basing
+    to 'now' at seed time keeps them recent and dense. Timestamps only — turn content is
+    untouched, and every KPI/cost is time-independent."""
+    now = int(time.time())
+    start = now - window_minutes * 60
+    for it in items:
+        e = random.randint(start, now)
+        it["turn_epoch"] = e
+        it["timeStamp"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(e))
+
+
 def seed_conversations(database) -> None:
     """Seed the pre-baked generated data — conversation history + analytics signal.
 
@@ -254,6 +268,8 @@ def seed_conversations(database) -> None:
         items = load_json_file(filename)
         if not items:
             continue
+        if filename == "optimization_turns.json":
+            _rebase_turn_times(items)  # keep the report's time charts recent on every seed
         try:
             container = database.get_container_client(container_name)
             container.read()

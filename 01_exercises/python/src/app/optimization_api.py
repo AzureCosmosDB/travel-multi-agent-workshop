@@ -26,6 +26,7 @@ from pydantic import BaseModel
 
 from src.app.services import optimization
 from src.app.services import fabric_capacity
+from src.app.services import demo_data
 
 import logging
 
@@ -90,6 +91,18 @@ def fabric_capacity_resume() -> dict[str, Any]:
         return fabric_capacity.resume()
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=502, detail=f"Fabric capacity resume failed: {exc}")
+
+
+# --- Demo convenience: freshen the captured turns' timestamps ---
+@router.post("/demo/refresh-times")
+def refresh_demo_times(window_minutes: int = 120) -> dict[str, Any]:
+    """Re-stamp captured OptimizationTurns into the last ``window_minutes`` so the
+    analytics report's time-series charts show a recent, dense trend without a full
+    reseed. Timestamps only — the KPIs/costs are time-independent and unchanged."""
+    try:
+        return demo_data.refresh_turn_times(window_minutes)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=f"Refresh demo times failed: {exc}")
 
 
 @router.get("/{tenant_id}")

@@ -69,6 +69,7 @@
   .loop b { color: var(--text); }
   .pill { background: var(--panel2); border: 1px solid var(--line); border-radius: 999px; padding: 4px 12px; }
   .err { color: var(--bad); font-size: 13px; margin-bottom: 10px; }
+  .ok { color: var(--good, #3fb950); font-size: 13px; margin-bottom: 10px; }
   footer { color: var(--muted); font-size: 12.5px; border-top: 1px solid var(--line);
     padding: 20px 28px; max-width: 1180px; margin: 0 auto; }
   code { background: var(--panel2); padding: 1px 5px; border-radius: 5px; font-size: 12.5px; }
@@ -86,6 +87,7 @@
     <label>API</label><input id="api" value="http://localhost:8000" size="22" />
     <label>Tenant</label><input id="tenant" value="marvel" size="12" />
     <button id="refresh">Refresh</button>
+    <button id="freshen" title="Re-stamp all captured turns into the last 2 hours so the analytics report's time charts show a recent, dense trend. Updates timestamps only — not these KPIs. Refresh the Power BI report afterward.">Freshen demo times</button>
   </div>
 </header>
 
@@ -344,6 +346,19 @@ async function load() {
 }
 
 $("refresh").onclick = load;
+$("freshen").onclick = async () => {
+  if (!confirm("Re-stamp all captured turns into the last 2 hours?\n\nThis updates the timestamps the analytics report's time-series charts use (not these KPIs, which are time-independent). Refresh the Power BI report afterward to see the change.")) return;
+  const btn = $("freshen"), label = btn.textContent;
+  btn.disabled = true; btn.textContent = "Freshening\u2026";
+  try {
+    const r = await jpost("/optimizations/demo/refresh-times");
+    $("error").innerHTML = `<div class="ok">Re-stamped ${num(r.updated)} turns into the last ${r.window_minutes} min (${r.from} \u2192 ${r.to} UTC). Refresh your Power BI report to see the time charts update.</div>`;
+  } catch (e) {
+    $("error").innerHTML = `<div class="err">Freshen failed: ${e.message}. Is the API running at ${api()}?</div>`;
+  } finally {
+    btn.disabled = false; btn.textContent = label;
+  }
+};
 $("tenant").addEventListener("keydown", e => { if (e.key === "Enter") load(); });
 load();
 </script>
