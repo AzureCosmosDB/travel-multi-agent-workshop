@@ -105,10 +105,9 @@ cards** (e.g. *Capability-tiered model selection*). *Thousands of turns become a
 decisions.*
 
 ### Act 3 — See the analytics baseline *(Power BI)*
-Open **`analytics/TravelAssistantAnalyticsReport.pbit`**. When prompted, enter **your**
-mirror's **SQL analytics endpoint** and database (`TravelAssistantAnalytics`) — they're
-parameters — and sign in with your **Organizational account**. Show **cost by tier** and
-**turns over time** on the single-model baseline.
+Open **`TravelAssistantAnalyticsReport`** in your **Fabric workspace** — `Provision-Fabric.ps1 -Solution`
+auto-imported it and already pointed it at your mirror (no Power BI Desktop, no prompts). Show
+**cost by tier** and **turns over time** on the single-model baseline.
 
 ### Act 4 — Generate live traffic *(the simulator)*
 Make the dashboards move. From `analytics/`:

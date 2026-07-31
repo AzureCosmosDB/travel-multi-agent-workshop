@@ -96,8 +96,9 @@ Back in the PowerShell terminal, **paste the connection id** at the prompt and p
 Refresh your workspace. Confirm you see both:
 
 - a **mirrored database** whose tables show a *Replicating* / *Running* status,
-- the **`ConversionFunnelReverseETL`** notebook, and
-- the **`optimization-apply-loop`** User Data Function — the translytical Apply/Revert you use in Activity 6 (the provisioning deployed it with the `azure-cosmos` library and your Cosmos endpoint already configured).
+- the **`ConversionFunnelReverseETL`** notebook,
+- the **`optimization-apply-loop`** User Data Function — the translytical Apply/Revert you use in Activity 6 (the provisioning deployed it with the `azure-cosmos` library and your Cosmos endpoint already configured), and
+- the **`TravelAssistantAnalyticsReport`** — the Power BI report, **auto-imported and already pointed at your mirror** (no Power BI Desktop required).
 
 Your `azd up` deployment already **seeded a demo tenant, `funnel_demo`**, into your Cosmos `OptimizationTurns` / `Messages` / `Trips` containers (~120 sessions with a realistic mix of converted and abandoned outcomes). The mirror replicates it within a minute — so there is **nothing extra for you to run**; the notebook has data waiting.
 
@@ -158,9 +159,9 @@ That's reverse-ETL: Fabric-computed intelligence, landed back in the operational
 
 ## Activity 5: Watch Power BI Light Up
 
-Open the provided **`analytics/TravelAssistantAnalyticsReport.pbit`** in Power BI Desktop (the same report you connected in Module 07) and go to its **Business Impact** page. Before you ran the notebook it was empty; after your reverse-ETL write (and a mirror refresh), it **lights up** — the conversion funnel, the conversion-rate KPI, the biggest-leak callout, and the "why sessions don't convert" bar. The **Measured Saving** page lights up too, from the scenario-keyed `optimization_result` row (`model-selection`). **You didn't touch the report** — the insight flowed Cosmos → Fabric → reverse-ETL → Cosmos → mirror → Power BI.
+Open **`TravelAssistantAnalyticsReport`** in your **Fabric workspace** (the provisioning auto-imported it and already pointed it at your mirror — no Power BI Desktop, no connection prompts) and go to its **Business Impact** page. Before you ran the notebook it was empty; after your reverse-ETL write (and a mirror refresh), it **lights up** — the conversion funnel, the conversion-rate KPI, the biggest-leak callout, and the "why sessions don't convert" bar. The **Measured Saving** page lights up too, from the scenario-keyed `optimization_result` row (`model-selection`). **You didn't touch the report** — the insight flowed Cosmos → Fabric → reverse-ETL → Cosmos → mirror → Power BI.
 
-> **Connecting the report (same as Module 07):** when prompted, enter **your own** mirror's **SQL analytics endpoint** and **database name** (`TravelAssistantAnalytics`) — these are parameters, so they point the report at *your* mirror. At the credentials prompt use the **Microsoft account / Organizational account** tab and **Sign in** (not Windows); click **OK/Continue** on the "multiple data sources" privacy prompt. If it shows stale data or the wrong server, fix it via **Home → Transform data → Manage Parameters**, and clear any cached endpoint under **File → Options and settings → Data source settings**.
+> **The report is already connected.** `Provision-Fabric.ps1` (Phase 3) imported it and set its `MirrorSQLEndpoint` / `MirrorDatabase` parameters to *your* mirror, so it queries live over DirectQuery with no sign-in prompts. If a page shows stale data, give the mirror a moment to replicate and refresh the page; the report itself needs no edits.
 
 *Stuck? Compare against `analytics/fabric/ConversionFunnelReverseETL_solution.ipynb`.*
 
@@ -170,7 +171,7 @@ So far the report *reads* analytics. A **translytical task flow** lets it *act*:
 
 > **Optional, and gated by a Fabric tenant admin.** Translytical task flows are a **preview feature** — an admin must enable *Admin portal → Tenant settings → "Users can create and consume translytical task flows"* (search *translytical* / *task flow* / *data function*). **If it's off, the button's Workspace / Function set / Function dropdowns never appear — with no error.** If you can't enable it, skip this activity: you can apply/revert the identical `model-selection` policy without Power BI via the app's optimization API (`POST /optimizations/model-selection/apply` · `/revert`), which the Optimization Console in the completed solution wraps with one-click buttons.
 
-> **Do this in the Power BI *Service* (edit in the browser), not Desktop.** In the current rollout the data-function button config UI appears reliably only in the Service, and the button only fires there anyway. So publish the finished report first, then add the buttons in the browser.
+> **Do this in the Power BI *Service* (edit in the browser), not Desktop.** The report is already in your workspace (auto-deployed in Activity 2), so just open it → **Edit**. The data-function button config UI appears reliably only in the Service, and the button only fires there anyway.
 
 1. In the Power BI **Service**, open the published report → **Edit**.
 2. On the report's **Applied Optimizations** page, add an **Apply** button: **Insert → Button**, then **Format → Action → Type = Data function** and fill all three dropdowns — your **workspace** → **function set** `optimization-apply-loop` → **data function** `apply_optimization`. There is no static-value option: create a measure `Apply Scenario = "model-selection"` and bind the `scenario` parameter to it via the **`fx`** button (leave `by` unmapped). (Full steps: `analytics/PowerBI_Optimization_Build_Guide.md`, Page 4.)

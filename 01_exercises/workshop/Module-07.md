@@ -176,16 +176,9 @@ Notice what the Console is doing: it turns thousands of individual turns into a 
 
 ### Power BI (provided)
 
-For the deep, real-time view, open the provided **`analytics/TravelAssistantAnalyticsReport.pbit`** template:
+For the deep, real-time view, the **`TravelAssistantAnalyticsReport`** is **auto-deployed to your Fabric workspace** when you provision Fabric in **Module 09** (`Provision-Fabric.ps1`, Phase 3) — already pointed at your mirror, with no Power BI Desktop and no connection prompts. Open it in the workspace (browser) once you've completed Module 09; until then, the **Optimization Console** above covers these views.
 
-1. Open the `.pbit` in **Power BI Desktop**.
-2. When prompted, enter these two values from your Fabric mirrored database (the mirror is created in **Module 09**):
-   - **Mirror database name** — the mirrored database's name as it appears in your Fabric workspace. It is your Cosmos database name with `Analytics` appended (e.g. `TravelAssistantAnalytics`).
-   - **Mirror SQL analytics endpoint** — in the [Fabric portal](https://app.fabric.microsoft.com), open your workspace and open that mirrored database. Use the view selector at the **top-right** to switch to its **SQL analytics endpoint**, click the **Settings** (gear) icon, open **SQL connection string**, and copy the server value (a host like `xxxxxxxx.datawarehouse.fabric.microsoft.com`).
-3. **Credentials dialog:** Power BI then prompts for how to sign in to the endpoint. Select the **Microsoft account / Organizational account** tab and **Sign in** with your Azure account, then **Connect** — do **not** use the **Windows** tab (Fabric SQL endpoints require Entra sign-in and will reject Windows auth).
-4. **Privacy dialog:** you may also see a *"potential security risk / this file uses multiple data sources"* prompt — this is expected for a parameterized connection; click **OK / Continue**.
-5. The report loads over **DirectQuery**, so it reflects new turns **near-real-time** as the mirror
-   replicates. Turn on **page auto-refresh** and run the traffic simulator to watch it move live. From the **`analytics`** folder:
+The report runs over **DirectQuery**, so it reflects new turns **near-real-time** as the mirror replicates. Turn on **page auto-refresh** and run the traffic simulator to watch it move live. From the **`analytics`** folder:
 
    ```powershell
    .\Run-TrafficSimulator.ps1 -Tenant DemoLive -Rate 120 -Forever

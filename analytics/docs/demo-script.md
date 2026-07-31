@@ -44,8 +44,9 @@ You don't need a temporal before/after. You have two better devices:
    rows to `OptimizationInsights` (in the workshop, Module 09's Fabric notebook does this). The
    Business Impact page then lights up.
 
-3. **Report:** open the `.pbit`, point it at your mirror, and (Power BI guide Step 5) add a
-   **tenant slicer** and a report-level filter defaulting to `analytics_demo`.
+3. **Report:** it's auto-deployed to your Fabric workspace (`Provision-Fabric.ps1` Phase 3) and
+   already pointed at your mirror — just open it in the workspace. *(Optional: add the translytical
+   Apply/Revert buttons in the Service — Power BI guide Step 5.)*
 
 4. **Confirm the app + policy:** make sure the app is reachable and the **model-selection
    policy is NOT yet applied** (you'll apply it on stage). Have the API endpoint handy — the

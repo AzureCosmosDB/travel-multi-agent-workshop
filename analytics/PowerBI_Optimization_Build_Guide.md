@@ -1,8 +1,10 @@
 # Power BI Report Build Guide — Agent Optimization Analytics
 
-Build the **Agent Optimization** report in Power BI Desktop against your **Fabric mirrored database** of the Travel Assistant analytics. This companion to `PowerBI_Build_Guide.md` produces a portable **`.pbit`** template that attendees can open and point at their own mirror.
+> **You usually don't need this guide.** The finished report (`analytics/TravelAssistantAnalyticsReport.pbix`) is **auto-deployed to your Fabric workspace** by `Provision-Fabric.ps1` (Phase 3), already pointed at your mirror — attendees never open Power BI Desktop. This guide is for **maintainers** who want to **rebuild or customize** that report.
 
-Use **DirectQuery over the mirrored database SQL endpoint**. Build the report from DAX measures over the raw mirrored tables — a portable, re-pointable `.pbit`, with no separate semantic model to create.
+Build the **Agent Optimization** report in Power BI Desktop against your **Fabric mirrored database** of the Travel Assistant analytics. It produces the committed **`.pbix`** the provisioning imports (the script overrides its `MirrorSQLEndpoint` / `MirrorDatabase` parameters per deployment).
+
+Use **DirectQuery over the mirrored database SQL endpoint**. Build the report from DAX measures over the raw mirrored tables — a re-pointable, parameterized `.pbix`, with no separate semantic model to create.
 
 ---
 
@@ -274,17 +276,12 @@ Visuals:
 
 ## Step 6: Save and Export
 
-### Save as .pbix
-**File** → **Save As** → `TravelAssistantAnalyticsReport.pbix`
+### Save as .pbix (the shipped artifact)
+**File** → **Save As** → **`TravelAssistantAnalyticsReport.pbix`** into **`analytics/`** so it ships with the repo. This is the file `Provision-Fabric.ps1` imports; because it's **DirectQuery** it carries no data and stays small. Whatever `MirrorSQLEndpoint` / `MirrorDatabase` values are baked in don't matter — the provisioning **overrides them per deployment**.
 
-### Export as .pbit Template (for distribution)
-1. **File** → **Export** → **Power BI template (.pbit)**.
-2. Description: "Travel Multi-Agent — Agent Optimization Analytics — DirectQuery over your Fabric mirrored database (near-real-time)."
-3. Save as **`TravelAssistantAnalyticsReport.pbit`** into **`analytics/`** so it ships with the repo.
+> **Committing:** `*.pbix` is git-ignored except this one file (see the `.gitignore` exception). Run `git add analytics/TravelAssistantAnalyticsReport.pbix` and commit.
 
-The `.pbit`:
-- Contains layout, visuals, measures, and the parameterized Power Query — **no data** (small file).
-- Prompts for `MirrorSQLEndpoint` + `MirrorDatabase` on open; attendees enter their own values.
+Need a `.pbit` template later (e.g. for someone to open in Desktop)? Export one on demand with **File → Export → Power BI template**, or headless via `pbi-tools compile -format PBIT` — the repo ships the `.pbix` only.
 
 ---
 
