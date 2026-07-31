@@ -171,6 +171,17 @@ baseline.
 The auto-deployed **`TravelAssistantAnalyticsReport`** has **seven pages** (open it in your Fabric
 workspace — it's already pointed at your mirror). What each one tells you, and how to use it:
 
+> **Console vs. the report — which surface, when.** Both read the same Cosmos data but show
+> different **stages of the loop**. The **Optimization Console** is the *operational* surface: it
+> **detects** opportunities (a recommendation card per scenario, plus analytical *lenses* like
+> cost-per-outcome) and lets you **Apply / Revert / Stage** each one — it's where you drive the loop.
+> The **report** shows the *analytical* stages: **Applied Optimizations** is the governance log of
+> the policies you've applied/staged (a card only lands here *after* you Apply/Propose it), and
+> **Measured Savings** is the measured before/after for the four applyable scenarios. There's **no
+> "recommendations" page** in the report. So a freshly-detected card appears in the Console right
+> away but only reaches the report once you apply it — and *lens* cards (`cost-per-outcome`,
+> `agent-path-cost`) never become policies, so they stay Console-only.
+
 ### Optimization Overview
 ![Optimization Overview](../analytics/media/report_optimization_overview.png)
 The fleet-level baseline a trace can't give you: **Total Turns**, **Trivial %** (share of turns that
@@ -188,15 +199,20 @@ on **cost per outcome**, not per turn.
 ![Optimization Opportunity](../analytics/media/report_optimization_opportunity.png)
 Quantifies the model-selection opportunity: the **Trivial %** gauge plus a plain-language
 recommendation and impact. The stacked *Total Turns by Turn Minute and Model Tier* shows the tier
-mix over time.
+mix over time. **Pages 1–3 (Overview, Cost by Tier, and this page) all build the single
+model-selection case** — they're *not* a general "all optimizations" view. The other optimizations
+live on **Applied Optimizations** and **Measured Savings**, and the other pillars on **Business
+Impact** and **Memory Intelligence**.
 
 ### Applied Optimizations
 ![Applied Optimizations](../analytics/media/report_applied_optimizations.png)
 The governance/audit log: every policy the loop proposed, applied, or reverted — with status,
 version, who proposed it, and when it last changed. **Click *Apply Optimization*** to activate the
 selected policy: the Fabric **User Data Function** flips the policy doc in Cosmos and the agent
-honors it on its **next turn**; **Revert** rolls it back. The analytical report writes straight back
-to the operational store.
+honors it on its **next turn**; **Revert** rolls it back. It's the **same write-back the Console's
+Apply performs** — just triggered from the report, so the analytical view *steers* the operational
+store (as configured it applies `model-selection`; bind the button's `scenario` to a slicer to pick
+the optimization).
 
 ### Measured Savings
 ![Measured Savings](../analytics/media/report_measured_savings.png)
