@@ -132,6 +132,15 @@
 <script>
 const $ = (id) => document.getElementById(id);
 const api = () => $("api").value.replace(/\/$/, "");
+// When this console is served from the DEPLOYED frontend container, default the API base
+// to same-origin "/api" — nginx proxies /api → the FastAPI backend. Served locally
+// (e.g. http.server on :8050) it keeps the http://localhost:8000 default below.
+(() => {
+  const h = location.hostname;
+  if (h !== "localhost" && h !== "127.0.0.1" && location.protocol !== "file:") {
+    $("api").value = location.origin + "/api";
+  }
+})();
 const tenant = () => $("tenant").value.trim();
 const money = (v) => v == null ? "\u2014" : "$" + Number(v).toLocaleString(undefined, {minimumFractionDigits: 4, maximumFractionDigits: 4});
 const num = (v) => v == null ? "\u2014" : Number(v).toLocaleString();

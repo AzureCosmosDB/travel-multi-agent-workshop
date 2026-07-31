@@ -196,7 +196,7 @@ Seeding memories...
 ✅ Setup complete!
 ```
 
-**Provisioning typically takes 10-15 minutes.** The process creates all Azure resources and configures your local development environment.
+**Provisioning typically takes about 20 minutes.** The process creates all Azure resources and configures your local development environment.
 
 > **Note:** The Python virtual environment (`.venv-travel`) and environment files (`.env`) are created in the parent `01_exercises` directory, not in the `infra` folder.
 

@@ -37,7 +37,7 @@ azd up
 embeddings), the **Fabric F2 capacity**, and — because `deployHostedApp` defaults to
 **true** — the hosted frontend/API/MCP. The post-provision hook writes the `.env` files,
 creates the **`.venv-travel`** virtualenv, and **seeds Cosmos** (including the
-`funnel_demo` analytics tenant). It prints **`FRONTEND_URI`** when done.
+`funnel_demo` analytics tenant) and prints **`FRONTEND_URI`** when done. **`azd up` takes roughly 20–25 minutes** (Azure provisioning + data seed + container image builds).
 
 Two flags matter (set with `azd env set <NAME> <value>` before `azd up`):
 
@@ -64,7 +64,7 @@ the completed `ConversionFunnelReverseETL` notebook, deploys the `optimization-a
 
 ## 2. Run
 
-**Hosted:** open the `FRONTEND_URI` from `azd up`.
+**Hosted:** open the **`FRONTEND_URI`** from `azd up` (retrieve it anytime with `azd env get-value FRONTEND_URI`). The **Optimization Console** is served from the *same* container at **`<FRONTEND_URI>/console/`** — no separate process needed; it auto-targets the deployed API.
 
 **Local** — from `02_completed/`, in separate terminals:
 
@@ -106,7 +106,7 @@ decisions.*
 
 ### Act 3 — See the analytics baseline *(Power BI)*
 Open **`TravelAssistantAnalyticsReport`** in your **Fabric workspace** — `Provision-Fabric.ps1 -Solution`
-auto-imported it and already pointed it at your mirror (no Power BI Desktop, no prompts). Show
+auto-imported it and already pointed it at your mirror. Show
 **cost by tier** and **turns over time** on the single-model baseline.
 
 ### Act 4 — Generate live traffic *(the simulator)*
