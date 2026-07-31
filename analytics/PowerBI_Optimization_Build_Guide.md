@@ -124,12 +124,23 @@ Create these with **New column** (right-click the table → **New column**) — 
 
 ```DAX
 -- Table: 'TravelAssistant OptimizationTurns'
-TurnTime   = DATE(1970,1,1) + 'TravelAssistant OptimizationTurns'[turn_epoch] / 86400.0
-TurnMinute = DATE(1970,1,1) + ROUNDDOWN('TravelAssistant OptimizationTurns'[turn_epoch] / 60, 0) / 1440
+TurnTime =
+VAR e    = 'TravelAssistant OptimizationTurns'[turn_epoch]
+VAR days = INT ( e / 86400 )
+VAR sod  = e - days * 86400
+RETURN ( DATE(1970,1,1) + days ) + TIME ( INT ( sod / 3600 ), INT ( MOD ( sod, 3600 ) / 60 ), MOD ( sod, 60 ) )
+
+TurnMinute =
+VAR e    = 'TravelAssistant OptimizationTurns'[turn_epoch]
+VAR days = INT ( e / 86400 )
+VAR sod  = e - days * 86400
+RETURN ( DATE(1970,1,1) + days ) + TIME ( INT ( sod / 3600 ), INT ( MOD ( sod, 3600 ) / 60 ), 0 )
 
 -- Table: 'TravelAssistant OptimizationPolicies'
 PolicyUpdated = DATE(1970,1,1) + 'TravelAssistant OptimizationPolicies'[updated_epoch] / 86400.0
 ```
+
+> **Why the split-out `days`/`TIME()` form (not `DATE(1970,1,1) + epoch/86400`)?** Over **DirectQuery**, adding a ~46,000 date-serial to a tiny minute/second fraction loses sub-day precision when the expression folds to the mirror's SQL — every row within the same day collapses to one value, so a minute-level time axis shows a single point. Building the date from an **integer** day serial and adding the time-of-day via **`TIME()`** keeps the minutes distinct.
 
 Use `TurnMinute` on time axes (set **X-axis Type = Continuous**, plain field) and `TurnTime` for detail.
 
