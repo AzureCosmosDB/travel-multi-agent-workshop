@@ -162,7 +162,7 @@ python -m http.server 8050 --directory console
 
 > **No virtual environment needed here.** The Console is a **static** web app (`console/index.html`) that calls the API on `:8000` over REST from your browser. `python -m http.server` is just Python's built-in static file server, so any Python works and there are **no dependencies to install** — this is unlike the MCP and API servers, which are Python apps that run inside the workshop's virtual environment. (The API *does* need to be running, since the Console reads from it.)
 
-Open <http://localhost:8050>. Set the **Tenant** box to **`marvel`** — the tenant the frontend records turns under by default, so the traffic you drove through the app is stored under it (tenant names are case-sensitive, so use lower-case `marvel`). If you instead generated turns with the traffic simulator further below, use that command's `--tenant` value. Click **Refresh**. It reads the captured turns and the recommendation cards and presents them with explanations. Take a few minutes to read each panel; these are the talking points that make the data *mean* something:
+Open <http://localhost:8050>. Set the **Tenant** box to **`marvel`** — the tenant the frontend records turns under by default, so the traffic you drove through the app is stored under it (tenant names are case-sensitive, so use lower-case `marvel`). Click **Refresh**. It reads the captured turns and the recommendation cards and presents them with explanations. Take a few minutes to read each panel; these are the talking points that make the data *mean* something:
 
 - **Turns & spend** — total turns, total tokens, and estimated cost. *Talking point: cost scales with usage, but not evenly — a few turns dominate.*
 - **Model usage** — a breakdown by model. Right now it's **one model, 100%**. *Talking point: every turn, trivial or complex, pays the same rate — the core inefficiency this lab targets.*
@@ -174,21 +174,9 @@ Open <http://localhost:8050>. Set the **Tenant** box to **`marvel`** — the ten
 
 Notice what the Console is doing: it turns thousands of individual turns into a handful of **decisions** — which is exactly what a human operator (or, later, the system itself) needs to act.
 
-### Power BI (provided)
+### Power BI — the deep view (Module 09)
 
-For the deep, real-time view, the **`TravelAssistantAnalyticsReport`** is **auto-deployed to your Fabric workspace** when you provision Fabric in **Module 09** (`Provision-Fabric.ps1`, Phase 3) — already pointed at your mirror, with no Power BI Desktop and no connection prompts. Open it in the workspace (browser) once you've completed Module 09; until then, the **Optimization Console** above covers these views.
-
-The report runs over **DirectQuery**, so it reflects new turns **near-real-time** as the mirror replicates. Turn on **page auto-refresh** and run the traffic simulator to watch it move live. From the **`analytics`** folder:
-
-   ```powershell
-   .\Run-TrafficSimulator.ps1 -Tenant DemoLive -Rate 120 -Forever
-   ```
-
-   The wrapper finds your virtual environment and targets your deployment's Cosmos automatically (run bare — `.\Run-TrafficSimulator.ps1` — and it prompts for the tenant and streams for 10 minutes). **`DemoLive`** is a dedicated demo tenant, so **filter/slice your report to `DemoLive`** to watch that stream in isolation. Press **Ctrl+C** to stop.
-
-> **Seeing old/wrong data or the wrong server in the credential prompt?** The report reads whatever the **`MirrorSQLEndpoint`** / **`MirrorDatabase`** parameters point to. To change them after opening, use **Home → Transform data → Manage Parameters**, then **Close & Apply → Refresh**. If Power BI cached an old endpoint's credentials, clear them under **File → Options and settings → Data source settings**.
-
-> The **Console + REST** are enough for this module's detect/measure steps (they read Cosmos directly). The **Cosmos → Fabric mirror + Power BI + reverse-ETL** is the analytical plane — you build it in **Module 09**, which is where the business-impact analytics and the self-optimizing (L4/L5) loop come together.
+Power BI is the **deep, real-time analytical view**, but it needs the Fabric **mirror**, which you stand up in **Module 09** — so there's nothing to open here. This module runs on **Cosmos alone**, and the **Optimization Console + REST** above are all you need to *detect* and *measure*. You'll build the mirror, run the reverse-ETL notebook, and open the auto-deployed report in **Module 09** — where you'll also kick off a live traffic stream and watch the report move.
 
 ### The raw signal (REST + CLI)
 

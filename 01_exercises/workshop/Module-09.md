@@ -60,6 +60,14 @@ Two things to internalize:
 
 You will create the Fabric workspace, the Cosmos mirror, and upload this module's notebook using a single PowerShell script. It reads your deployment settings from your `azd` environment automatically, so you only supply a workspace name and — for one unavoidable portal step — a connection id.
 
+> **⏱️ First, start a live traffic stream — so the report has data by the time you open it.** Provisioning and the mirror's first sync take a few minutes; rather than run traffic *then* wait, start it **now** in a **separate terminal** and leave it running while you work through this module. It streams turns straight into Cosmos, so by **Activity 5** the mirror has carried plenty through and the report is already moving. From the **`analytics`** folder:
+>
+> ```powershell
+> .\Run-TrafficSimulator.ps1 -Tenant DemoLive -Forever
+> ```
+>
+> It auto-detects your deployment's Cosmos and virtual environment (needs only `az login`) — run it bare to be prompted for the tenant. **`DemoLive`** is a dedicated demo tenant, so you can filter the report to it to watch this stream in isolation. Leave it running; press **Ctrl+C** when you finish Activity 5. *(Turns written before the mirror exists are picked up by its initial snapshot, so starting early is exactly right.)*
+
 > **Prerequisites:** you have run `azd up` for this workshop, and you are signed in with `az login` (and `azd auth login`) as a user with permission to create Fabric workspaces. Microsoft Fabric must be enabled for your tenant.
 
 ### Step 1 — Run the provisioning script (Phase 1)
@@ -166,6 +174,8 @@ Open **`TravelAssistantAnalyticsReport`** in your **Fabric workspace** (the prov
 
 ![Measured Savings report page](../../analytics/media/report_measured_savings.png)
 *The **Measured Saving** page: pick a scenario in the slicer — **model-selection** shows the real counterfactual saving; the behavior-changing scenarios stay "pending" until applied and re-measured.*
+
+And the **turn-level pages** — *Optimization Overview*, *Cost by Tier*, *Optimization Opportunity* — are already populated and **moving**, fed by the `DemoLive` stream you started back in **Activity 2**. Turn on **page auto-refresh** (Format → Page refresh) and filter to `DemoLive` to watch turns land live over **DirectQuery** — Cosmos → mirror → Power BI, no report edits. (Done watching? **Ctrl+C** the simulator terminal.)
 
 > **The report is already connected.** `Provision-Fabric.ps1` (Phase 3) imported it and set its `MirrorSQLEndpoint` / `MirrorDatabase` parameters to *your* mirror, so it queries live over DirectQuery with no sign-in prompts. If a page shows stale data, give the mirror a moment to replicate and refresh the page; the report itself needs no edits.
 
