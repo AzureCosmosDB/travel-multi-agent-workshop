@@ -276,6 +276,8 @@ Look also for other dimensions in the same data:
 
 You're not fixing anything yet — you're building the *insight* that Module 08 will act on.
 
+> **Concept — memory intelligence (the flagship signal).** The `memory retention` policy above sits on a distinct family of signals worth understanding on their own: **salience** (how confident/valuable each memory is), **memory health** (Active vs. **Superseded** vs. **Low-value**), and **supersession rate** (how often the agent corrects itself as a user's preferences change). Why it matters: **memories aren't free** — every recall retrieves and *pays* (tokens + latency) for the memories it pulls, so stale, never-recalled, low-salience, and superseded memories are pure cost that can also dilute answer quality. The report's **Memory Intelligence** page visualizes exactly this (salience distribution, memories by type, memory health); the **`memory-retention`** policy is the *action* — a reversible soft-prune of superseded memories. It's the memory-pillar instance of the same **detect → measure → apply → re-measure** loop as model selection — and it's something an **analytics platform is uniquely able to show**: trace tools tell you what one run did, but only cross-entity analytics over your app's own memory state can tell you *"X% of memories are never recalled and Y% are superseded."*
+
 ---
 
 ## Activity 6: Measure What Matters

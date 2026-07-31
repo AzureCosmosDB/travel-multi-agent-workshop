@@ -15,7 +15,7 @@ Fabric + Power BI + Azure REST APIs:
     - (interactive) you create the Cosmos connection once in the Fabric portal and paste
       its id (WorkspaceIdentity connections are still DMTS-blocked in many tenants)
     - create the mirrored database (OptimizationTurns / Trips / OptimizationPolicies /
-      Configuration / Messages / OptimizationInsights) + start
+      Configuration / Messages / OptimizationInsights / memories) + start
     - upload the reverse-ETL notebook (Module 09) with its parameters pre-filled
       (Cosmos + mirror SQL endpoint). The report uses DirectQuery over the mirror SQL
       endpoint, so no separate Direct Lake semantic model is created.
@@ -65,7 +65,8 @@ ARM_SCOPE = "https://management.azure.com/.default"
 COSMOS_DATA_CONTRIBUTOR = "00000000-0000-0000-0000-000000000002"
 
 # Tables to mirror (schema name == Cosmos DB name; set at runtime).
-MIRROR_TABLES = ["OptimizationTurns", "Trips", "OptimizationPolicies", "Configuration", "Messages", "OptimizationInsights"]
+# `memories` powers the Memory Intelligence report page (salience / health / supersession).
+MIRROR_TABLES = ["OptimizationTurns", "Trips", "OptimizationPolicies", "Configuration", "Messages", "OptimizationInsights", "memories"]
 
 
 # --------------------------------------------------------------------------- creds
