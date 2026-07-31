@@ -219,13 +219,26 @@ _n = int(_agg["turns"] or 0)
 _saving = _baseline - _actual
 _saving_pct = round(100 * _saving / _baseline, 1) if _baseline else 0.0
 
+# One row per applyable optimization so the report's `scenario` slicer switches between them.
+# model-selection carries the real counterfactual; the behavior-changing scenarios are "pending"
+# (zeros + a note) until a before/after measurement is wired up — same set as compute_insights.py.
+_PENDING_NOTE = "Measured before/after pending - apply the policy, then measure over the experiment window."
+_result_rows = [
+    ("result::model-selection", "optimization_result", "_global_optimizations",
+     "model-selection", "Capability-tiered model selection", "counterfactual",
+     _n, round(_baseline, 4), round(_actual, 4), round(_saving, 4), _saving_pct, "", now),
+]
+for _sc, _title in [("memory-retention", "Memory retention (prune superseded)"),
+                    ("active-trip-city-context", "Active-trip city context"),
+                    ("tool-call-dedup", "Redundant tool-call dedup")]:
+    _result_rows.append((f"result::{_sc}", "optimization_result", "_global_optimizations",
+                         _sc, _title, "pending", 0, 0.0, 0.0, 0.0, 0.0, _PENDING_NOTE, now))
+
 result_df = spark.createDataFrame(
-    [("result::model-selection", "optimization_result", "_global_optimizations",
-      "model-selection", "Capability-tiered model selection", "counterfactual",
-      _n, round(_baseline, 4), round(_actual, 4), round(_saving, 4), _saving_pct, now)],
+    _result_rows,
     ["id", "type", "tenantId", "scenario", "title", "method", "turns",
-     "baseline_cost_usd", "actual_cost_usd", "saving_usd", "saving_pct", "computed_at"])
-print("measured saving (model-selection): $%.4f (%.1f%% vs all-premium baseline) over %d turns" % (_saving, _saving_pct, _n))'''
+     "baseline_cost_usd", "actual_cost_usd", "saving_usd", "saving_pct", "note", "computed_at"])
+print("measured saving (model-selection): $%.4f (%.1f%% vs all-premium baseline) over %d turns; +%d pending scenarios" % (_saving, _saving_pct, _n, len(_result_rows) - 1))'''
 
 TODO2_STUB = '''# ---- TODO 2: reverse-ETL — write the insight rows BACK to Cosmos (the pattern) ----
 # Write funnel_df, cause_df, kpi_df, result_df to the Cosmos OptimizationInsights container
