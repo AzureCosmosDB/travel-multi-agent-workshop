@@ -23,5 +23,6 @@ from . import analyst          # noqa: F401
 from . import autonomy         # noqa: F401
 from . import learning         # noqa: F401
 from . import simulation       # noqa: F401
+from . import scorecard        # noqa: F401
 
 from .pipeline import analyze, OPPORTUNITY_SEAMS, default_analyst  # noqa: F401,E402

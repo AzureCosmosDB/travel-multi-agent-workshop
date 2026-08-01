@@ -46,10 +46,19 @@ def extract_msg_usage(msg: Any) -> dict[str, Any] | None:
 
 
 def node_from_event(event: dict, *, tenant_id="", user_id="", session_id="", turn_id="") -> NodeExec | None:
-    """Build a NodeExec from an `on_chat_model_end` event, or None if it carries no usage."""
+    """Build a NodeExec from an `on_chat_model_end` event, or None if it carries no usage.
+
+    In the v2 ReAct architecture the sub-agents (find_places, itinerary,
+    recall_memories) run *nested* inside the supervisor's tool node, so the raw
+    `langgraph_node` only reports "agent"/"tools". `_subagent_config` stamps the
+    semantic name into metadata["sub_agent"], so prefer that for attribution and
+    fall back to mapping the supervisor's own "agent" node. Mirrors the app's
+    capture site (travel_agents_api.py::on_chat_model_end)."""
     if event.get("event") != "on_chat_model_end":
         return None
-    agent = (event.get("metadata") or {}).get("langgraph_node")
+    md = event.get("metadata") or {}
+    node_name = md.get("langgraph_node")
+    agent = md.get("sub_agent") or ("supervisor" if node_name == "agent" else node_name)
     if agent is None:
         return None
     usage = extract_msg_usage((event.get("data") or {}).get("output"))

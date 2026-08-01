@@ -14,6 +14,7 @@ from .policy import DOMAINS, bind_policy
 from .analyst import RecommendationCard, process_card
 from .autonomy import Policy, Observation, guard
 from .learning import LedgerEntry, rank_candidates
+from .scorecard import build_scorecard, format_scorecard
 from .pipeline import analyze
 from .simulation import simulate
 
@@ -102,6 +103,21 @@ def run() -> bool:
        f"{[(c['opportunity_id'], c['apply_mode']) for c in cards]}")
     ck("pipeline: card saving == engine projection (not the proposer's claim)",
        msel and abs(msel[0]["saving"] - pr.saving) < 1e-6, f"{msel[0]['saving'] if msel else None}")
+
+    # --- agent scorecard (agent x dimension rollup, B2) ------------------------------
+    cards_sc = build_scorecard(nodes)
+    sup = next((c for c in cards_sc if c.agent == "supervisor"), None)
+    ck("scorecard: one card per agent, supervisor present",
+       sup is not None and len(cards_sc) >= 1, f"agents={[c.agent for c in cards_sc]}")
+    ck("scorecard: supervisor flags a model-selection opportunity",
+       sup is not None and sup.dimensions["model_selection"].status == "opportunity"
+       and sup.dimensions["model_selection"].value > 0,
+       f"{sup.dimensions['model_selection'].headline if sup else None}")
+    ck("scorecard: cost shares sum to ~1 across agents",
+       abs(sum(c.cost_share for c in cards_sc) - 1.0) < 1e-6,
+       f"sum={sum(c.cost_share for c in cards_sc):.4f}")
+    ck("scorecard: renders without error",
+       isinstance(format_scorecard(cards_sc), str) and "AGENT SCORECARD" in format_scorecard(cards_sc))
 
     # --- report ----------------------------------------------------------------------
     print("=" * 78)

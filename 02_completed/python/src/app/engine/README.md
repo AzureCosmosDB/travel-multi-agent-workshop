@@ -19,6 +19,7 @@ analysis notebook.
 | `analyst/` | recommendation cards + the five guardrails (LLM proposes / engine computes) | — |
 | `autonomy/` | measure → verdict → auto-revert guard (config seam) | — |
 | `learning/` | outcome ledger + feedback (re-rank + calibrate) | — |
+| `scorecard/` | agent × dimension health rollup (Layer 2 surface) | **add a scorer + `@DIMENSIONS.register`** |
 | `simulation/` | agent-structured synthetic telemetry (no LLM) | tune paths/profiles |
 
 ## The one extension gesture
@@ -48,6 +49,21 @@ nodes = simulation.simulate(seed=1, n_turns=1000)     # or real node-grain telem
 findings = detectors.run_all(nodes)                    # what's wrong, per agent × dimension
 saving = projection.project("opp-modelfit-supervisor", nodes)  # what it's worth
 ```
+
+The **agent scorecard** rolls the same node-grain up into per-agent health across every
+registered dimension (the surface the Console / report read):
+
+```python
+from src.app.engine import scorecard
+
+cards = scorecard.build_scorecard(nodes)          # one AgentScorecard per agent
+print(scorecard.format_scorecard(cards))          # or: data/agent_scorecard.py --simulate 1000
+```
+
+Only the dimensions node-grain can actually measure today (cost efficiency, model
+selection, workflow efficiency) are scored; the rest are listed with the signal each
+one still needs, so nothing is fabricated. Add one by registering a scorer in
+`scorecard/dimensions.py`.
 
 ## Self-test
 
