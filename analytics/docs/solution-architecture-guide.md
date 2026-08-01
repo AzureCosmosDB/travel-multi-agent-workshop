@@ -771,6 +771,41 @@ fixed vs. swappable:
 > anyway, the Cosmos-native toolkit is the natural first-class choice — the memory adapter that ships
 > "batteries included."
 
+### 10.4 Business outcome linkage — the Outcome adapter
+
+The **outcome anchor** (§10.1) — the business-success signal every dimension is judged against — is the one
+primitive **no agent framework provides.** LangGraph, Microsoft Agent Framework, and the OpenAI Agents SDK
+all model *how the agent ran* (runs, threads, steps, tokens, traces); *"did this produce business value?"*
+is **domain data that lives outside the framework** (here `Trips`; elsewhere a CRM / order / ticket system).
+So outcome linkage can't be fully generalized away — but the platform makes it near-trivial by prescribing
+the **contract** and reusing a **correlation key the framework already gives you.**
+
+**The mechanism is a shared correlation key.** Tie a domain outcome to a `WorkflowExecution` by carrying the
+same key on both — the framework's thread/run id (LangGraph `thread_id`, a LangSmith `run_id`, an OTel trace
+id) or the app's `sessionId` / `turn_id`. Then `WorkflowExecution ⋈ outcome ON <key>`, and success =
+`status ∈ success_states`.
+
+**The Outcome adapter** (the fourth source adapter, §10.2) declares a small outcome-definition contract:
+
+```
+{ outcome_entity, success_states[], correlation_key, attribution_rule, value? }
+// this app: { Trips, [confirmed, completed], sessionId, last-session-that-touched }
+```
+
+…with two integration styles the app picks:
+- **Stamp-the-key + join (recommended, trivial):** the app already persists its outcome; it just **stamps
+  the correlation key** on that record, and the platform joins execution ⋈ outcome in Fabric — one field +
+  one declared definition.
+- **Push an outcome event:** the app calls `record_outcome(correlation_id, type, value)` (or emits a
+  LangSmith feedback / OTel event) when the business event fires — better when the outcome isn't a row it
+  persists, or lands **later / out-of-band** (a booking confirmed days after the session).
+
+**What stays the app's job** (irreducible): *defining what success is* and *ensuring the correlation key is
+present*. Everything downstream — the funnel, cost-per-outcome, conversion-by-path — is then automatic. This
+is the same "prescribe the contract, the app fills the semantics" split as the policy `params` contract
+(§7.2) and the source adapters (§10.2): a framework-agnostic correlation key + a four-field declaration,
+never a framework feature that magically knows your business.
+
 ---
 
 ## 11. Cost and data-generation strategy
