@@ -140,16 +140,68 @@ from the active trip — N% of its turns, $X wasted") instead of a hand-written 
 
 ## Answering the owner's questions directly
 
-- **Task complexity & model pinning.** Replace the ≤6-word keyword tier with a **measured** signal:
-  per-turn features (length, tool calls, handoffs, output/reasoning tokens) and/or a small classifier
-  or a **confidence/uncertainty cascade** (try cheap model; escalate on low confidence) — the
-  RouteLLM/FrugalGPT approach. Crucially, model-fit becomes a **per-agent** question: *given the
-  distribution of complexity each agent actually handles, is its pinned model right?* (Your instinct —
-  "complex prompts per agent" — is the per-agent aggregate of a per-turn measured signal.)
+- **Task complexity & model pinning — two distinct notions the current code conflates.**
+  - **Realized complexity (post-hoc, for *analysis*):** measured from execution — nodes activated,
+    output/reasoning tokens, tool calls. We already have it, and it's a clean monotonic signal
+    (verified live: 1→2→3 nodes = 179→463→2,100 avg output tokens). It powers the per-agent
+    **model-fit** scorecard and finds **~5× the opportunity** the keyword tier does (438 `supervisor`
+    turns ran premium at ~179 output tokens; the ≤6-word classifier flagged only 90 as `trivial`).
+  - **Predicted complexity (a-priori, for *routing*):** to pick a model *before* a turn runs you need
+    a predictor (feature classifier / confidence cascade — RouteLLM/FrugalGPT). This is the harder
+    problem and is itself the **optimization the platform recommends**, whose quality the platform then
+    **measures** against realized complexity + outcome.
+  Model-fit is a **per-agent** question: `supervisor` is *bimodal* (many light turns + some heavy) → the
+  routing prize; `find_places` / `create_or_update_itinerary` are consistently heavy → premium justified.
+  The current `classify_turn_tier` is a weak a-priori predictor standing in for *both* notions.
 - **What thresholds are correct?** None a-priori. Layer 2a derives them from baselines + cohorts +
   SLOs and explains deviations; owners tune SLOs, not magic constants.
 - **What analyzes it / makes recommendations?** Layer 2 — statistical detectors feed an LLM-as-analyst
   (+ optional DSPy prompt optimizer). This is the documented industry pattern, not a bespoke idea.
+
+## Optimization seams — what "apply" actually means (and the workshop's hands-on core)
+
+The most important finding of this session: **optimizations live on a spectrum of *seams*, and the
+seam decides both *how* you apply an optimization and *how autonomously* you can.** An optimization is
+only auto-applyable if the app was **built to expose the knob**; building the knob is itself a
+one-time, human-governed change.
+
+| Seam | Example | "Apply" = | Maturity ceiling |
+|---|---|---|---|
+| **Config / policy** (a knob the app *already reads*) | tier→model map, thresholds, memory salience/retention | flip a policy doc in Cosmos (Console / translytical **Apply**) | **L4/L5 autonomous** |
+| **Prompt** (`.prompty` text) | add a supervisor rule (SCEN-001) | stage `{file, add}`; human reviews + deploys | **L3 assisted** |
+| **Code / new mechanism** (no knob exists yet) | *introduce* per-turn routing on a single-model app | stage a diff/PR; human builds + merges + deploys | **L3 assisted (human-governed)** |
+
+**Corollary — model-selection is a *code* seam the first time.** On the single-model base app, "route
+the supervisor's light turns to a cheaper model" is **not** a policy flip — it's the code change that
+*creates* `select_deployment_for_turn`. Only *after* a human ships that seam does ongoing tuning (the
+tier→model map, thresholds) become an auto-applyable **policy**. The current workshop hides this by
+**pre-building** the router and shipping tiered data, so "Apply model-selection" looks like a pure
+config flip; it only works because the code was already written to read the policy.
+
+**How a code/prompt recommendation is applied (grounded in existing code).** The staged-change loop
+already exists: the recommender returns `proposed_change = {file, diff}` (today
+`get_city_context_staged_change()` → `{file: "supervisor.prompty", add: <text>}`),
+`POST /optimizations/{scenario}/stage` records it as `apply_mode: "staged_change"` (never active at
+runtime), and a human reviews + deploys. The redesign has the **LLM analyst *generate*** that diff
+(instead of a hardcoded constant); DSPy/GEPA can generate + score prompt diffs. **Arbitrary code is
+never auto-applied** — the hard ceiling of the risk model.
+
+**Workshop pedagogy (owner directive, 2026-07-31): make the code seam a hands-on module.** Attendees
+are already *in the code building the app*, so the strongest teaching moment is to have them **live the
+code-seam optimization** at the keyboard — walking the full maturity ladder in one exercise:
+1. Run the analytics engine → it **detects** the supervisor model-selection waste (measured, not
+   hand-authored).
+2. The analyst **stages a code diff** — *introduce `select_deployment_for_turn` + a policy read*.
+3. The attendee **implements the seam in code**, sitting in front of it — this is where they learn
+   *why* optimizability requires seams (the base app is single-model; there's no knob until they add
+   one).
+4. **Apply** the now-existing policy (config) and **re-measure** the saving.
+
+Detect (analytics) → build the seam (L3 code, human) → tune the policy (L4 config, autonomous) →
+verify. The generalizable lesson attendees leave with: *to make an agent app optimizable, you
+deliberately instrument seams — and the platform recommends across all three, tuning config
+autonomously and staging reviewable prompt/code diffs where no knob yet exists.* This reframes the
+tiered router from a demo cheat into the **canonical worked example of a code-seam optimization**.
 
 ## Options considered
 
@@ -179,6 +231,13 @@ goal is to *build* the Cosmos+Fabric loop), but their metric taxonomies are dire
   synthetic simulator traffic carries no agent structure); and the turn holds a single
   `total_tokens` / `model_tier`, so **per-agent cost/quality is not derivable** at the turn grain.
   This corrects an earlier "no new instrumentation" assumption — P0 requires the node-grain re-capture.
+- **Provenance — the tiered router is analytics-track code, not a base-app feature:**
+  `classify_turn_tier` / `select_deployment_for_turn` were introduced by commit **`b717dba`**
+  ("feat(analytics): SCEN-007 apply-loop", 2026-07-09) and are **absent** on `main`,
+  `agent_memory_toolkit`, and `agent_memory_toolkit_v2`. The base app is **single-model** (all turns on
+  the default). The catalog says so: *"model selection is an opportunity dimension here, not a current
+  behavior… exploring it means introducing per-turn routing (SCEN-007)."* The router was **built for the
+  demo**, like the hand-authored scenarios.
 - **Vision already asks for it:** L1 examples include "Agent performance analysis," "Workflow
   bottleneck identification" (`vision/…-vision.md` §Maturity).
 - **State of the art (external research, 2025–26):**
