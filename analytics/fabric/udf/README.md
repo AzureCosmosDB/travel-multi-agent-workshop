@@ -130,6 +130,8 @@ The function return is under the `output` field of the response (alongside
 > the app's `/optimizations/{scenario}/apply|revert` API). The Power BI button below just
 > triggers that same policy flip from *inside the report* — a nicety, not a dependency.
 >
+> **Correction (2026-08-01, per owner):** the real blocker below was later identified as a **transient product bug** in the translytical data-function button (fix expected ≈ mid-Aug 2026), **not** a tenant setting. Treat the "missing dropdowns" as that bug; re-verify once the fix ships. The original note is kept for reference.
+>
 > **Prerequisite — a Fabric tenant admin must enable a preview feature.** Translytical task
 > flows are in preview. An admin enables **Admin portal → Tenant settings → "Users can create
 > and consume translytical task flows"** (label varies by rollout — search *translytical* /
