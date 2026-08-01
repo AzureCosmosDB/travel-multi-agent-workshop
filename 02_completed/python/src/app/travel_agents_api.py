@@ -1267,6 +1267,7 @@ async def chat_event_generator(
         "system_fingerprint": "Unknown",
         "nodes": [],
         "tools": [],
+        "node_execs": [],
     }
 
     base_config = _thread_config(tenant_id, user_id, thread_id)
@@ -1336,6 +1337,20 @@ async def chat_event_generator(
                         dbg["finish_reason"] = usage["finish_reason"]
                     if usage["system_fingerprint"] != "Unknown":
                         dbg["system_fingerprint"] = usage["system_fingerprint"]
+                    # Node-grain capture (ADR-0010 §Layer 1 / B1): keep per-agent
+                    # attribution instead of discarding it. The aggregate above is a rollup.
+                    node_name = (event.get("metadata") or {}).get("langgraph_node")
+                    if node_name:
+                        dbg["node_execs"].append({
+                            "seq": len(dbg["node_execs"]),
+                            "agent": node_name,
+                            "model_deployment": dbg.get("model_deployment", usage["model_name"]),
+                            "model_name": usage["model_name"],
+                            "input_tokens": usage["input_tokens"],
+                            "output_tokens": usage["output_tokens"],
+                            "total_tokens": usage["total_tokens"],
+                            "cached_tokens": usage["cached_tokens"],
+                        })
             elif kind == "on_chat_model_stream":
                 chunk = event.get("data", {}).get("chunk")
                 delta = _message_content_to_text(getattr(chunk, "content", ""))
@@ -1392,6 +1407,18 @@ async def chat_event_generator(
         )
     except Exception as exc:  # noqa: BLE001
         logger.warning("debug log capture failed: %s", exc)
+
+    # Node-grain telemetry (ADR-0010 B1): persist per-agent executions for the
+    # analysis engine. Best-effort; the turn aggregate above is unaffected.
+    try:
+        if dbg.get("node_execs"):
+            from src.app.services.node_executions import store_node_executions
+            await asyncio.to_thread(
+                store_node_executions,
+                tenant_id, user_id, thread_id, debug_log_id, debug_log_id, dbg["node_execs"],
+            )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("node-execution capture failed: %s", exc)
 
     yield {"event": "done", "thread_id": thread_id}
 
