@@ -26,3 +26,14 @@ def repeated_node(nodes):
         opportunity_id="opp-repeated-node", count=len(hit),
         evidence={"turns": hit[:20], "total": len(hit)},
     )]
+
+
+# Deferred structural detector — `structural.superseded_recalled`
+# ----------------------------------------------------------------
+# The design (ADR-0010 §6) also calls for a memory-effectiveness structural
+# detector: a memory that was SUPERSEDED yet later RECALLED and used. That is a
+# definitional (no-threshold) structural pattern, but it needs a signal node-grain
+# does not carry — per-recall memory identity + supersession state (a MemoryEvent
+# grain). It is intentionally NOT registered as a no-op here; add it in this module
+# once that signal exists, decorating `@DETECTORS.register("structural.superseded_recalled")`.
+

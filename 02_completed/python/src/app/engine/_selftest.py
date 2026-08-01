@@ -42,6 +42,21 @@ def run() -> bool:
     ck("detectors: model-fit counterfactual fires", len(modelfit) == 1 and modelfit[0].projected_saving > 0,
        f"{[d.detector for d in findings]}")
 
+    # --- structural detector fixture proof (B3): fires on positive, silent on negative ---
+    from .detectors.structural import repeated_node
+    from .core.schema import NodeExec as _NE
+
+    def _turn(tid, agents):
+        return [_NE("t", "u", "s", tid, i, a, "gpt-5.1", 1000, 200) for i, a in enumerate(agents)]
+
+    pos = _turn("tp", ["supervisor", "find_places", "find_places"])  # back-to-back repeat
+    neg = _turn("tn", ["supervisor", "find_places", "create_or_update_itinerary"])  # clean
+    ck("detectors(structural): repeated_node FIRES on injected positive",
+       len(repeated_node(pos)) == 1 and repeated_node(pos)[0].count == 1,
+       f"{[d.opportunity_id for d in repeated_node(pos)]}")
+    ck("detectors(structural): repeated_node SILENT on clean negative",
+       repeated_node(neg) == [], f"{repeated_node(neg)}")
+
     pr = project("opp-modelfit-supervisor", nodes)
     ck("projection reconciles with detector saving", abs(pr.saving - modelfit[0].projected_saving) < 1e-6,
        f"proj={pr.saving} det={modelfit[0].projected_saving}")
