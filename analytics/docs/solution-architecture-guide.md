@@ -235,6 +235,17 @@ places); (2) **per-agent role rubrics** (`find_places` → relevant/grounded; `c
 against the labeled datasets. Evaluation is thus a first-class *source* of the quality dimensions, not a
 separate appendix.
 
+**The judge is the signal; the runner is pluggable.** Keep two layers distinct. The **judge** — the
+scoring intelligence — is a plain LLM-as-judge (a model call against a rubric) with no vendor
+dependency. The **runner** — what feeds examples to the judge over a dataset and aggregates results — is,
+in the reference suites, LangSmith's `evaluate()` harness (the one piece that needs a LangSmith key). That
+is a convenience, **not an architectural requirement**: what the platform actually depends on is the
+normalized **`EvaluationResult`** primitive, which *any* evaluator can emit — the built-in judge,
+LangSmith, Arize Phoenix, MLflow LLM-as-judge, Ragas, OpenAI Evals, or human labels. So generalizing to
+other agent frameworks does **not** mandate LangSmith (or any single tool); it mandates *an* evaluation
+signal mapped to `EvaluationResult`, with the evaluator chosen per ecosystem. The quality dimension
+depends on quality being *measured and normalized*, not on *who measures it*.
+
 ### 5.2 Scenarios as fixtures
 
 The `optimization-scenarios/` catalog is a library of known optimization patterns. It plays two roles:
