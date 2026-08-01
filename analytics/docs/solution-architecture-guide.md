@@ -675,8 +675,14 @@ request path.
   (per-turn analytical rows **derived from `Debug`**), `OptimizationInsights` (computed
   recommendations/KPIs written back from Fabric), `Configuration` (e.g. model pricing rows).
 
-Most containers use a hierarchical partition key `[tenantId, userId, sessionId]`. All data access is
-centralized in `services/azure_cosmos_db.py` (reuse the accessors; don't create new clients).
+The session-scoped containers use a **hierarchical partition key** `[tenantId, userId, sessionId]` — a
+pattern we **recommend** for multi-agent apps on Cosmos (it aligns the physical layout with how agents
+read/write per tenant → user → session), though it is a recommendation, **not a requirement** — apps are
+free to partition differently. Data access is centralized in `services/azure_cosmos_db.py`, which holds a
+**single long-lived `CosmosClient` and per-container handles as module singletons**; call sites use those
+shared handles rather than constructing a new client per request. (Standard Cosmos guidance: the client
+manages a connection pool and is meant to be reused; new-ing one up per call re-does auth, wastes
+connections, and adds latency.)
 
 **Normalization.** All of this operational state is normalized to a single framework-agnostic
 **Open Agent Analytics Schema**, so analytics and optimization never bind to one agent framework, one

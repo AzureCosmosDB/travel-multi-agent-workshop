@@ -32,6 +32,11 @@ aspirational today.
    implementation guide; mark **grounded**. **Fail** → **cut or redesign** the element; update the guide/ADR.
 4. **Re-tag** the ledger and repeat until every *load-bearing* element is grounded.
 
+**Cut is not permanent (owner appeal).** A `cut` element is **parked, not deleted** — it moves to a
+`cut (revisitable)` state with a one-line note on *why* the spike failed. The owner may **reopen** any cut
+item after review by proposing a candidate solution / a new spike; if the new spike passes, it graduates
+like any other. So "cut" means "not validated *yet*, on the current approach," never "forbidden."
+
 **Human-in-the-loop steps are validated too.** Every element that requires a human action (attest a deploy,
 confirm a revert, review a staged diff, set an SLO, approve a card, declare a params schema) gets its own
 **dry-run usability check**: a real person completes it with the affordance we ship. If they can't, that
