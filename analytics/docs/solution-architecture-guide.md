@@ -380,7 +380,7 @@ Discovered ──▶ Projected ──▶ (appliable?) ──▶ Apply ──▶ 
 | **(appliable?)** | Branch: **diagnostic** items are insight-only and end here; the rest carry an apply action. | engine |
 | **Apply** | The change takes effect. **Config:** written to the policy document, live immediately (auto / autonomous). **Prompt/code:** the human deploys out of band, then **attests** it (see below). | human or autonomous |
 | **Applied (active)** | The optimization is in effect; the moment of go-live is **timestamped** as the measurement boundary. | — |
-| **Observing** | A dwell window accrues enough post-apply turns for a statistically meaningful verdict (suppressed before the minimum sample). | engine |
+| **Observing** | A dwell window accrues enough post-apply samples for a statistically meaningful verdict (suppressed before the minimum sample — which is *derived*, not fixed; see below). | engine |
 | **Re-measured** | The verdict: compares **new actual** vs. **predicted** vs. **prior baseline**, yielding *confirmed* / *insufficient* / *adverse*. | engine |
 | **Kept** | Verdict confirmed (or acceptable); the change stays. | — |
 | **Reverted** | Verdict adverse or insufficient — the change is rolled back (or a human decides to). | human or autonomous |
@@ -410,6 +410,67 @@ Discovered ──▶ Projected ──▶ (appliable?) ──▶ Apply ──▶ 
 **Everything is audited.** Every transition records who, when, and by what (`apply_policy` / `revert`
 carry an actor), including the human attestations. That audit trail — measurable, reversible, auditable
 — is precisely what makes any autonomy safe to grant.
+
+**What sets the *minimum sample* for a verdict?** Not a magic constant — it is **derived from statistical
+power**: the number of post-apply samples needed to separate the expected effect from noise at a chosen
+confidence. It grows for *smaller* effects and *noisier* metrics, and shrinks for large, clean ones.
+Concretely it is a **confidence-interval / sequential-test stopping rule** — declare *confirmed* when the
+interval on the effect excludes "no effect" in the good direction, *adverse* the other way, *insufficient*
+when it straddles "not worth it" — plus an **outcome-events floor** for proportion metrics like conversion
+(you need enough *confirmed trips*, not just turns) and a **time-span floor** so one hour/day of traffic
+cannot bias the verdict. The **owner sets the policy** (target confidence, minimum effect worth acting on,
+minimum outcome events); the **engine computes the n**. Counterfactual and structural detectors need
+essentially no minimum — this dwell applies to the statistical verdict (consistent with §6).
+
+## 7.2 The policy store — a canonical envelope, an app-specific body
+
+The config seam is realized by a **policy store**: small, versioned, reversible documents in Cosmos
+(`OptimizationPolicies`) the app reads at request time. The way to make it **adoptable and future-proof
+without being impossible** is to be **prescriptive about the envelope and the domain taxonomy, and open
+about the body** — the §10.3 adapter split, applied to policy.
+
+**Prescriptive — the envelope (stable across apps).** Every policy shares a generic envelope the platform
+operates on (stage/apply/revert/observe/measure, §7.1) without understanding the app:
+
+```
+{ policyId, domain,          // domain from the taxonomy below
+  scope,                     // global | tenant | user | agent
+  status,                    // proposed|staged → active → reverted
+  enabled, version,
+  apply_mode,                // config (auto) | staged_change (human)
+  autonomy_ceiling,          // the maturity ceiling this domain may reach
+  measurement_boundary,      // go-live timestamp for re-measure
+  audit[],                   // { ts, action, by } — every transition
+  params { … } }             // APP-DEFINED body (opaque to the platform)
+```
+
+**Prescriptive — the domain taxonomy (broadly recognized).** There *is* a canonical set of tunable
+surfaces for agentic apps — it maps onto the eight dimensions, the vision's lower-risk domains, and
+standard inference knobs. Prescribing the *domains* (not their values) is what lets users adopt the design
+and lets the engine reason across apps:
+
+| Policy domain | Tunes | Recognized knobs (examples) | This app |
+|---|---|---|---|
+| **Model selection / routing** | model per agent/task/complexity | tier→deployment map, complexity thresholds, fallback/cascade | ✓ (the taught seam) |
+| **Generation parameters** | per-agent inference | temperature, top_p, max_tokens, reasoning effort, stop | — (uses defaults) |
+| **Routing / delegation** | when/whether to delegate | delegation confidence, max handoffs/hops, recursion limit | partial (implicit) |
+| **Tool use** | which tools, how much | enabled tools, call budget, timeout/retry, parallel vs. serial | some (`find_places`) |
+| **Memory** | recall / salience / retention | top-k, salience threshold, decay/recency weight, TTL, supersession | ✓ |
+| **Retrieval / RAG** | grounding search | top-k, similarity threshold, hybrid weights, rerank | ✓ (Places) |
+| **Context / summarization** | history & context budget | summarize cadence, context-token budget, truncation depth | ✓ (summarizer) |
+| **Cost / budget** | spend ceilings | per-turn/session token or \$ cap, degrade-to-cheaper trigger | — |
+| **Prompt selection** | which prompt variant | prompt version/id, A/B split | — (DSPy/GEPA output lands here) |
+| **Concurrency / latency** | runtime SLOs | timeouts, max parallelism, rate limits | — |
+| **Evaluation / SLO** | quality targets to measure against | min judge score, SLO %, sample/effect floors | cross-cutting |
+| **Autonomy / governance** | how policies are applied | per-domain autonomy ceiling, guard/rollback thresholds, verdict confidence & min sample | cross-cutting (governs §7.1) |
+
+**Open — the body.** The `params` inside each domain are **app-specific and cannot be pre-specified**:
+this app's model-selection `params` hold a `tier→deployment` map and a complexity classifier; another
+app's hold a cascade with different tiers. The platform treats `params` as **opaque**; the **app's
+adapter** interprets them. So *future-proofing lives in the contract and lifecycle — the envelope, the
+domain taxonomy, and the stage/apply/revert/measure loop — not in a universal parameter set*, which is
+both impossible to fix and would break on real apps. Users adopt the envelope + taxonomy + lifecycle for
+free and fill in the bodies their app needs.
 
 ---
 
@@ -730,6 +791,9 @@ example:
 | **GEPA** | a reflective, evolutionary prompt optimizer (LLM reflects on traces, mutates the prompt, keeps a Pareto frontier) (§9.1). |
 | **Open Agent Analytics Schema** | the framework-agnostic set of execution primitives (AgentRun, AgentStep, …, MemoryEvent, EvaluationResult) that all sources normalize into (§10.1). |
 | **Source adapter** | the only framework-specific code: translates one system's native events (execution / memory / evaluation) into schema primitives landed in Cosmos (§10.2–§10.3). |
+| **Policy envelope** | the app-agnostic fields of a policy document (domain, scope, status, version, apply_mode, autonomy_ceiling, audit, …) the platform operates on; `params` is the app-defined body (§7.2). |
+| **Policy domain** | one of the canonical tunable surfaces (model selection, memory, tools, generation params, budget, …) — prescribed as categories, bespoke in their values (§7.2). |
+| **Minimum sample** | the derived (not fixed) number of post-apply samples a statistical verdict needs — a power / CI / sequential-test threshold plus outcome-events and time-span floors (§7.1). |
 
 ---
 

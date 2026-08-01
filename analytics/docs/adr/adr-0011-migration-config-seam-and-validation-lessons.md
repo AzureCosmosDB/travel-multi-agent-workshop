@@ -58,6 +58,25 @@ teaches building it — exactly the existing exercises-vs-completed split. The r
 start, the seam lesson intact, and the autonomous-apply payoff reached as an *earned* result rather than a
 pre-baked given.
 
+**Module scope (provided vs. built).**
+- **Provided (generic infrastructure):** the `OptimizationPolicies` container; the lifecycle service
+  (`propose`/`stage`/`apply`/`revert` + audit + cache — already exists in `services/optimization_policy.py`);
+  the Console; the **policy envelope schema + domain taxonomy** (Solution Architecture Guide §7.2); and the
+  **model/pricing reference data** (seed).
+- **Built by the learner (the seam):** wire the *app* to **read one policy domain and act on it** — the
+  minimal end-to-end config seam. Concretely: read the active `model-selection` policy and route the turn's
+  model from `params` (the `select_deployment_for_turn` read). Optionally extend to a second domain (memory
+  salience/retention) to show the pattern generalizes.
+- **The learner builds the *read + act* side; the *write/apply* side (Console, lifecycle, engine
+  recommendation) is provided** — the reusable lesson is "the app reads a policy and behaves accordingly,"
+  which is the config seam in one sentence.
+
+**Prescriptive vs. bespoke (what the module standardizes).** Be prescriptive about the **envelope** and the
+**domain taxonomy** (broadly recognized; adopt for free), and leave the per-domain **`params` body**
+app-specific (impossible to universalize; interpreted by the app's adapter). Future-proofing lives in the
+contract and lifecycle, not a universal parameter set. See Solution Architecture Guide §7.2 for the
+envelope, the canonical domain taxonomy, and which domains this app exercises vs. which other apps need.
+
 **Generalizability is the argument *for* teaching it.** That most users' apps lack a policy store is not a
 reason to hide one — it is the reason to teach building it. A policy store is the prerequisite for
 autonomous (L4/L5) optimization (ADR-0010 §seams/§maturity); making its construction a lesson is the most
@@ -129,8 +148,9 @@ result; aligns with the exercises-vs-completed split.
 
 ## Open items to verify
 
-- The concrete shape of the foundational "build the policy store" module in `01_exercises/` (scope, what is
-  provided vs. built, the minimal policy schema the app reads).
+- The **module scope is defined** under Decision 1 (provided vs. built; the minimal read-one-domain seam)
+  and the envelope/taxonomy in Solution Architecture Guide §7.2. Remaining: author the exact `01_exercises/`
+  steps and the minimal policy-doc example the app reads.
 - Whether any base-app behavior should read `Configuration` at all, or whether pricing lives purely in the
   analytics track (leaning: analytics-track only; the base app needs no price awareness).
 - The detector-fixture harness itself (injection format, per-detector positive/negative pairs, the
