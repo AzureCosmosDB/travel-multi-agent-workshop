@@ -18,5 +18,8 @@ python analytics/spikes/<name>.py    # exit 0 = pass
 | **B10** `b10_policy_binding_sdk.py` | Is `params` a safe typed contract (not an opaque blob)? | **PASS** (2026-08-01) — clamps bounds, rejects unknown models, enforces invariants, **fails closed**; discovery manifest. |
 | **B16** `b16_autonomy_guard.py` | Can config auto-revert safely on a bad verdict? | **PASS** (2026-08-01) — auto-reverts config on adverse/insufficient w/ audit; holds below min-sample; human-gates non-config. |
 | **B19** `b19_outcome_linkage.py` | Does a correlation key enable session-grain cost-per-outcome? | **PASS** (2026-08-01) — join impossible without `sessionId`, correct with it. *(App code-wiring pending.)* |
+| **B15** `b15_outcome_ledger.py` | Does the system learn from outcomes without fine-tuning? | **PASS** (2026-08-01) — re-ranks by track record + deterministic calibration. |
+| **B17** `b17_node_grain_simulator.py` | Can we fabricate agent-structured telemetry, no LLM? | **PASS** (2026-08-01) — 0% missing structure, correct distributions, reproducible. |
+| **B8** `b8_projection_whatif.py` | Does projection generalize + scale honestly? | **PASS** (2026-08-01) — matches ground truth, usage-scaling, price-only vs behavior-changing split. |
 
 See `analytics/docs/adr/adr-0012-validation-driven-delivery-loop-and-ledger.md` for the full ledger.
