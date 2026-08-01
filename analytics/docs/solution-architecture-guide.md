@@ -565,13 +565,32 @@ precision** validation lives in the synthetic detector fixtures (§5.2).
 ### 9.1 How the analyst proposes prompt and code changes without owning the codebase
 
 A fair objection: how can the analyst recommend a **prompt** — let alone a **code** — change if it has
-no intimate knowledge of the codebase? The design answers this four ways, and the answer is *not* "the
-LLM memorizes the repo."
+no intimate knowledge of the codebase? The design answers this, and the answer is *not* "the LLM
+memorizes the repo."
 
-1. **The seam is pre-identified and localized.** The detector already names *which agent* and *which
-   dimension*, and the recommended change targets a **catalogued seam** — a specific prompt file, or a
-   known code insertion point (e.g. "introduce a per-turn model selector"). The analyst is not asked to
-   reason over the whole system; it works at one small, named location.
+**Where seams come from — declared, not inferred from telemetry.** Telemetry locates the *problem* (a
+detector fires on an agent × dimension); it does **not** reveal the fixable knob. Seams come from the
+app's **declared optimizable surface**, plus a curated catalog:
+
+- **Config seams** are read from the **policy manifest** (§7.2) — registering a policy domain + schema
+  *is* declaring a config seam. ("Built to expose the knob," §7, and "a discoverable seam" are the same
+  act.)
+- **Prompt seams** are read from the **prompt registry** — agents load prompts by name
+  (`load_prompt(agent)` → `prompts/<agent>.prompty`), so the set of prompt files *is* the set of prompt
+  seams.
+- **Which *kind* of seam** a finding maps to is a **curated prior on the dimension** (§3.1/§6 lists a
+  *typical fix seam* per dimension — model-selection → config, agent-quality → prompt, …).
+- **Code seams (net-new mechanisms that don't exist yet)** are **not** derivable from telemetry or a
+  manifest — there is no knob to read. They come from a **curated catalog of seam recipes** (a known
+  pattern + its target site, e.g. "introduce a per-turn model selector at the supervisor build") plus a
+  human who decides.
+
+So the engine maps *problem → candidate seam* by combining the dimension's fix-seam prior with the app's
+declared surface (manifest + prompt registry) or, for net-new code, a recipe catalog — never by inferring
+a code location from telemetry. Given the seam, the analyst then drafts the change:
+
+1. **The seam is localized.** The recommended change targets one small, named location — a policy domain,
+   a specific prompt file, or a recipe's insertion point — not the whole system.
 2. **Code context is *given*, not memorized.** The relevant slice — the target `.prompty` or the target
    function(s), surrounding code, and the app's conventions — is **retrieved and injected** into the
    analyst's prompt, exactly as a coding assistant is fed the files it edits. It reasons over the
@@ -586,9 +605,22 @@ LLM memorizes the repo."
    human finishes. Repo-wide autonomous code authorship is explicitly out of scope (the risk model caps
    code at human-governed).
 
-The deeper the code context and tooling you give it (repo indexing, a coding agent with test access),
-the more ambitious the draft it can produce — but the design never *requires* omniscience, because every
-change is **seam-bounded and human-governed**.
+**Giving it deeper context — the mechanisms, and how a user plugs them in.** Ambition scales with the
+*code context and tooling* wired to the analyst — an opt-in ladder. The fixed backbone is the
+staged-change mechanism + the human-review loop; the deeper-context pieces are **pluggable extensions**:
+
+- **Recipe + pointer (no repo access).** The analyst emits a recipe card (target site + pattern) and a
+  human writes the code. Works with zero code access — the safe default.
+- **Code-context provider (read-only retrieval).** *This is how a user gives deeper context:* wire the
+  analyst to a **read-only repo index/retrieval tool**, scoped by the recipe's target files, so it drafts
+  an actual diff from the real surrounding code and conventions.
+- **Coding-agent runner (sandboxed, advanced).** Give the analyst a **sandboxed checkout with file +
+  test/build tools** so it drafts *and self-verifies* a diff — more ambitious, more setup, cost, and risk.
+- **Prompt seam → DSPy/GEPA** (below).
+
+Whatever the level, the output is always a **staged diff for human review — never auto-merged** (§7.1,
+guardrail 4). The design never *requires* omniscience, because every change is **seam-bounded and
+human-governed**.
 
 > **DSPy and GEPA (the prompt-seam optimizers).**
 > - **DSPy** is a framework for *programming* LLMs instead of hand-writing prompt strings: you declare a
@@ -820,6 +852,9 @@ example:
 | **Minimum sample** | the derived (not fixed) number of post-apply samples a statistical verdict needs — a power / CI / sequential-test threshold plus outcome-events and time-span floors (§7.1). |
 | **Policy binding (SDK)** | the provided helpers that make the `params` contract safe: reference schemas, validate-and-clamp on write, a typed read helper with a fail-closed default, a discovery manifest, and schema versioning (§7.2). |
 | **Fail-closed default** | on a missing/invalid/unknown-version policy the app falls back to its hardcoded current behavior — never to an arbitrary value; the key policy-safety property (§7.2). |
+| **Seam registry** | how the platform *knows* the seams: config seams from the policy manifest (§7.2), prompt seams from the prompt registry, code seams from a curated recipe catalog + human — never inferred from telemetry (§9.1). |
+| **Seam recipe catalog** | curated patterns for net-new *code* seams (a known change + its target site) the analyst instantiates for a human to build (§9.1). |
+| **Code-context provider** | a read-only repo index/retrieval the analyst is wired to (scoped by a recipe's target files) so it can draft an actual diff — how a user gives it deeper code context (§9.1). |
 
 ---
 
