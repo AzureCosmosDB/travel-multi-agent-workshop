@@ -448,7 +448,14 @@ optional small-sample live run — never a full-dataset attendee run.
   maturity + risk models, and the measurement framework — serving as both solution documentation and
   workshop teaching material. (Owner directive 2026-07-31; the seam ladder + detector kinds are the
   first two elements.)
-- Sequencing vs PR #73 (this is a follow-up initiative, not a #73 change).
+- **Sequencing / rollout (decided 2026-07-31):** PR #73 (`mjbrown/unify-v2` → **AzureCosmosDB:main**)
+  is **not** reviewed/merged as-is. Because it targets the upstream *org* repo **and** the redesign is
+  a long, multi-phase effort, the draft is **closed** (all 47 commits preserved on the fork branch),
+  rather than left parked on the org repo; a fresh, **split, review-ready** PR is submitted only when
+  the redesign lands. **The redesign's intended home is a new consolidated repository that will also
+  include the Cosmos agent-memory toolkit** (owner, 2026-07-31) — so the current upstream PR is
+  superseded either way. The **foundation is kept** (reverse-ETL loop, apply-loop, measurement
+  framework, report/Console, the ADRs); the agent-centric engine builds on it in phases **P0–P4**.
 - The **traffic simulator emits no agent structure** (36% attribution gap): for per-agent analysis it
   must produce node-level executions, or be replaced by real / behavioral-probe traffic.
 
