@@ -295,14 +295,14 @@ because the LLM operates inside the codebase.
 **Where the engine LLM executes — inside the Fabric notebook.** The judge and analyst are **Python running
 in the Fabric notebook** that call an LLM endpoint during the analysis job. **No separate service is
 deployed for the engine LLM** — the notebook is the host (a standalone batch service is possible but not
-required). The **model endpoint is a configurable choice**, defaulting to **Fabric's built-in models**
-(SynapseML / AI functions — available on any paid capacity incl. **F2** since the F64 minimum was removed
-in Apr 2025), which are **billed to the Fabric capacity (CU)** and need no extra deployment — *provided the
-built-in model catalog meets the judge/analyst quality bar*. Otherwise, or **to reuse the app's exact
-model**, point it at **the app's own Azure OpenAI** deployment or a **separate Azure model** (billed to
-that resource). Prefer a **judge model distinct from the app's model** to avoid self-grading bias — one
-reason the built-in default is convenient. This mirrors the evaluator pluggability (§5.1) and the adapter
-pattern (§10.3): prescribe *"the notebook calls a configured LLM,"* leave the pick to config.
+required). The **model endpoint is a configurable choice**, defaulting to **Fabric's built-in models** —
+currently **`gpt-5.1` / `gpt-5-mini`** (public preview) via SynapseML / AI functions, available on any paid
+capacity incl. **F2** (the F64 minimum was removed Apr 2025) and **billed to the Fabric capacity (CU)** with
+no extra deployment. To **reuse the app's exact model** (or a model not in the prebuilt set), use **BYOK** —
+point at the app's Azure OpenAI or a **separate Azure model** (billed to that resource). Prefer a **judge
+model distinct from the app's model** to avoid self-grading bias (easy within the built-in set: `gpt-5.1`
+judge, `gpt-5-mini` cheaper passes). This mirrors the evaluator pluggability (§5.1) and the adapter pattern
+(§10.3): prescribe *"the notebook calls a configured LLM,"* leave the pick to config.
 
 ---
 
@@ -835,8 +835,9 @@ workshop (whose near-zero attendee strategy is §12).
 - **Microsoft Fabric capacity.** The analytical plane runs on a Fabric **F-SKU capacity** (billed on
   reserved CU/s, not per query) powering the mirror, Spark notebooks, the semantic model, and the report.
   It is **pausable when idle**; the smallest SKU (**F2**) is sufficient here. *Built-in AI functions run
-  on any paid SKU incl. F2 (the F64 minimum was removed Apr 2025), but F2 is only 2 CU/s — keep the engine
-  LLM to small, pre-baked batches to avoid throttling.*
+  on any paid SKU incl. F2 (F64 minimum removed Apr 2025), billed as CU — but F2 is only 2 CU/s and the
+  built-in `gpt-5.1` costs ~336 CU-sec per 1K output tokens (`gpt-5-mini` ~67), so on F2 keep the engine
+  LLM to small pre-baked batches and prefer the mini model.*
 - **Azure Cosmos DB.** The operational store; on the analytics path it runs **provisioned throughput
   (RU/s) + continuous backup** to enable **Fabric Mirroring** (a real cost delta vs. serverless), and
   mirroring itself consumes RU.
