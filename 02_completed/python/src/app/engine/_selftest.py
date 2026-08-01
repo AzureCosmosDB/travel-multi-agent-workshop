@@ -121,6 +121,30 @@ def run() -> bool:
     ck("seams: prompt recipe is a staged (human-attested) change",
        prec["apply_mode"] == "staged_change" and "human attestation" in prec["requires"], prec["edit"])
 
+    # --- code-context provider (B12) — read-only retrieval -> drafted diff ------------
+    from .codecontext import InMemoryProvider, scaffold_diff
+    src = {
+        "src/app/travel_agents.py": (
+            "def classify_turn_tier(text):\n"
+            "    return 'routine'\n\n"
+            "def select_deployment_for_turn(messages):\n"
+            "    return default, 'default'\n\n"
+            "def unrelated_helper(x):\n"
+            "    return x\n"
+        )
+    }
+    provider = InMemoryProvider(src)
+    ctx = provider.retrieve("introduce-model-selector", hints=["select_deployment_for_turn"])
+    got = {s.symbol for s in ctx.snippets}
+    ck("codecontext: retrieves the relevant seam symbol (read-only)",
+       "select_deployment_for_turn" in got and "unrelated_helper" not in got, f"{sorted(got)}")
+    ck("codecontext: provider has no write path",
+       not any(hasattr(provider, m) for m in ("write", "save", "apply", "commit")))
+    diff = scaffold_diff(ctx, "route trivial turns to a cheaper model")
+    ck("codecontext: analyst can draft a grounded diff from retrieved context",
+       "select_deployment_for_turn" in diff and "TODO(analyst)" in diff and diff.count("--- a/") >= 1,
+       f"{len(diff)} chars")
+
     # --- analyst guardrails ----------------------------------------------------------
     ev = [{"detector": "counterfactual.model_fit", "opportunity_id": "opp-modelfit-supervisor", "traces": ["t1"]}]
     good = RecommendationCard("supervisor", "model selection", "config", "model-selection", ev,
