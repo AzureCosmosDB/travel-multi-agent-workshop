@@ -136,6 +136,18 @@ from the active trip — N% of its turns, $X wasted") instead of a hand-written 
   opportunities, applied, measured saving.
 - **Discovered Opportunities feed:** the analyst's ranked recommendations (replaces the fixed cards),
   each linked to its agent + dimension + evidence.
+- **Projected Impact / What-If (new — demo-first):** for any recommendation, **baseline vs optimized
+  cost** (projected *and*, once applied, realized) with saving $/%, a **usage-scaling control** to
+  project onto future volume ("at N turns/day ≈ $X/month"), and **cost per outcome** before/after.
+  This is the "immediately show an audience the impact" view (and a workshop win). It **generalizes**
+  the existing model-selection counterfactual: every recommendation carries a **projection function**
+  — *which turns it affects and how it changes tokens/turns* — so the engine estimates a projected
+  saving the same way for all (reduced-turns / latency are proxies that feed tokens→cost).
+  **Business impact generalizes through *cost per outcome*:** *price-only* optimizations hold
+  conversion constant (cost ↓ ⇒ cost/outcome ↓ — safe to project); *behavior-changing* ones treat any
+  conversion lift as a **hypothesis confirmed by measured before/after** (the funnel), never a
+  fabricated projection. (This is the price-only vs behavior-changing split from the measurement
+  framework.)
 - **Model Selection / Memory Intelligence / Business Impact:** retained as dimension deep-dives.
 
 ## Answering the owner's questions directly
@@ -327,6 +339,8 @@ optional small-sample live run — never a full-dataset attendee run.
 - Measured-complexity design (features + small classifier vs confidence cascade) and its accuracy vs
   the keyword heuristic.
 - Analyst prompt + guardrails; how the SCEN fixtures validate rediscovery.
+- **Projection functions** per optimization type (how each re-simulates over historical telemetry to
+  produce a projected saving) + the usage-scaling model for the Projected Impact / What-If view.
 - Sequencing vs PR #73 (this is a follow-up initiative, not a #73 change).
 - The **traffic simulator emits no agent structure** (36% attribution gap): for per-agent analysis it
   must produce node-level executions, or be replaced by real / behavioral-probe traffic.
