@@ -243,6 +243,25 @@ The `optimization-scenarios/` catalog is a library of known optimization pattern
 from data on their own (§9). The engine's job is to *discover* issues from telemetry; the catalog is the
 answer key that proves it does.
 
+### 5.3 Operating model — the three planes
+
+The judge and analyst are **analytical-plane** components. They do not run on the user's turn path, and
+they are not embedded in the application; they are coupled to the app **only through Cosmos**.
+
+| Plane | Runs | Contains | Cadence |
+|---|---|---|---|
+| **App runtime** (deployed containers) | the request path | the agents (the *subject* being optimized); reads policy documents; emits telemetry | synchronous, per turn |
+| **Analytical** (Fabric notebook / batch job) | offline, over mirrored data | detectors, the **judge**, the **analyst**, projection + calibration | batch, scheduled |
+| **Human / governance** (Console + PR/CI/CD) | out of band | review, apply config, merge staged diffs, attest deploy/revert | on demand |
+
+The optimizer LLMs (**judge, analyst**) live in the **analytical plane** — a Fabric notebook or a batch
+service — never in the app request path. What lands back in the app source is not the optimizer but the
+**result** of an optimization: a **config policy** the app reads (auto), or a **staged diff** a human
+merges (prompt/code). The analyst *proposes* the change as data; a human or a guardrail *disposes*. This
+decoupling keeps analysis cost and latency off user turns, gives the analyst zero runtime authority, and
+lets it reason over large volumes of history in batch. A code-seam change ends up in source only because
+a **human merges the proposed diff** — not because the LLM operates inside the codebase.
+
 ---
 
 ## 6. Detectors and thresholds — three kinds, not one
@@ -428,6 +447,74 @@ case, a model-selection counterfactual, a stale-memory case, a context re-ask). 
 missing detector or a weak analyst prompt — i.e. a **failing test**, not a matter of taste. "Watch the
 engine find a known problem on its own" is also a strong teaching moment.
 
+### 9.1 How the analyst proposes prompt and code changes without owning the codebase
+
+A fair objection: how can the analyst recommend a **prompt** — let alone a **code** — change if it has
+no intimate knowledge of the codebase? The design answers this four ways, and the answer is *not* "the
+LLM memorizes the repo."
+
+1. **The seam is pre-identified and localized.** The detector already names *which agent* and *which
+   dimension*, and the recommended change targets a **catalogued seam** — a specific prompt file, or a
+   known code insertion point (e.g. "introduce a per-turn model selector"). The analyst is not asked to
+   reason over the whole system; it works at one small, named location.
+2. **Code context is *given*, not memorized.** The relevant slice — the target `.prompty` or the target
+   function(s), surrounding code, and the app's conventions — is **retrieved and injected** into the
+   analyst's prompt, exactly as a coding assistant is fed the files it edits. It reasons over the
+   provided context, not a mental model of the repo.
+3. **Ambition scales with the seam.** A **prompt** is a self-contained artifact, so proposals there are
+   reliable and can be *optimized* automatically (see DSPy/GEPA below). A **code** proposal is a
+   seam-bounded **draft** produced from the injected context plus a catalogued recipe — a reviewable
+   starting diff, not a finished feature.
+4. **The output is a proposal for a human, never auto-applied.** The human reviewer *does* have codebase
+   knowledge; CI/CD tests it; and the re-measure → revert loop (§7.1) is the safety net. So the analyst
+   does not need to be a flawless engineer — it needs to produce a grounded, reviewable diff that a
+   human finishes. Repo-wide autonomous code authorship is explicitly out of scope (the risk model caps
+   code at human-governed).
+
+The deeper the code context and tooling you give it (repo indexing, a coding agent with test access),
+the more ambitious the draft it can produce — but the design never *requires* omniscience, because every
+change is **seam-bounded and human-governed**.
+
+> **DSPy and GEPA (the prompt-seam optimizers).**
+> - **DSPy** is a framework for *programming* LLMs instead of hand-writing prompt strings: you declare a
+>   module by its input→output **signature** and a **metric**, and DSPy **compiles** it — automatically
+>   searching over prompt wordings and few-shot examples (optionally weights) to maximize that metric on
+>   sample data. Prompt engineering becomes a metric-driven compile step.
+> - **GEPA** (Genetic-Pareto) is a *reflective* prompt optimizer (usable within DSPy): it runs
+>   candidate prompts, collects execution traces and natural-language feedback from the metric, uses an
+>   LLM to **reflect** on failures and **mutate** the prompt, and keeps a **Pareto frontier** of the best
+>   candidates (evolutionary search) — reaching strong quality in comparatively few trials.
+>
+> For the **prompt seam** these are the mechanism: generate and *score* candidate prompt revisions
+> against held-out turns, using the **judge (§5.1) as the metric** — turning "here's one suggested
+> rewrite" into "here's an optimized rewrite proven better on held-out data."
+
+### 9.2 How the system learns — the feedback loop
+
+By default the analyst does **not** fine-tune itself; it is a stateless call per run. The system instead
+learns through a **data feedback loop**, so it gets better at "what works" without changing any model
+weights:
+
+1. **An outcome ledger.** Every recommendation's lifecycle (§7.1) — predicted impact, measured actual,
+   and the verdict (*Kept / Reverted-adverse / insufficient*), with actor and timestamp — is recorded in
+   `OptimizationInsights`. This ledger grows over time.
+2. **Fed back as evidence.** On the next run the analyst is handed that history as context, so it can
+   **down-rank patterns that historically underperformed and up-rank ones that delivered**. This is
+   retrieval / in-context learning over an outcome memory, not fine-tuning.
+3. **Deterministic calibration.** Because *the LLM proposes and the engine computes* (§9, guardrail 1),
+   the **projection functions** are corrected by reality: once actual-vs-predicted is measured for an
+   optimization type, future projections apply that observed ratio as a calibration factor. The numbers
+   get more accurate every cycle, independent of the LLM.
+4. **Standing regression.** The rediscovery fixtures (§5.2) continuously verify the analyst still catches
+   known issues as its prompt or the data evolve.
+
+The **judge** has its own calibration loop: its scores are checked against the **labeled datasets** and
+periodic human spot-checks; disagreement triggers a rubric/prompt recalibration. Optionally — advanced,
+not required — the same outcome ledger can drive offline **prompt-optimization (DSPy/GEPA)** or
+fine-tuning of the analyst's *own* prompt. This is how the platform realizes a continuous learning loop:
+the *system* improves from operational outcomes, even though no single LLM's weights change on the
+request path.
+
 ---
 
 ## 10. Data architecture — Cosmos, the mirror, and the write-back
@@ -528,6 +615,10 @@ example:
 | **Confirmation gate** | a human attestation ("deployed" / "reverted") that flips the tool's recorded state for a prompt/code change it cannot observe, and stamps the measurement boundary (§7.1). |
 | **Measurement boundary** | the timestamp when a change went live (or was reverted); re-measure windows before/after around it (§7.1). |
 | **Cost per outcome** | spend ÷ confirmed trips — the generalizing business metric. |
+| **Analytical plane** | where the judge and analyst run (Fabric notebook / batch), off the request path, coupled to the app only via Cosmos (§5.3). |
+| **Outcome ledger** | the recorded history of predicted vs. actual vs. verdict per recommendation; fed back as evidence so the system learns (§9.2). |
+| **DSPy** | a framework that *compiles* LLM programs — optimizing prompts/examples against a metric instead of hand-writing them (§9.1). |
+| **GEPA** | a reflective, evolutionary prompt optimizer (LLM reflects on traces, mutates the prompt, keeps a Pareto frontier) (§9.1). |
 
 ---
 

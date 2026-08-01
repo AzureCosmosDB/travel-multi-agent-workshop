@@ -313,6 +313,22 @@ engine find a known problem on its own" is a strong teaching moment.
 engine-computes) → risk model sets apply mode → projection attaches the saving → rediscovery fixtures
 prove it.
 
+**On DSPy and GEPA (referenced above).** These are the concrete mechanism for the *prompt seam* — how
+the analyst goes beyond a single hand-written suggestion to an *optimized*, evidence-backed prompt diff:
+- **DSPy** (Declarative Self-improving Python) is a framework for *programming* LLMs rather than
+  hand-writing prompt strings. You declare a module by its input→output **signature** and a **metric**,
+  and DSPy **compiles** it — automatically searching over prompt wordings and few-shot demonstrations
+  (optionally weights) to maximize that metric on example data. Prompt engineering becomes a
+  metric-driven compile step.
+- **GEPA** (Genetic-Pareto, "reflective prompt evolution") is a prompt optimizer usable within the DSPy
+  ecosystem. It runs candidate prompts, gathers execution traces and *natural-language* feedback from
+  the metric, uses an LLM to **reflect** on failures and **mutate** the prompt, and maintains a **Pareto
+  frontier** of the best candidates (evolutionary search) — often reaching strong quality in far fewer
+  rollouts than RL-style tuning.
+In this engine both are driven by the **judge as the metric** (score candidate prompt revisions against
+held-out turns), and neither runs on the request path — they are offline optimizers in the analytical
+plane whose *output* is a reviewable prompt change.
+
 ## Options considered
 
 ### Option A — Keep the scenario catalog; just add per-agent charts
