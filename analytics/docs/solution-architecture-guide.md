@@ -441,7 +441,7 @@ operates on (stage/apply/revert/observe/measure, §7.1) without understanding th
   autonomy_ceiling,          // the maturity ceiling this domain may reach
   measurement_boundary,      // go-live timestamp for re-measure
   audit[],                   // { ts, action, by } — every transition
-  params { … } }             // APP-DEFINED body (opaque to the platform)
+  params { … } }             // app-defined body — typed & validated against the app-registered schema (see below)
 ```
 
 **Prescriptive — the domain taxonomy (broadly recognized).** There *is* a canonical set of tunable
