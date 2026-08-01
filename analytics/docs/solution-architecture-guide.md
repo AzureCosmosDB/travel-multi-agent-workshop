@@ -74,13 +74,14 @@ Three processes run the app; a fourth "plane" is the analytics layer.
 
 ## 2. The agent system — what we are actually measuring
 
-You cannot measure agents you cannot name. The completed app (`02_completed/`) is the **v2 supervisor
-architecture** (ADR-0006), *not* the classic per-specialist StateGraph. Verified in
-`travel_agents.py`:
+You cannot measure agents you cannot name. The app is the **v2 supervisor architecture** (ADR-0006),
+*not* the classic per-specialist StateGraph. Verified in `travel_agents.py`:
 
-- One **`supervisor`** ReAct agent (`create_react_agent`, prompt `supervisor.prompty`) orchestrates
-  every turn. It's built per-deployment so a routing policy can bind it to a cheaper/pricier model
-  (`_build_supervisor`, `get_supervisor_for_turn`).
+- ✅ **Base app: one `supervisor` ReAct agent** (`create_react_agent`, prompt `supervisor.prompty`)
+  orchestrates every turn, bound to the **single shared chat model** built in
+  `services/azure_open_ai.py`. **The whole system was originally single-model:** the supervisor *and*
+  both sub-agents use that same model, so **100% of baseline turns run on the default deployment**
+  (`AZURE_OPENAI_DEPLOYMENT`). There is no per-turn model choice in the base app.
 - It calls two **tool-backed sub-agents**:
   - **`find_places`** (`@tool("find_places")` → `_oneshot_find_places`) — place discovery/grounding.
   - **`create_or_update_itinerary`** (`@tool("create_or_update_itinerary")`) — itinerary assembly.
@@ -90,6 +91,17 @@ architecture** (ADR-0006), *not* the classic per-specialist StateGraph. Verified
 So the **three agents that appear in telemetry** — `supervisor`, `find_places`,
 `create_or_update_itinerary` — are the real unit of analysis. (Grounded live, 02, 1,330 turns,
 2026-07-31.)
+
+> ⚠️ **The per-deployment model router is an *analytics-track addition*, not base-app architecture.**
+> In today's `02_completed/` tree the supervisor is *lazily built and cached per Azure deployment*
+> (`_build_supervisor`, `get_supervisor_for_turn`) so an active `model-selection` policy can bind each
+> turn to a cheaper/pricier model (`classify_turn_tier`, `select_deployment_for_turn`). **None of that
+> existed in the base app** — git confirms all four were introduced by commit `b717dba`
+> ("feat(analytics): SCEN-007 apply-loop") and are absent on `main`. This is precisely the **code-seam
+> optimization** the workshop teaches (§4.1 provenance, §7 seam ladder): the base app is single-model;
+> a human ships the router code *first*, and only then does the tier→model map become an auto-applyable
+> **config** policy. Do not read the per-deployment build as the app's inherent design — it is the
+> worked example of "you must build the seam before you can tune it."
 
 ### 2.1 Routing / handoff convention
 
