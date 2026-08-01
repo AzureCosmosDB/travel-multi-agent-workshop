@@ -304,6 +304,12 @@ model distinct from the app's model** to avoid self-grading bias (easy within th
 judge, `gpt-5-mini` cheaper passes). This mirrors the evaluator pluggability (§5.1) and the adapter pattern
 (§10.3): prescribe *"the notebook calls a configured LLM,"* leave the pick to config.
 
+**Auth is Entra-only (no keys or secrets).** The **built-in path uses Fabric's own authentication** — keyless
+by design, so it satisfies this rule out of the box. The **BYOK/external path** passes an **Entra token** for
+the `https://cognitiveservices.azure.com/.default` scope via `azure_ad_token_provider` (the app's
+`azure_open_ai.py` pattern), with the identity granted the **Cognitive Services OpenAI User** data-plane role
+— never a key or client secret.
+
 ---
 
 ## 6. Detectors and thresholds — three kinds, not one
@@ -837,7 +843,9 @@ workshop (whose near-zero attendee strategy is §12).
   It is **pausable when idle**; the smallest SKU (**F2**) is sufficient here. *Built-in AI functions run
   on any paid SKU incl. F2 (F64 minimum removed Apr 2025), billed as CU — but F2 is only 2 CU/s and the
   built-in `gpt-5.1` costs ~336 CU-sec per 1K output tokens (`gpt-5-mini` ~67), so on F2 keep the engine
-  LLM to small pre-baked batches and prefer the mini model.*
+  LLM to small pre-baked batches and prefer the mini model. Handle capacity **throttling (429) with
+  retry + backoff**, and **size up** (or run the engine on a larger capacity) for volume — with sizing
+  guidance for adopters.*
 - **Azure Cosmos DB.** The operational store; on the analytics path it runs **provisioned throughput
   (RU/s) + continuous backup** to enable **Fabric Mirroring** (a real cost delta vs. serverless), and
   mirroring itself consumes RU.
