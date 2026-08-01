@@ -246,46 +246,32 @@ other agent frameworks does **not** mandate LangSmith (or any single tool); it m
 signal mapped to `EvaluationResult`, with the evaluator chosen per ecosystem. The quality dimension
 depends on quality being *measured and normalized*, not on *who measures it*.
 
-### 5.2 Validating a discovery engine — fixtures, not a fixed catalog
+### 5.2 How the engine is validated
 
-The engine's purpose is to **discover** issues from data, so it cannot be validated by a hand-authored
-list of *this* app's known issues. The scenario catalog (`optimization-scenarios/`, SCEN-001…008) is
-genuinely useful — but as **teaching narratives** and a few **end-to-end acceptance anchors** on the real
-app, **not** as the regression suite. As a regression suite it has four weaknesses:
+Because the engine *discovers* issues rather than enumerating them, it is validated on its **detectors** —
+with ground truth **constructed, not discovered**:
 
-- **Instance, not pattern.** "Supervisor re-asks for a city" or "double `find_places`" are travel-app
-  specifics; they don't generalize to another agent app.
-- **Unknown coverage.** It was authored by humans exploring, so it covers whatever they happened to find
-  — the catalog's own bar is only "≥1 scenario per dimension," and at least one entry is parked as
-  unsupported by data. You cannot measure recall against an answer key of unknown completeness.
-- **No negatives.** It lists only things that *are* wrong, so it cannot test **precision** — whether the
-  engine invents issues that aren't real (e.g. flagging a heavy agent that legitimately belongs on a
-  premium model).
-- **Asserted ground truth.** "This is an issue" is a human judgment, not a definitional fact.
+1. **Fixtures test patterns, keyed to `(detector-kind × dimension)`** (§6), independent of any one app's
+   specifics — so the same suite validates the engine across agent apps. (A repeated-node structural
+   fixture, a low-complexity-on-premium counterfactual fixture, and so on.)
+2. **Ground truth by construction (synthetic injection).** Because schema-primitive telemetry can be
+   fabricated (§11), a fixture **injects a known issue of known magnitude** and asserts the engine
+   recovers it — including the **quantity** (the projection should recover ≈ the injected saving). The
+   truth is definitional, not a matter of opinion.
+3. **Matched positive + negative pairs.** Every detector gets an injected-issue dataset (**must fire**)
+   and a clean/justified dataset (**must stay silent**) — validating both **recall** and **precision**
+   (so a heavy agent that legitimately belongs on a premium model does *not* get flagged).
+4. **Coverage is measured over the detector matrix.** Every `(dimension × detector-kind)` cell should
+   carry a positive and a negative fixture, so completeness is checkable rather than guessed.
 
-A discovery engine is validated on its **detectors** (its vocabulary), with ground truth **constructed,
-not discovered**:
+**The suite is living.** Unknown-unknowns cannot be pre-tested, so the fixture set grows from production:
+every human-labeled discovery in the outcome ledger (§9.2) becomes a new fixture — a confirmed novel
+finding as a positive, a reverted false alarm as a negative — and **generalization** is checked by running
+the detectors on held-out telemetry.
 
-1. **Test the pattern, not the instance.** Fixtures are keyed to `(detector-kind × dimension)` (§6) and
-   are app-agnostic. "Double `find_places`" is one instance of the general *repeated-node* structural
-   detector; the fixture exercises the detector, not travel semantics.
-2. **Ground truth by construction (synthetic injection).** Because we can fabricate schema-primitive
-   telemetry (§11), we **inject a known issue of known magnitude** and assert the engine recovers it —
-   including the **quantity** (the projection should recover ≈ the injected saving). The truth is
-   definitional, which removes the incomplete-answer-key problem.
-3. **Matched positive + negative pairs.** Every detector gets an injected-issue set (**must fire**) *and*
-   a clean/justified set (**must stay silent**) — giving both **recall** and **precision**.
-4. **Coverage measured over the detector matrix.** Completeness is "does every `(dimension ×
-   detector-kind)` cell have a positive and a negative fixture?" — so **gaps are visible empty cells**,
-   not a vague "did we list enough scenarios?"
-
-**The fixture set is living, not frozen.** You cannot pre-test for issues no one imagined
-(unknown-unknowns). Instead you (a) exhaustively test the detector primitives above, (b) check
-**generalization** by running the same detectors on held-out / second-app telemetry, and (c) grow the
-suite from production: every human-labeled discovery from the outcome ledger (§9.2) becomes a new fixture
-— a **confirmed novel finding → a positive**, a **reverted false alarm → a negative**. Coverage improves
-over time, and the SCEN cases stay what they are: worked teaching examples and a handful of real-app
-acceptance checks layered on top of the synthetic regression suite.
+The **scenario catalog** (`optimization-scenarios/`) complements this as **teaching narratives** — worked,
+end-to-end walks up the maturity ladder on the real app — and as a handful of realistic **acceptance
+anchors** that exercise the full pipeline against familiar cases.
 
 ### 5.3 Operating model — the three planes
 
@@ -485,13 +471,11 @@ traces and fix-seam metadata, and emits ranked, structured **recommendation card
    staged diff for human review**. The LLM does not choose its own autonomy.
 5. **Human approval** for anything above the auto ceiling.
 
-**Rediscovery — an acceptance layer, not the whole regression suite.** Feeding the engine the
-app-specific SCEN cases and asserting it **rediscovers** them (a redundant-delegation structural case, a
-model-selection counterfactual, a stale-memory case, a context re-ask) is a valuable **end-to-end
-acceptance** check on the real app — and a strong teaching moment ("watch it find a known problem on its
-own"). But the rigorous **regression suite** is the synthetic, matched positive/negative **detector
-fixtures** with constructed ground truth (§5.2): they test the *patterns* the analyst reasons over, cover
-both **recall and precision**, and make coverage gaps visible — which the hand-authored catalog cannot.
+**Acceptance on familiar cases.** Running the engine against the scenario catalog and confirming it
+surfaces those cases end-to-end (a redundant-delegation structural case, a model-selection
+counterfactual, a stale-memory case, a context re-ask) is a realistic **acceptance** check on the app —
+and a strong teaching moment ("watch it find a known problem on its own"). The systematic **recall +
+precision** validation lives in the synthetic detector fixtures (§5.2).
 
 ### 9.1 How the analyst proposes prompt and code changes without owning the codebase
 
