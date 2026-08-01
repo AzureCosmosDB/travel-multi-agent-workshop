@@ -27,5 +27,6 @@ from . import scorecard        # noqa: F401
 from . import complexity       # noqa: F401
 from . import seams            # noqa: F401
 from . import codecontext      # noqa: F401
+from . import quality          # noqa: F401
 
 from .pipeline import analyze, OPPORTUNITY_SEAMS, default_analyst  # noqa: F401,E402

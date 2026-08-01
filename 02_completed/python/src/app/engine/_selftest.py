@@ -145,6 +145,34 @@ def run() -> bool:
        "select_deployment_for_turn" in diff and "TODO(analyst)" in diff and diff.count("--- a/") >= 1,
        f"{len(diff)} chars")
 
+    # --- reference-free quality judge + per-agent rubrics + calibration (B9) ----------
+    from .quality import QualityExample, LabeledExample, deterministic_judge, calibrate, get_rubric
+    ck("quality: per-agent rubrics differ (find_places wants named entities)",
+       get_rubric("find_places").expects_named_entities and get_rubric("itinerary").expects_structure
+       and not get_rubric("supervisor").expects_named_entities)
+    dataset = [
+        # find_places: names concrete venues => good; vague => bad
+        LabeledExample(QualityExample("find_places", "Try Hotel Le Bristol and Le Comptoir du Relais near Saint-Germain.",
+                                      "hotels and dining in Paris"), True),
+        LabeledExample(QualityExample("find_places", "There are several good hotels and some restaurants you could try.",
+                                      "hotels and dining in Paris"), False),
+        # itinerary: day-by-day structure => good; unstructured => bad
+        LabeledExample(QualityExample("itinerary", "Day 1: check in at Hotel Lutetia, Louvre, then dinner at Septime. Day 2: Versailles day trip.",
+                                      "2-day plan"), True),
+        LabeledExample(QualityExample("itinerary", "You should visit some museums and eat at nice places while there.",
+                                      "2-day plan"), False),
+        # supervisor: helpful clarifying answer => good; empty => bad
+        LabeledExample(QualityExample("supervisor", "Happy to help plan Paris — how many days and what's your budget?",
+                                      "plan my trip"), True),
+        LabeledExample(QualityExample("supervisor", "ok.", "plan my trip"), False),
+    ]
+    cal = calibrate(deterministic_judge, dataset, tolerance=0.8)
+    ck("quality: reference-free judge agrees with labels within tolerance",
+       cal["within_tolerance"] and cal["agreement"] >= 0.8,
+       f"agreement={cal['agreement']} P={cal['precision']} R={cal['recall']} {cal['confusion']}")
+    ck("quality: judge does not trivially pass everything (precision > 0.5)",
+       cal["precision"] > 0.5, f"precision={cal['precision']}")
+
     # --- analyst guardrails ----------------------------------------------------------
     ev = [{"detector": "counterfactual.model_fit", "opportunity_id": "opp-modelfit-supervisor", "traces": ["t1"]}]
     good = RecommendationCard("supervisor", "model selection", "config", "model-selection", ev,
