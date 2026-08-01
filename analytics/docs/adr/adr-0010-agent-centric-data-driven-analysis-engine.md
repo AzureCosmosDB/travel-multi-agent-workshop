@@ -279,6 +279,40 @@ This maps onto the seam ladder: counterfactual/structural detections → config/
 statistical/quality → regressions a human investigates. **Teach it in the workshop** as: *you don't
 hand-pick thresholds; you pick detector kinds*, and only the statistical few carry a (derived) one.
 
+## The LLM-analyst — guardrails & rediscovery (resolves open item #4)
+
+The analyst is Layer 2b: it consumes detector outputs (anomalies per agent × dimension) + representative
+traces + fix-seam metadata, and emits ranked, structured **recommendation cards**:
+
+```
+{ agent, dimension, evidence[], proposed_change{ seam, target, diff|value },
+  maturity_ceiling, apply_mode, projected_impact }
+```
+
+**Five guardrails** keep it useful and safe:
+
+1. **LLM proposes, engine computes.** The analyst decides *which agent / dimension / change / why*
+   (qualitative); the deterministic **projection function** computes the **saving** (quantitative). The
+   LLM never invents a dollar figure — this kills the hallucinated-savings failure mode.
+2. **Bounded to known seams.** Output is a *structured* card against a **config knob / prompt file /
+   code diff** — never free-form; no unknown action space.
+3. **Grounded + cited.** Every card must cite its detector evidence + sample traces; uncited claims are
+   rejected (the anomaly-explanation pattern from the research).
+4. **Risk-model-gated apply.** The seam sets `apply_mode` automatically: **config → auto (L4/5)**;
+   **prompt / code → staged diff for human review (L3)**. The LLM doesn't choose its own autonomy.
+5. **Human approval** for anything above the auto ceiling.
+
+**Rediscovery as a regression suite (how we know it works).** The flipped `SCEN-001…008` catalog is the
+**answer key**: feed the engine the known-issue fixtures and **assert it rediscovers** them from data —
+SCEN-005 (double `find_places`, structural), SCEN-007 (model selection, counterfactual), SCEN-004 (stale
+memory), SCEN-001 (city-context re-ask). A miss = a real gap (missing detector / weak analyst prompt) =
+a **failing test**, not a vibe. The catalog thus becomes the engine's **test harness** — and "watch the
+engine find a known problem on its own" is a strong teaching moment.
+
+**Closure:** detectors (3 kinds) surface anomalies → analyst (bounded, grounded, LLM-proposes /
+engine-computes) → risk model sets apply mode → projection attaches the saving → rediscovery fixtures
+prove it.
+
 ## Options considered
 
 ### Option A — Keep the scenario catalog; just add per-agent charts
@@ -404,7 +438,9 @@ optional small-sample live run — never a full-dataset attendee run.
 - Concrete detector set + baseline windows per dimension; cold-start handling.
 - Measured-complexity design (features + small classifier vs confidence cascade) and its accuracy vs
   the keyword heuristic.
-- Analyst prompt + guardrails; how the SCEN fixtures validate rediscovery.
+- Analyst: **resolved in principle** — five guardrails (LLM-proposes / engine-computes, seam-bounded,
+  grounded + cited, risk-gated apply, human approval) + rediscovery-as-regression-suite over the SCEN
+  fixtures. Remaining: the analyst prompt text + the per-scenario fixture assertions.
 - **Projection functions** per optimization type (how each re-simulates over historical telemetry to
   produce a projected saving) + the usage-scaling model for the Projected Impact / What-If view.
 - Author a **Solution Architecture Guide** (new doc) that consolidates the learning concepts —
