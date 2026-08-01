@@ -12,6 +12,7 @@ analysis notebook.
 |---|---|---|
 | `core/` | shared types (`NodeExec`), the `Registry`, cost primitives | — |
 | `instrumentation/` | node-grain capture from the LangGraph event stream (Layer 1) | — |
+| `complexity/` | realized-complexity signal (measured tokens) vs the keyword tier | — |
 | `detectors/` | detectors (structural / counterfactual / statistical) | **add a module + `@DETECTORS.register`** |
 | `policy/` | the binding SDK (typed params, validate/clamp, fail-closed) | — |
 | `policy/domains/` | one policy domain per module | **add a module + `@DOMAINS.register`** |

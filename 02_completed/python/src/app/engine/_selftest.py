@@ -57,6 +57,25 @@ def run() -> bool:
     ck("detectors(structural): repeated_node SILENT on clean negative",
        repeated_node(neg) == [], f"{repeated_node(neg)}")
 
+    # --- realized-complexity signal beats the keyword tier (B6) ----------------------
+    from .complexity import LabeledTurn, compare_coverage
+    labeled = [
+        # truly trivial turns the keyword classifier MISSES (not greetings, but low-output)
+        LabeledTurn("what's the currency in France?", 40, True),
+        LabeledTurn("is the Louvre open on Mondays?", 55, True),
+        LabeledTurn("how far is Versailles from Paris?", 60, True),
+        LabeledTurn("hi", 20, True),                       # keyword catches this one
+        # truly substantive turns neither should downgrade
+        LabeledTurn("build me a day-by-day itinerary for 5 days", 2200, False),
+        LabeledTurn("find hotels and restaurants near the Marais", 700, False),
+    ]
+    cov = compare_coverage(labeled)
+    ck("complexity: measured signal finds MORE opportunity than keyword tier",
+       cov["measured_recall"] > cov["keyword_recall"] and cov["extra_opportunities"] >= 2,
+       f"keyword={cov['keyword_caught']}/{cov['truly_trivial']} measured={cov['measured_caught']}/{cov['truly_trivial']}")
+    ck("complexity: measured signal does not downgrade truly-substantive turns",
+       cov["measured_false_downgrades"] == 0, f"false_downgrades={cov['measured_false_downgrades']}")
+
     pr = project("opp-modelfit-supervisor", nodes)
     ck("projection reconciles with detector saving", abs(pr.saving - modelfit[0].projected_saving) < 1e-6,
        f"proj={pr.saving} det={modelfit[0].projected_saving}")
