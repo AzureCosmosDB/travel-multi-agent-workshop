@@ -6,6 +6,7 @@ This directory is the persisted knowledge base for the **Agent Analytics and Opt
 
 | Path | Purpose |
 |------|---------|
+| `solution-architecture-guide.md` | **Consolidated architecture + teaching guide** — the whole solution (app + analytics engine) and the concepts to reason about it: agents × dimensions, the three-layer engine, the seam ladder, the detector taxonomy, maturity/risk, and the measurement framework. Read after the charter for the big picture. |
 | `vision/agent-analytics-and-optimization-vision.md` | The north-star product vision (verbatim reference artifact). |
 | `charter.md` | The concrete scope, maturity target, and first principles governing this effort. Start here. |
 | `adr/` | Architecture Decision Records — every architectural decision, with the evidence behind it. |
