@@ -542,10 +542,10 @@ request path.
 Most containers use a hierarchical partition key `[tenantId, userId, sessionId]`. All data access is
 centralized in `services/azure_cosmos_db.py` (reuse the accessors; don't create new clients).
 
-**Normalization.** Operational state maps to a framework-agnostic schema of execution primitives
-(`AgentRun`, `AgentStep`, `AgentTransition`, `ToolInvocation`, `MemoryEvent`, `Checkpoint`,
-`EvaluationResult`, `TokenUsage`, `UserSession`, `WorkflowExecution`) so analytics stays portable across
-agent frameworks.
+**Normalization.** All of this operational state is normalized to a single framework-agnostic
+**Open Agent Analytics Schema**, so analytics and optimization never bind to one agent framework, one
+memory layer, or one evaluator. The schema, how it is realized in this solution, and how it is fed are
+detailed in §10.1–§10.3.
 
 **Mirror + write-back.** Fabric **mirrors** the relevant Cosmos containers into OneLake; notebooks
 compute insights over the mirror and **write results back into Cosmos** (`OptimizationInsights`), so the
@@ -555,6 +555,79 @@ a Fabric SQL endpoint via managed identity, **Cosmos is the operational bridge**
 **Surfaces.** The **Power BI report** is the visibility surface (dashboards over the mirrored data). The
 **Console** in the web app is the interactive apply-loop (inspect a recommendation, apply a policy or
 stage a change, re-measure).
+
+### 10.1 The Open Agent Analytics Schema, realized
+
+The schema is a small set of **execution primitives** common to any agentic system. Standardizing on
+these — rather than on framework-specific objects — is what lets the same detectors, engine, and surfaces
+run across frameworks. Here is each primitive and how it is realized in this Cosmos-based solution:
+
+| Primitive | What it captures | Realized here (source → Cosmos) |
+|---|---|---|
+| **UserSession** | a user's conversational session/thread | `Sessions` (span, `activeAgent`, status) |
+| **WorkflowExecution** | one end-to-end turn and its outcome | per-turn row in `Debug` → `OptimizationTurns` (`agent_path`, `handoff_count`, tokens), outcome-linked to `Trips.status` |
+| **AgentRun** | one agent's execution within a turn (the agent-execution grain, §2.2) | per sub-agent invocation, from the runtime's per-node streaming events |
+| **AgentStep** | a step inside an agent run (a model call / reasoning step) | `on_chat_model_end` per node; message steps in `Messages` |
+| **AgentTransition** | a delegation/handoff between agents | supervisor → sub-agent delegations (the `agent_path` sequence, `handoff_count`) |
+| **ToolInvocation** | a tool call and its result | tool calls on the turn (`find_places` / `create_or_update_itinerary` + MCP tools); `Messages.toolCalls` |
+| **TokenUsage** | tokens consumed per call/turn/agent | `Debug` input/output/cached/total tokens; per-agent at node grain |
+| **MemoryEvent** | memory create / recall / supersede / decay | Cosmos Agent Memory Toolkit: `memories` (salience, `superseded_by`, `lastUsedAt`, `ttl`), `memories_turns`, `memories_summaries` |
+| **Checkpoint** | persisted agent/graph state | `Checkpoints` (LangGraph `CosmosDBSaver`) |
+| **EvaluationResult** | a quality/eval score | emitted by the evaluator (LLM-judge via LangSmith or another runner), normalized per agent/turn (§5.1) |
+
+`Trips.status` is the **outcome anchor** that hangs off `WorkflowExecution` — the business-success signal
+every dimension is ultimately judged against. (Some primitives are captured at turn grain today and at
+the richer agent-execution grain where per-agent attribution is needed, per §2.2 — the schema is the same
+either way.)
+
+### 10.2 How the schema is fed — source adapters
+
+The schema is populated by **source adapters**, one per producing system. An adapter's only job is to
+translate its native events into the primitives and land them in Cosmos (the operational SoR); Fabric
+then mirrors and builds the gold schema. In this solution there are three, plus the domain outcome:
+
+| Source adapter | Feeds these primitives | How |
+|---|---|---|
+| **LangGraph / LangChain** (execution) | AgentRun, AgentStep, AgentTransition, ToolInvocation, TokenUsage, Checkpoint | runtime streaming events (per-node model-end, tool calls, delegations) + the `CosmosDBSaver`, captured to `Debug` / `Checkpoints` |
+| **Cosmos Agent Memory Toolkit** (memory) | MemoryEvent (+ memory-state: salience, supersession, TTL, recall) | persists the full memory lifecycle as operational state in `memories` / `memories_turns` / `memories_summaries` |
+| **LangSmith / evaluator** (evaluation) | EvaluationResult | the LLM-judge, run via LangSmith's harness (or another runner), normalized per agent/turn (§5.1) |
+| **App domain** (outcome) | WorkflowExecution outcome | `Trips.status` links each turn/session to a confirmed booking |
+
+The adapters are the **only framework-specific code** in the pipeline. Everything downstream — the mirror,
+the normalized schema, the detectors, the engine, the surfaces — is common and unaware of which
+frameworks produced the data.
+
+### 10.3 Portability and productization — pluggable adapters (predicated on Cosmos)
+
+Because the framework-specific surface is isolated in the adapters, the platform can be **productized as
+importable modules along an (Agent Framework × Evaluator Framework) matrix** over a common core. What is
+fixed vs. swappable:
+
+- **Invariant substrate (fixed):** **Cosmos DB as the operational system of record** + Fabric mirror +
+  the Open Agent Analytics Schema + the analysis engine (detectors / analyst / projection) + the
+  surfaces. The whole design is **predicated on the solution using Cosmos** — that is the foundation, not
+  an option.
+- **Swappable adapters:**
+  - **Agent-framework adapter** — LangGraph here; Microsoft Agent Framework, OpenAI Agents SDK, or a
+    custom framework each map their execution events to AgentRun/Step/Transition/ToolInvocation/
+    TokenUsage/Checkpoint. OpenTelemetry GenAI semconv and OpenInference are the interop path for
+    frameworks that already emit standard traces.
+  - **Evaluator adapter** — LangSmith here; Arize Phoenix, MLflow, Ragas, OpenAI Evals, or human labels
+    each emit EvaluationResult (§5.1).
+
+> **Can the memory piece be made pluggable too? (the honest answer.)** *At the contract level, yes:* the
+> memory adapter's job is to emit **MemoryEvent** + memory-state, and any memory layer that persists
+> salience/recall/supersession can feed the memory dimension. *The catch is depth:* the richness of
+> **Memory Intelligence** is bounded by what the memory layer instruments. A naive vector store emits only
+> "store/retrieve" — no salience, supersession, or decay — so it yields shallow memory analytics. The
+> **Cosmos Agent Memory Toolkit is the reference memory adapter precisely because it emits the full
+> lifecycle as operational state in Cosmos**, realizing the vision's "analyze what agents *know, remember,
+> and persist*," not just what they do. So memory is pluggable at the `MemoryEvent` contract, but flagship
+> memory intelligence assumes a lifecycle-instrumenting memory layer; adapting a third-party one is
+> possible but delivers only as much memory intelligence as it records (closing the gap means wrapping it
+> to emit the missing MemoryEvent signals into Cosmos). Since the whole platform is Cosmos-predicated
+> anyway, the Cosmos-native toolkit is the natural first-class choice — the memory adapter that ships
+> "batteries included."
 
 ---
 
@@ -630,6 +703,8 @@ example:
 | **Outcome ledger** | the recorded history of predicted vs. actual vs. verdict per recommendation; fed back as evidence so the system learns (§9.2). |
 | **DSPy** | a framework that *compiles* LLM programs — optimizing prompts/examples against a metric instead of hand-writing them (§9.1). |
 | **GEPA** | a reflective, evolutionary prompt optimizer (LLM reflects on traces, mutates the prompt, keeps a Pareto frontier) (§9.1). |
+| **Open Agent Analytics Schema** | the framework-agnostic set of execution primitives (AgentRun, AgentStep, …, MemoryEvent, EvaluationResult) that all sources normalize into (§10.1). |
+| **Source adapter** | the only framework-specific code: translates one system's native events (execution / memory / evaluation) into schema primitives landed in Cosmos (§10.2–§10.3). |
 
 ---
 
