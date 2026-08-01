@@ -1,0 +1,124 @@
+# ADR-0012: Validation-driven delivery — the de-risking loop and the validation ledger
+
+- **Status:** Accepted
+- **Date:** 2026-08-01
+- **Deciders:** Mark Brown (@markjbrown), with agent analysis
+- **Related:** `../charter.md` (first principle: data-grounded, "should work" is not "works"), `adr-0010-agent-centric-data-driven-analysis-engine.md` (the target design + phases P0–P4), `adr-0011-migration-config-seam-and-validation-lessons.md`, `../solution-architecture-guide.md`
+
+> **Why this exists.** The Solution Architecture Guide and ADR-0010/0011 describe an ambitious target
+> design. Much of it is **not built or validated**, and confident prose made speculative elements *read*
+> as settled. This ADR is the antidote: a **spike-gated delivery loop** and a **validation ledger** that
+> refuses to let unvalidated design accumulate. Nothing graduates from "designed" to "relied upon"
+> without a passing spike and an observed exit criterion.
+
+## Context
+
+The owner's reality check: *"Are we operating in reality? … we're proposing a design we haven't validated
+and can actually be built. There should be a loop where you build and test this design and keep going
+until all elements are validated with a refined implementation guide and reference implementation —
+including every element that requires human input, whose usability is also validated."*
+
+This is the charter's first principle applied to our own design. The correction is not more design; it is a
+**process** that grounds each element before we depend on it, and an honest **ledger** of what is real vs.
+aspirational today.
+
+## Decision — a spike-gated delivery loop
+
+**The loop (kept deliberately simple):**
+1. **Rank** the ledger by *risk × load-bearing-ness*; take the top **un-grounded** element.
+2. **Spike:** write the *smallest throwaway proof* that answers its one open question. Define a **binary
+   exit criterion up front** — observed, not "should work."
+3. **Verdict:** **pass** → promote into the reference implementation + write that section of the
+   implementation guide; mark **grounded**. **Fail** → **cut or redesign** the element; update the guide/ADR.
+4. **Re-tag** the ledger and repeat until every *load-bearing* element is grounded.
+
+**Human-in-the-loop steps are validated too.** Every element that requires a human action (attest a deploy,
+confirm a revert, review a staged diff, set an SLO, approve a card, declare a params schema) gets its own
+**dry-run usability check**: a real person completes it with the affordance we ship. If they can't, that
+step is broken design, not a footnote.
+
+**Boundaries this loop enforces (from earlier decisions):** the platform **never runs/builds/tests/merges
+code or touches CI/CD** (ADR-0011 / guide §9.1); config apply/revert is automatic, prompt/code is a
+human-attested staged diff (§7.1). Any element implying otherwise is *speculative* until a spike says
+otherwise.
+
+**Where status lives.** The **guide stays the clean green-field target** (no status tags — per the owner's
+directive). **This ledger** carries the honest per-element status. ADR-0010's phases **P0–P4 become
+spike-gated**: a phase item ships only when its ledger row is `grounded`.
+
+## The validation ledger
+
+Status: **Grounded** = exists and works today (cited) · **Spike** = plausible, needs a cheap proof ·
+**Speculative** = feasibility *or* value genuinely uncertain.
+
+### A. The working spine — already real (Grounded)
+
+| # | Element | Evidence |
+|---|---|---|
+| A1 | Config **policy store** (propose/stage/apply/revert + audit + cache) | `services/optimization_policy.py` |
+| A2 | **Model-selection apply-loop** (per-deployment supervisor, tier classifier, policy read) | `travel_agents.py` (`classify_turn_tier`, `select_deployment_for_turn`, `_build_supervisor`) |
+| A3 | **Memory-retention** apply/revert | `services/optimization_recommendations.py` (`apply_memory_retention` / `revert_memory_retention`) |
+| A4 | **Staged-change** mechanism (`{file,diff}`, `apply_mode:"staged_change"`, `/stage`) | `optimization_api.py`, `optimization_recommendations.py` (`get_city_context_staged_change`) |
+| A5 | **Turn-grain telemetry** (`Debug` → `OptimizationTurns`) + reverse-ETL / `compute_insights` | `data/export_conversations.py`, analytics notebook |
+| A6 | **Report + Console** surfaces (dashboards + apply-loop UI) | `analytics/…Report.pbix`, `console/` |
+| A7 | **Eval harness** (`answer_quality`/`correctness`/`humanness`; e2e/routing/tool_usage) | `01_exercises/evaluation/` (runner: LangSmith `aevaluate`) |
+| A8 | **Hand-authored** recommendation/diagnostic builders (the current SCEN cards) | `services/optimization_recommendations.py` (the thing the redesign *replaces*) |
+| A9 | **Pricing / Configuration** reference data (mirrored) | `Configuration` container |
+
+*The core loop — measure → detect → recommend → apply(config) → re-measure — already runs end-to-end for the
+config seam. We are not starting from zero.*
+
+### B. The redesign frontier — not yet real
+
+| # | Element | Status | Spike question → exit criterion |
+|---|---|---|---|
+| B1 | **Agent-execution (node) grain** re-instrumentation | Spike | Can we record per-node tokens/tool-calls/recalls from the streaming path, cost-neutral? → a captured dataset with per-node token attribution on ≥1 multi-agent turn |
+| B2 | **Agent Scorecard** (agent × dimension rollup) | Spike (needs B1) | Render one agent's 8-dimension health from node-grain data |
+| B3 | **Structural detectors** (repeated node, superseded-recalled) | Spike (low-risk) | Fires on an injected positive, silent on a clean negative |
+| B4 | **Counterfactual detector**, generalized beyond model-selection | Spike (model-sel. version grounded) | Recovers an injected saving within tolerance |
+| B5 | **Statistical detectors** + derived thresholds + min-sample/sequential verdict | Speculative | Enough data & not noisy? → stable baseline + "suppressed before N" behavior on fixtures |
+| B6 | **Measured realized-complexity** signal (replace keyword tier) | Spike | Correlates with node-grain tokens; finds more opportunity than the keyword tier |
+| B7 | **LLM analyst** (grounded, cited, seam-bounded cards) | **Speculative (biggest)** | Does an LLM reliably emit bounded, cited, non-hallucinated cards? → on N fixtures, ≥X% cards pass a rubric (bounded seam, cited evidence, no invented numbers) |
+| B8 | **Projection functions** generalized + **What-If** view | Spike (model-sel. version grounded) | Projected vs. measured within tolerance for ≥2 optimization types |
+| B9 | **Quality signal**: reference-free + per-agent rubrics + calibration | Spike | Reference-free judge agrees with the labeled datasets within tolerance |
+| B10 | **Policy manifest + binding SDK** (typed params, validate/clamp, discovery, versioning, fail-closed) | Speculative | Simple enough to adopt? → a second (toy) app binds one domain; invalid write rejected; missing policy fails closed |
+| B11 | **Seam registry** (config-from-manifest, prompt-from-registry, recipe catalog) | Speculative | Engine lists available seams from manifest + prompt registry; a recipe instance renders |
+| B12 | **Code-context provider** (read-only retrieval; optional) | Speculative (low priority) | Analyst drafts a diff from retrieved context on one seam |
+| B13 | **Detector-fixture harness** (synthetic injection, pos/neg, coverage matrix) | Speculative | Injects a known issue → asserts recovery incl. magnitude; a clean negative stays silent |
+| B14 | **Rediscovery acceptance** (engine rediscovers a SCEN end-to-end) | Speculative (needs B3/B4/B7) | Engine surfaces ≥1 SCEN case from data |
+| B15 | **Outcome ledger + feedback-as-evidence** (re-rank underperformers) | Spike | Ledger records predicted/actual/verdict; analyst input includes it and re-ranks on a seeded example |
+| B16 | **Autonomy guard** (measure → auto-revert for config) | Spike | A seeded adverse verdict triggers an automatic revert with audit |
+| B17 | **Node-grain golden fixture + agent-structured simulator** | Spike | Simulator emits agent-structured node executions; fixture loads offline at $0 |
+
+### C. Human-in-the-loop steps — each needs a dry-run usability check
+
+| # | Human step | Exit criterion |
+|---|---|---|
+| C1 | Deploy attestation + revert confirmation (Console) | A person completes deploy-attest and revert-confirm; state + timestamp recorded |
+| C2 | Reviewing a staged diff | A person can read and act on the staged-diff format |
+| C3 | Setting SLO / confidence / min-effect policy | A person sets these via UI with guidance; the engine consumes them |
+| C4 | Approving an analyst recommendation card | A person approves/rejects; the decision is audited |
+| C5 | Declaring a domain params schema (learner) | A learner declares one schema + read site from the guide; the app behaves |
+
+## Consequences
+
+- **Positive:** an honest picture of reality (a strong Grounded spine + a clearly-marked speculative
+  frontier); a bias to **cut** what doesn't survive a spike; the guide stays clean while status is tracked
+  here; P0–P4 become spike-gated so we never "rely on 'should work.'"
+- **Negative / costs:** slower than big-design-up-front; requires discipline to write throwaway spikes and
+  to kill elements; the ledger must be kept current.
+- **Risks:** the biggest load-bearing unknown is **B7 (the LLM analyst)** — if it can't reliably produce
+  bounded, cited cards, the "discovers issues" story narrows toward detectors + human triage. That is an
+  acceptable fallback, and finding it early is the point.
+
+## Open items to verify
+
+- Confirm each **Grounded** row still runs on the current branch (a quick smoke pass) before building on it.
+- Sequence the first spikes: **B1 (node grain)** unblocks B2/B6; **B7 (analyst)** is the highest-risk value
+  test; **B13 (fixture harness)** is the tool that makes every other detector/analyst spike measurable.
+- Decide per element the numeric tolerances/`N`/`X%` in the exit criteria (currently placeholders).
+
+## References
+
+- `../charter.md` (first principles); ADR-0010 (phases), ADR-0011 (migration); Solution Architecture Guide.
+- Code cited inline in the ledger (Grounded rows).
