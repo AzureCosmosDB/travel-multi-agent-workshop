@@ -681,6 +681,12 @@ example:
 
 - **The loop end-to-end** — modules walk instrument → mirror → insights → report/Console → apply →
   measure.
+- **The foundational seam module — build the policy store.** The base app is representative: it hardcodes
+  its model and thresholds, with no policy store. The first optimization module has attendees **externalize
+  the tunable surface** (model selection, thresholds, memory salience/retention) into a Cosmos policy
+  document the app reads at runtime. This is the **entry ticket to autonomy** — building the config seam
+  once is what turns every later optimization into an autonomous config flip. (The model/pricing reference
+  is *provided* as data; the policy store is *built*.)
 - **The hands-on code-seam module.** Attendees are *in the code building the app*, so the strongest
   lesson is to have them **live a code-seam optimization** and walk the full maturity ladder in one
   exercise:
