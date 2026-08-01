@@ -1339,11 +1339,24 @@ async def chat_event_generator(
                         dbg["system_fingerprint"] = usage["system_fingerprint"]
                     # Node-grain capture (ADR-0010 §Layer 1 / B1): keep per-agent
                     # attribution instead of discarding it. The aggregate above is a rollup.
-                    node_name = (event.get("metadata") or {}).get("langgraph_node")
-                    if node_name:
+                    #
+                    # In the v2 ReAct architecture the sub-agents (find_places,
+                    # itinerary, recall_memories) run *nested* inside the supervisor's
+                    # tool node, so `langgraph_node` only reports the raw graph node
+                    # ("agent" for the supervisor's own model call, "tools" for the
+                    # nested sub-agent calls). `_subagent_config` stamps the semantic
+                    # name into metadata["sub_agent"], so prefer that for attribution
+                    # and fall back to mapping the supervisor's own "agent" node.
+                    md = event.get("metadata") or {}
+                    node_name = md.get("langgraph_node")
+                    agent = md.get("sub_agent") or (
+                        "supervisor" if node_name == "agent" else node_name
+                    )
+                    if agent:
                         dbg["node_execs"].append({
                             "seq": len(dbg["node_execs"]),
-                            "agent": node_name,
+                            "agent": agent,
+                            "langgraph_node": node_name,
                             "model_deployment": dbg.get("model_deployment", usage["model_name"]),
                             "model_name": usage["model_name"],
                             "input_tokens": usage["input_tokens"],
