@@ -605,22 +605,22 @@ a code location from telemetry. Given the seam, the analyst then drafts the chan
    human finishes. Repo-wide autonomous code authorship is explicitly out of scope (the risk model caps
    code at human-governed).
 
-**Giving it deeper context — the mechanisms, and how a user plugs them in.** Ambition scales with the
-*code context and tooling* wired to the analyst — an opt-in ladder. The fixed backbone is the
-staged-change mechanism + the human-review loop; the deeper-context pieces are **pluggable extensions**:
+**Giving it deeper context — kept deliberately simple.** For a **code** seam the analyst produces, at
+most, a **recipe + an optional draft diff**; a **human writes, tests, and merges it through their own
+normal process.** Two levels, and only two:
 
-- **Recipe + pointer (no repo access).** The analyst emits a recipe card (target site + pattern) and a
-  human writes the code. Works with zero code access — the safe default.
-- **Code-context provider (read-only retrieval).** *This is how a user gives deeper context:* wire the
-  analyst to a **read-only repo index/retrieval tool**, scoped by the recipe's target files, so it drafts
-  an actual diff from the real surrounding code and conventions.
-- **Coding-agent runner (sandboxed, advanced).** Give the analyst a **sandboxed checkout with file +
-  test/build tools** so it drafts *and self-verifies* a diff — more ambitious, more setup, cost, and risk.
-- **Prompt seam → DSPy/GEPA** (below).
+- **Recipe + pointer (default, no repo access).** The analyst emits a recipe card (target site + pattern);
+  a human writes the code. Works with zero code access.
+- **Code-context provider (optional, read-only).** Wire the analyst to a **read-only** repo
+  retrieval scoped to the recipe's target files, so its draft diff reflects the real surrounding code.
+  Still just a draft.
+- **Prompt seam → DSPy/GEPA** (below) — a self-contained artifact, so this one *can* be optimized.
 
-Whatever the level, the output is always a **staged diff for human review — never auto-merged** (§7.1,
-guardrail 4). The design never *requires* omniscience, because every change is **seam-bounded and
-human-governed**.
+**Explicit non-goal:** the platform **never runs, builds, tests, or merges code, and never touches your
+CI/CD.** There is no "coding-agent runner." The output is always a **staged diff for a human to review and
+apply through their normal process** (§7.1, guardrail 4) — the human and their pipeline are the build and
+correctness path, exactly as with the deploy/revert attestations. The design never *requires* omniscience,
+because every change is **seam-bounded and human-governed**.
 
 > **DSPy and GEPA (the prompt-seam optimizers).**
 > - **DSPy** is a framework for *programming* LLMs instead of hand-writing prompt strings: you declare a
