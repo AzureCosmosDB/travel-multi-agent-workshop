@@ -58,6 +58,30 @@ def run() -> bool:
     ck("detectors(structural): repeated_node SILENT on clean negative",
        repeated_node(neg) == [], f"{repeated_node(neg)}")
 
+    # --- statistical detector: derived threshold + min-sample + not-noisy (B5) --------
+    from .detectors.statistical import cost_regression, MIN_SAMPLE
+
+    def _series(agent, values):
+        return [_NE("t", "u", "s", agent, i, agent, "gpt-5.1", 1000, v) for i, v in enumerate(values)]
+
+    def _alt(base, n):  # small ±10 jitter so the baseline has non-zero variance
+        return [base - 10 if i % 2 else base + 10 for i in range(n)]
+
+    tiny = _series("A", _alt(200, MIN_SAMPLE))                       # < 2*MIN_SAMPLE
+    clean = _series("A", _alt(200, 80))                             # stationary
+    outlier = _series("A", _alt(200, 79) + [5000])                  # one spike in recent
+    regression = _series("A", _alt(200, 40) + _alt(600, 40))        # persistent level shift
+    ck("detectors(statistical): SUPPRESSED before N (min sample)", cost_regression(tiny) == [],
+       f"{cost_regression(tiny)}")
+    ck("detectors(statistical): silent on a stationary baseline", cost_regression(clean) == [],
+       f"{cost_regression(clean)}")
+    ck("detectors(statistical): NOT noisy — a single outlier does not fire",
+       cost_regression(outlier) == [], f"{cost_regression(outlier)}")
+    reg = cost_regression(regression)
+    ck("detectors(statistical): FIRES on a consistent, material regression",
+       len(reg) == 1 and reg[0].evidence["z"] >= 3.0 and reg[0].evidence["effect"] >= 0.2,
+       f"{reg[0].evidence if reg else None}")
+
     # --- realized-complexity signal beats the keyword tier (B6) ----------------------
     from .complexity import LabeledTurn, compare_coverage
     labeled = [
@@ -207,6 +231,12 @@ def run() -> bool:
        f"{[(c['opportunity_id'], c['apply_mode']) for c in cards]}")
     ck("pipeline: card saving == engine projection (not the proposer's claim)",
        msel and abs(msel[0]["saving"] - pr.saving) < 1e-6, f"{msel[0]['saving'] if msel else None}")
+
+    # --- rediscovery acceptance (B14): engine rediscovers a catalogued SCEN from data ---
+    from .pipeline import rediscovered_scenarios
+    scens = rediscovered_scenarios(cards)
+    ck("acceptance(B14): engine rediscovers >=1 catalogued SCEN end-to-end (SCEN-007)",
+       len(scens) >= 1 and "SCEN-007" in scens, f"rediscovered={scens}")
 
     # --- agent scorecard (agent x dimension rollup, B2) ------------------------------
     cards_sc = build_scorecard(nodes)

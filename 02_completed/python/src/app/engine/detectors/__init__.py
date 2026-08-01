@@ -12,3 +12,4 @@ from .base import DETECTORS, Detection, run_all, KINDS  # noqa: F401
 # Import detector modules so their @register decorators run.
 from . import structural  # noqa: F401,E402
 from . import counterfactual  # noqa: F401,E402
+from . import statistical  # noqa: F401,E402
