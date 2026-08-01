@@ -338,7 +338,8 @@ detectors only past a minimum sample size** (suppressed, not noisy, before that)
 The most consequential architecture concept: **optimizations live on a spectrum of *seams*, and the
 seam decides both *how* you apply an optimization and *how autonomously* you can.** An optimization is
 only auto-applyable if the application was **built to expose the knob**; building the knob is itself a
-one-time, human-governed change.
+one-time, human-governed change. (The **autonomy ceiling** column below is the highest maturity level a
+seam may reach — the L1–L5 ladder and the risk model behind it are defined in §8.)
 
 | Seam | Example | "Apply" = | Autonomy ceiling |
 |---|---|---|---|
