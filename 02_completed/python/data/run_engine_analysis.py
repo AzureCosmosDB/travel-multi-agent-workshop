@@ -24,17 +24,13 @@ import sys
 # Allow `import src.app.engine` when run as a script from python/.
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.app.engine import simulation, analyze, policy  # noqa: E402
+from src.app.engine import simulation, analyze, seams  # noqa: E402
 from src.app.engine.core.schema import NodeExec  # noqa: E402
 
 
 def declared_surface() -> dict[str, set]:
-    """The optimizable surface for the analyst guardrails (seam registry)."""
-    return {
-        "config": set(policy.DOMAINS.keys()),                 # policy domains
-        "prompt": {"supervisor.prompty", "itinerary_agent.prompty"},
-        "code": {"introduce-model-selector"},
-    }
+    """The optimizable surface for the analyst guardrails — from the seam registry."""
+    return seams.surface()
 
 
 def _nodes_from_cosmos(tenant_id: str) -> list[NodeExec]:

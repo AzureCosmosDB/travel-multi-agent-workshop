@@ -18,6 +18,7 @@ analysis notebook.
 | `policy/domains/` | one policy domain per module | **add a module + `@DOMAINS.register`** |
 | `projection/` | projection functions + What-If (scaling, cost-per-outcome) | **add a module + `@PROJECTIONS.register`** |
 | `analyst/` | recommendation cards + the five guardrails (LLM proposes / engine computes) | — |
+| `seams/` | the declared optimizable surface + recipe rendering (the seam ladder) | **add a `register(Seam(...))`** |
 | `autonomy/` | measure → verdict → auto-revert guard (config seam) | — |
 | `learning/` | outcome ledger + feedback (re-rank + calibrate) | — |
 | `scorecard/` | agent × dimension health rollup (Layer 2 surface) | **add a scorer + `@DIMENSIONS.register`** |

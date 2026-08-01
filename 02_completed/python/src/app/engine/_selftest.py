@@ -15,6 +15,7 @@ from .analyst import RecommendationCard, process_card
 from .autonomy import Policy, Observation, guard
 from .learning import LedgerEntry, rank_candidates
 from .scorecard import build_scorecard, format_scorecard
+from .seams import surface as seam_surface, render_recipe, list_seams
 from .pipeline import analyze
 from .simulation import simulate
 
@@ -102,8 +103,25 @@ def run() -> bool:
             "default_deployment": "gpt-5-mini", "tiers": {"routine": "gpt-5-mini"}}})
     ck("policy: valid policy accepted", "ok" in s3 and p["default_deployment"] == "gpt-5-mini", s3)
 
+    # --- seam registry (B11) — the declared surface + recipe rendering ---------------
+    surface = seam_surface()
+    ck("seams: registry lists the app's seams (config/prompt/code)",
+       len(list_seams()) >= 4 and "model-selection" in surface["config"]
+       and "supervisor.prompty" in surface["prompt"] and "introduce-model-selector" in surface["code"],
+       f"{sorted(surface['config'])} | {sorted(surface['prompt'])} | {sorted(surface['code'])}")
+    rec = render_recipe("config:model-selection",
+                        {"enabled": True, "default_deployment": "gpt-5-mini", "tiers": {"routine": "gpt-5-mini"}})
+    ck("seams: config recipe binds params -> a fail-closed policy doc (auto/L4)",
+       rec["accepted"] and rec["apply_mode"] == "auto" and rec["autonomy_ceiling"] == "L4"
+       and rec["policy_doc"]["params"]["default_deployment"] == "gpt-5-mini", rec["status"])
+    bad = render_recipe("config:model-selection", {"default_deployment": "gpt-6-ultra"})
+    ck("seams: config recipe fails closed on an invalid deployment",
+       not bad["accepted"] and bad["policy_doc"] is None, bad["status"])
+    prec = render_recipe("prompt:supervisor", {"guidance": "trim examples"})
+    ck("seams: prompt recipe is a staged (human-attested) change",
+       prec["apply_mode"] == "staged_change" and "human attestation" in prec["requires"], prec["edit"])
+
     # --- analyst guardrails ----------------------------------------------------------
-    surface = {"config": {"model-selection"}, "prompt": {"supervisor.prompty"}, "code": {"introduce-model-selector"}}
     ev = [{"detector": "counterfactual.model_fit", "opportunity_id": "opp-modelfit-supervisor", "traces": ["t1"]}]
     good = RecommendationCard("supervisor", "model selection", "config", "model-selection", ev,
                               "opp-modelfit-supervisor", pr.saving, "auto", "L4")
