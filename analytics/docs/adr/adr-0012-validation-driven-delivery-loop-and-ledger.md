@@ -102,13 +102,13 @@ config seam. We are not starting from zero.*
 
 ### C. Human-in-the-loop steps — each needs a dry-run usability check
 
-| # | Human step | Exit criterion |
-|---|---|---|
-| C1 | Deploy attestation + revert confirmation (Console) | A person completes deploy-attest and revert-confirm; state + timestamp recorded |
-| C2 | Reviewing a staged diff | A person can read and act on the staged-diff format |
-| C3 | Setting SLO / confidence / min-effect policy | A person sets these via UI with guidance; the engine consumes them |
-| C4 | Approving an analyst recommendation card | A person approves/rejects; the decision is audited |
-| C5 | Declaring a domain params schema (learner) | A learner declares one schema + read site from the guide; the app behaves |
+| # | Human step | Exit criterion | Status |
+|---|---|---|---|
+| C1 | Deploy attestation + revert confirmation (Console) | A person completes deploy-attest and revert-confirm; state + timestamp recorded | **Grounded — verified live** (Console `Attest deploy` / `Confirm revert` → `POST /agent/{tenant}/decision`; audited in `OptimizationGovernance` with by+timestamp; opportunity `governed_state` reflects it) |
+| C2 | Reviewing a staged diff | A person can read and act on the staged-diff format | **Grounded — verified live** (Console `Review diff` → `GET /agent/{tenant}/opportunity/{id}/diff`; config renders the fail-closed policy doc, prompt/code render a staged human-attested change via seams/codecontext) |
+| C3 | Setting SLO / confidence / min-effect policy | A person sets these via UI with guidance; the engine consumes them | **Grounded — verified live** (Console SLO form → `POST /agent/{tenant}/slo`; raising `min_effect` to 0.30 flipped `clears_slo` false for a 0.271-effect opportunity — the engine consumes it) |
+| C4 | Approving an analyst recommendation card | A person approves/rejects; the decision is audited | **Grounded — verified live** (Console `Approve`/`Reject` → `POST /agent/{tenant}/decision`; recorded in the audit trail) |
+| C5 | Declaring a domain params schema (learner) | A learner declares one schema + read site from the guide; the app behaves | **Grounded — verified live** (Console schema form → `POST /agent/{tenant}/schema`; the engine binds it through the fail-closed SDK — clamped `ttl_days` 9999→365 — and returns the discovery manifest) |
 
 ## Consequences
 
