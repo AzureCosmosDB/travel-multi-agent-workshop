@@ -14,6 +14,7 @@ from .policy import DOMAINS, bind_policy
 from .analyst import RecommendationCard, process_card
 from .autonomy import Policy, Observation, guard
 from .learning import LedgerEntry, rank_candidates
+from .pipeline import analyze
 from .simulation import simulate
 
 
@@ -92,6 +93,15 @@ def run() -> bool:
     led = [LedgerEntry("model-selection", 100, 100, "kept"), LedgerEntry("tool-dedup", 100, 20, "reverted")]
     ranked = rank_candidates(led, [("model-selection", 100), ("tool-dedup", 100)])
     ck("learning: reliable pattern ranks first", ranked[0][0] == "model-selection", str(ranked))
+
+    # --- full pipeline (detect -> project -> propose -> guardrail -> rank) -----------
+    cards = analyze(nodes, surface)
+    msel = [c for c in cards if c["opportunity_id"] == "opp-modelfit-supervisor"]
+    ck("pipeline: produces a validated model-selection card",
+       len(msel) == 1 and msel[0]["seam"] == "config" and msel[0]["apply_mode"] == "auto",
+       f"{[(c['opportunity_id'], c['apply_mode']) for c in cards]}")
+    ck("pipeline: card saving == engine projection (not the proposer's claim)",
+       msel and abs(msel[0]["saving"] - pr.saving) < 1e-6, f"{msel[0]['saving'] if msel else None}")
 
     # --- report ----------------------------------------------------------------------
     print("=" * 78)
