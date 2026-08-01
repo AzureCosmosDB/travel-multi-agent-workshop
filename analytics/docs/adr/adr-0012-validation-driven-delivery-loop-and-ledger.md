@@ -94,6 +94,7 @@ config seam. We are not starting from zero.*
 | B15 | **Outcome ledger + feedback-as-evidence** (re-rank underperformers) | Spike | Ledger records predicted/actual/verdict; analyst input includes it and re-ranks on a seeded example |
 | B16 | **Autonomy guard** (measure → auto-revert for config) | Spike | A seeded adverse verdict triggers an automatic revert with audit |
 | B17 | **Node-grain golden fixture + agent-structured simulator** | Spike | Simulator emits agent-structured node executions; fixture loads offline at $0 |
+| B18 | **Power BI Option-A surface** (HTML card gallery + selection-bound translytical Apply/Revert) | Spike (every link evidenced; end-to-end build pending) | Assemble one page: recommendation rows as HTML-Content cards (Granularity role) → select a card → shared Apply/Revert data-function buttons `fx`-bound to `SELECTEDVALUE([scenario])` → UDF flips policy in Cosmos → report updates. *Ruled out (evidenced): per-card HTML button → UDF REST (sandbox strips scripts; null-origin CORS; no Entra token). Caveats: Service-only, DirectQuery, preview tenant setting — Console stays the reliable surface.* |
 
 ### C. Human-in-the-loop steps — each needs a dry-run usability check
 
