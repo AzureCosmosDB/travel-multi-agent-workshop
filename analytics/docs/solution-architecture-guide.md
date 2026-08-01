@@ -255,7 +255,7 @@ with ground truth **constructed, not discovered**:
    specifics — so the same suite validates the engine across agent apps. (A repeated-node structural
    fixture, a low-complexity-on-premium counterfactual fixture, and so on.)
 2. **Ground truth by construction (synthetic injection).** Because schema-primitive telemetry can be
-   fabricated (§11), a fixture **injects a known issue of known magnitude** and asserts the engine
+   fabricated (§12), a fixture **injects a known issue of known magnitude** and asserts the engine
    recovers it — including the **quantity** (the projection should recover ≈ the injected saving). The
    truth is definitional, not a matter of opinion.
 3. **Matched positive + negative pairs.** Every detector gets an injected-issue dataset (**must fire**)
@@ -808,37 +808,61 @@ never a framework feature that magically knows your business.
 
 ---
 
-## 11. Cost and data-generation strategy
+## 11. Cost and operations (running the solution)
 
-Running **live agents** to generate telemetry is expensive (hours and a large token bill). The design
-keeps the attendee cost near zero by **separating generating telemetry from running the analysis
-engine**:
+These are the cost drivers of *operating* the platform — a whole-solution concern, independent of the
+workshop (whose near-zero attendee strategy is §12).
 
-- **Agent-execution-grain capture is cost-neutral.** The agents already run and already make their LLM
-  calls each turn; instrumentation simply *records* each execution instead of discarding the detail.
-  More rows, not more LLM calls.
-- **Telemetry is fixture-first.** A **golden fixture** is captured once (a single, richer live run,
-  exported and committed); everyone else loads it offline via the seed path → \$0. A **traffic
-  simulator** fabricates additional agent-structured executions with realistic distributions — still no
-  LLM — for volume and "watch it move" demos.
-- **Engine LLM cost is bounded by pre-baking.** The judge and analyst run **once**; their outputs
-  (per-agent quality scores, recommendation cards) are committed as fixtures, so the platform appears
-  fully populated for \$0. The teaching moment is reading the code that *produces* them, and optionally
-  running the judge on a handful of live turns (cents, not hours).
+**Variable cost drivers:**
+- **Azure OpenAI (LLM) — the dominant variable.** Two distinct sources: (1) the **app's agent turns**
+  (per-turn model calls — exactly what the model-selection optimization reduces); and (2) the **engine's
+  own LLM** — the LLM-judge and LLM-analyst — which runs **batch/offline in the analytical plane** (§5.3),
+  never on a user turn.
+- **Microsoft Fabric capacity.** The analytical plane runs on a Fabric **F-SKU capacity** (billed on
+  reserved CU/s, not per query) powering the mirror, Spark notebooks, the semantic model, and the report.
+  It is **pausable when idle**; the smallest SKU (**F2**) is sufficient here.
+- **Azure Cosmos DB.** The operational store; on the analytics path it runs **provisioned throughput
+  (RU/s) + continuous backup** to enable **Fabric Mirroring** (a real cost delta vs. serverless), and
+  mirroring itself consumes RU.
+- **Hosting.** Azure Container Apps (API, MCP server, frontend) + storage / OneLake.
 
-The result: load fixtures → run the Fabric analytics (capacity cost only, no tokens) → explore
-scorecards and opportunities → apply a policy → re-measure. No live agents, no hours, no token bill.
+**Cost levers (architecture-level — apply to any deployment):**
+- **Fixture-first vs. live generation.** Generating telemetry by running **live agents** is the expensive
+  path (hours + a large token bill); prefer **captured fixtures / synthetic traffic** wherever fresh live
+  data isn't required.
+- **Re-graining is cost-neutral.** Recording per-agent-execution telemetry adds *rows*, not LLM calls —
+  the nodes already ran (§2.2).
+- **Pre-bake the engine LLM.** Run the judge/analyst **once** and persist their outputs, so the analytical
+  path isn't paying LLM per view.
+- **Right-size + pause.** Pause Fabric capacity when idle; scale Cosmos RU to the mirror workload.
+
+The workshop turns these levers into a **≈ $0 attendee experience** — see §12.
 
 ---
 
-## 12. How this maps to the workshop
+## 12. The workshop
 
-The whole solution is a worked instance of the loop **measure → baseline → detect → analyze →
-recommend → apply → re-measure**, and the workshop teaches that *general method* using this app as the
-example:
+The whole solution is a worked instance of the loop **measure → baseline → detect → analyze → recommend
+→ apply → re-measure**, and the workshop teaches that *general method* using this app as the example.
 
-- **The loop end-to-end** — modules walk instrument → mirror → insights → report/Console → apply →
-  measure.
+### 12.1 Attendee cost ≈ $0 — the data-generation strategy
+
+The workshop applies §11's levers so attendees pay **no LLM cost**, by **separating generating telemetry
+from running the analysis engine**:
+- **Fixture-first telemetry.** A **golden fixture** is captured **once, by the maintainer** (a single,
+  richer live run, exported + committed); everyone else **loads it offline** via the seed path → \$0.
+- **Synthetic traffic.** A **simulator fabricates** additional agent-structured executions with realistic
+  distributions — **no LLM** — for volume and "watch it move live" demos.
+- **Pre-baked engine outputs.** The judge and analyst run **once**; their outputs (per-agent quality
+  scores, recommendation cards) are **committed as fixtures**, so the platform appears fully populated for
+  \$0. Optionally run the judge on a handful of live turns (cents, not hours) to *see* it work.
+
+**Attendee path:** load fixtures → run the Fabric analytics (**capacity cost only, no tokens**) → explore
+scorecards + opportunities → apply a policy → re-measure. **No live agents, no hours, no token bill.**
+
+### 12.2 The teaching path
+
+- **The loop end-to-end** — modules walk instrument → mirror → insights → report/Console → apply → measure.
 - **The foundational seam module — build the policy store.** The base app is representative: it hardcodes
   its model and thresholds, with no policy store. The first optimization module has attendees **externalize
   the tunable surface** (model selection, thresholds, memory salience/retention) into a Cosmos policy
