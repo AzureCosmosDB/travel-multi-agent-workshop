@@ -284,13 +284,24 @@ they are not embedded in the application; they are coupled to the app **only thr
 | **Analytical** (Fabric notebook / batch job) | offline, over mirrored data | detectors, the **judge**, the **analyst**, projection + calibration | batch, scheduled |
 | **Human / governance** (Console + PR/CI/CD) | out of band | review, apply config, merge staged diffs, attest deploy/revert | on demand |
 
-The optimizer LLMs (**judge, analyst**) live in the **analytical plane** — a Fabric notebook or a batch
-service — never in the app request path. What lands back in the app source is not the optimizer but the
-**result** of an optimization: a **config policy** the app reads (auto), or a **staged diff** a human
-merges (prompt/code). The analyst *proposes* the change as data; a human or a guardrail *disposes*. This
-decoupling keeps analysis cost and latency off user turns, gives the analyst zero runtime authority, and
-lets it reason over large volumes of history in batch. A code-seam change ends up in source only because
-a **human merges the proposed diff** — not because the LLM operates inside the codebase.
+The optimizer LLMs (**judge, analyst**) live in the **analytical plane** — never in the app request path.
+What lands back in the app source is not the optimizer but the **result** of an optimization: a **config
+policy** the app reads (auto), or a **staged diff** a human merges (prompt/code). The analyst *proposes*
+the change as data; a human or a guardrail *disposes*. This decoupling keeps analysis cost and latency off
+user turns, gives the analyst zero runtime authority, and lets it reason over large volumes of history in
+batch. A code-seam change ends up in source only because a **human merges the proposed diff** — not
+because the LLM operates inside the codebase.
+
+**Where the engine LLM executes — inside the Fabric notebook.** The judge and analyst are **Python running
+in the Fabric notebook** that call an LLM endpoint during the analysis job. **No separate service is
+deployed for the engine LLM** — the notebook is the host (a standalone batch service is possible but not
+required). The **model endpoint is a configurable choice**, defaulting to **Fabric's built-in models**
+(SynapseML / AI functions), which are **billed to the Fabric capacity (CU)** and need no extra
+deployment; alternatively point it at **the app's own Azure OpenAI** deployment or a **separate Azure
+model** (billed to that resource). Prefer a **judge model distinct from the app's model** to avoid
+self-grading bias — one reason the Fabric-built-in default is convenient. This mirrors the evaluator
+pluggability (§5.1) and the adapter pattern (§10.3): prescribe *"the notebook calls a configured LLM,"*
+leave the pick to config.
 
 ---
 
@@ -816,8 +827,10 @@ workshop (whose near-zero attendee strategy is §12).
 **Variable cost drivers:**
 - **Azure OpenAI (LLM) — the dominant variable.** Two distinct sources: (1) the **app's agent turns**
   (per-turn model calls — exactly what the model-selection optimization reduces); and (2) the **engine's
-  own LLM** — the LLM-judge and LLM-analyst — which runs **batch/offline in the analytical plane** (§5.3),
-  never on a user turn.
+  own LLM** — the LLM-judge and LLM-analyst — which runs **batch/offline inside the Fabric notebook**
+  (§5.3), never on a user turn. By default (2) uses **Fabric's built-in models billed to the Fabric
+  capacity (CU)**, so it is *not* a separate Azure OpenAI token line unless you configure it to use the
+  app's / a separate Azure model.
 - **Microsoft Fabric capacity.** The analytical plane runs on a Fabric **F-SKU capacity** (billed on
   reserved CU/s, not per query) powering the mirror, Spark notebooks, the semantic model, and the report.
   It is **pausable when idle**; the smallest SKU (**F2**) is sufficient here.
