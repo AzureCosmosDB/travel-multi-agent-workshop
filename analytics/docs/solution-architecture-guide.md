@@ -309,6 +309,59 @@ This is the whole lesson: *to make an agent app optimizable, you deliberately in
 human to review and deploy). The analyst *generates* the staged diff; **arbitrary code is never
 auto-applied** — the hard ceiling of the risk model.
 
+## 7.1 The optimization lifecycle — a state machine
+
+Every discovered opportunity moves through the same lifecycle. The seam (§7) decides only *how* the
+apply and revert transitions happen — automatically for **config**, human-attested for **prompt/code**.
+
+```
+                                   ┌─ diagnostic (insight-only): stops here, no apply ─┐
+                                   │                                                   ▼
+Discovered ──▶ Projected ──▶ (appliable?) ──▶ Apply ──▶ Applied ──▶ Observing ──▶ Re-measured ─┬─▶ Kept
+              (What-If:                          │       (active)     (dwell        (verdict)    │
+               predicted                         │                     window)                   └─▶ Reverted
+               impact)              auto (config) ┤
+                                    attested (prompt/code)
+```
+
+| State | Meaning | Who drives it |
+|---|---|---|
+| **Discovered** | A detector surfaced an anomaly for an (agent × dimension). | engine |
+| **Projected** | The What-If view attaches a **predicted impact** — a real projected number for *price-only* changes; a *hypothesis to be confirmed* for *behavior-changing* ones (§4.2). | engine |
+| **(appliable?)** | Branch: **diagnostic** items are insight-only and end here; the rest carry an apply action. | engine |
+| **Apply** | The change takes effect. **Config:** written to the policy document, live immediately (auto / autonomous). **Prompt/code:** the human deploys out of band, then **attests** it (see below). | human or autonomous |
+| **Applied (active)** | The optimization is in effect; the moment of go-live is **timestamped** as the measurement boundary. | — |
+| **Observing** | A dwell window accrues enough post-apply turns for a statistically meaningful verdict (suppressed before the minimum sample). | engine |
+| **Re-measured** | The verdict: compares **new actual** vs. **predicted** vs. **prior baseline**, yielding *confirmed* / *insufficient* / *adverse*. | engine |
+| **Kept** | Verdict confirmed (or acceptable); the change stays. | — |
+| **Reverted** | Verdict adverse or insufficient — the change is rolled back (or a human decides to). | human or autonomous |
+
+**Apply and revert are seam-dependent — this is the crux:**
+
+- **Config seam (the tool owns the state).** Apply and revert are **automatic and reversible** — flip
+  the policy document to `active` or back. This makes an autonomous **measure → verdict → auto-revert
+  guard** possible: apply, observe, and if the measured verdict is adverse/insufficient, revert without
+  a human. This is the safety loop that lets the lower-risk domains reach L4/L5.
+
+- **Prompt/code seam (the tool cannot observe the real code).** The platform holds only a *record of
+  intent*; it cannot know whether a diff was merged, deployed, or reverted. So it deliberately does
+  **not** model the deployment pipeline (no `merged` / `tested` / `in-production` substates — those are
+  unverifiable claims that drift from reality and belong to your normal PR/CI/CD process). Instead the
+  two transitions that depend on out-of-band work are **human-attested via a confirmation gate**:
+  - **Apply/Deploy:** the human deploys the staged diff, then confirms *"this change is deployed"* →
+    state → `deployed`, **timestamped** as the measurement boundary.
+  - **Revert:** clicking Revert opens a confirmation — *"Confirm the code has been reverted"* — and only
+    on confirmation does the tool flip the recorded state back (and stamp the revert time so re-measure
+    stops attributing turns to it).
+
+  The confirmation is doing real work: it keeps the tool's recorded state honest about a world it can't
+  observe, and it captures the **effective time boundary** the re-measure step needs. There is no
+  auto-revert on this seam — reverting is itself a human-governed change.
+
+**Everything is audited.** Every transition records who, when, and by what (`apply_policy` / `revert`
+carry an actor), including the human attestations. That audit trail — measurable, reversible, auditable
+— is precisely what makes any autonomy safe to grant.
+
 ---
 
 ## 8. Maturity and risk models — how a seam sets the ceiling
@@ -472,6 +525,8 @@ example:
 | **Projection function** | per-optimization "which turns it affects × how it changes tokens" → projected saving (§4.3). |
 | **Detector kind** | counterfactual / structural / statistical — determines the threshold source (§6). |
 | **Autonomy ceiling** | the highest maturity level (L1–L5) a change may reach, set by its seam/risk domain (§8). |
+| **Confirmation gate** | a human attestation ("deployed" / "reverted") that flips the tool's recorded state for a prompt/code change it cannot observe, and stamps the measurement boundary (§7.1). |
+| **Measurement boundary** | the timestamp when a change went live (or was reverted); re-measure windows before/after around it (§7.1). |
 | **Cost per outcome** | spend ÷ confirmed trips — the generalizing business metric. |
 
 ---
