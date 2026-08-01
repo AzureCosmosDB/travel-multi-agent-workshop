@@ -240,6 +240,45 @@ deliberately instrument seams — and the platform recommends across all three, 
 autonomously and staging reviewable prompt/code diffs where no knob yet exists.* This reframes the
 tiered router from a demo cheat into the **canonical worked example of a code-seam optimization**.
 
+## Detectors & thresholds — three kinds, not one (resolves open item #2)
+
+The "healthy vs. unhealthy / what thresholds?" worry mostly dissolves once detectors are separated by
+*kind* — and the two most valuable kinds need **no authored thresholds**:
+
+| Kind | Asks | Threshold source | Needs history? |
+|---|---|---|---|
+| **Counterfactual** | "re-simulate a change over historical turns — is the saving *material*?" | materiality (≥X% of spend / ≥$Y/mo) | **no** — any volume |
+| **Structural / rule** | "is this pattern *definitionally* wrong?" (repeated tool call, superseded memory recalled, delegation-avoidance) | the rule itself | **no** — fires immediately |
+| **Statistical** | "did this metric drift from its baseline / an SLO?" | derived (z-score / percentile / rolling window) or owner **SLO** | **yes** |
+
+Both non-statistical kinds already fire on live data: **counterfactual** = the 438 `supervisor` premium
+turns (~5× the keyword tier); **structural** = the `supervisor,find_places,find_places` repeated node
+(redundant call — SCEN-005) — zero thresholds, zero history. So "what thresholds?" splits three ways:
+worth-acting-on (counterfactual), a definitional rule (structural), or *derived* from the data
+(statistical) — **never hand-authored**.
+
+**Per-dimension detector set:**
+
+| Dimension | Metric | Kind | Threshold source |
+|---|---|---|---|
+| Model selection / cost | low realized-complexity turns on premium (per agent) | counterfactual | re-priced saving materiality |
+| Workflow efficiency | repeated node / redundant step; costly non-converting path | structural + cohort | rule; cohort |
+| Memory effectiveness | superseded recalled; high-salience never recalled; low-salience bloat | structural + cohort | rule; recall-hit vs -miss conversion |
+| Routing effectiveness | agent_path vs expected; delegation-avoidance | structural (routing eval) + statistical | eval rule + drift |
+| Tool utilization | over/under-calling; tool errors | structural (tool eval) + statistical | eval rule + baseline |
+| Agent quality | LLM-judge score per agent | statistical + SLO | drift + owner target (≥3/5 for 95%) |
+| Cost efficiency | cost per outcome (agent contribution) | statistical + cohort | baseline + cohort |
+| Business outcomes | conversion by path/agent | cohort + funnel | cohort |
+
+**Windows & cold-start.** Rolling, adaptive windows (last N turns / T days); cohort baselines over the
+full current set. Cold-start: lean on **counterfactual + structural** (work at any volume), treat
+seeded config constants as **priors**, and let the **golden fixture seed a baseline day one**;
+statistical detectors **activate only at ≥N samples** (suppressed, not noisy, before that).
+
+This maps onto the seam ladder: counterfactual/structural detections → config/structural fixes;
+statistical/quality → regressions a human investigates. **Teach it in the workshop** as: *you don't
+hand-pick thresholds; you pick detector kinds*, and only the statistical few carry a (derived) one.
+
 ## Options considered
 
 ### Option A — Keep the scenario catalog; just add per-agent charts
@@ -368,6 +407,11 @@ optional small-sample live run — never a full-dataset attendee run.
 - Analyst prompt + guardrails; how the SCEN fixtures validate rediscovery.
 - **Projection functions** per optimization type (how each re-simulates over historical telemetry to
   produce a projected saving) + the usage-scaling model for the Projected Impact / What-If view.
+- Author a **Solution Architecture Guide** (new doc) that consolidates the learning concepts —
+  agents × dimensions, the three-layer engine, the **seam ladder**, the **detector taxonomy**, the
+  maturity + risk models, and the measurement framework — serving as both solution documentation and
+  workshop teaching material. (Owner directive 2026-07-31; the seam ladder + detector kinds are the
+  first two elements.)
 - Sequencing vs PR #73 (this is a follow-up initiative, not a #73 change).
 - The **traffic simulator emits no agent structure** (36% attribution gap): for per-agent analysis it
   must produce node-level executions, or be replaced by real / behavioral-probe traffic.
