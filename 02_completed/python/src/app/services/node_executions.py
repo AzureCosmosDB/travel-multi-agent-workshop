@@ -83,3 +83,35 @@ def store_node_executions(
     except Exception as exc:  # noqa: BLE001
         logger.warning(f"Failed to store node executions: {exc}")
         return 0
+
+
+def query_node_executions(
+    tenant_id: str, session_id: Optional[str] = None
+) -> list[dict[str, Any]]:
+    """Return the flat list of node-execution records for a tenant (optionally one session).
+
+    Flattens the per-turn documents into individual node records, stamping each with the
+    turn/session identity so the analysis engine can attribute cost/quality per agent.
+    """
+    container = _get_container()
+    if container is None:
+        return []
+    query = "SELECT * FROM c WHERE c.tenantId = @t"
+    params: list[dict[str, Any]] = [{"name": "@t", "value": tenant_id}]
+    if session_id:
+        query += " AND c.sessionId = @s"
+        params.append({"name": "@s", "value": session_id})
+    out: list[dict[str, Any]] = []
+    try:
+        for doc in container.query_items(
+            query=query, parameters=params, enable_cross_partition_query=True
+        ):
+            for r in doc.get("nodeExecutions", []):
+                out.append({
+                    "tenant_id": doc.get("tenantId", ""), "user_id": doc.get("userId", ""),
+                    "session_id": doc.get("sessionId", ""), "turn_id": doc.get("turnId", ""),
+                    **r,
+                })
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(f"Failed to query node executions: {exc}")
+    return out

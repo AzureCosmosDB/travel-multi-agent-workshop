@@ -706,6 +706,10 @@ app.add_middleware(
 # Optimization apply-loop endpoints (recommend / apply / revert)
 from src.app.optimization_api import router as optimization_router  # noqa: E402
 app.include_router(optimization_router)
+# Agent-centric optimization surface (ADR-0010): scorecard, discovered opportunities,
+# and the C1–C5 human-in-the-loop governed actions for the Console.
+from src.app.optimization_agent_api import router as optimization_agent_router  # noqa: E402
+app.include_router(optimization_agent_router)
 
 
 # ============================================================================

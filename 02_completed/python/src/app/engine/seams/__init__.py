@@ -17,6 +17,7 @@ from . import catalog  # noqa: F401
 from .base import (  # noqa: F401
     SEAMS,
     Seam,
+    find_seam,
     get_seam,
     list_seams,
     register,

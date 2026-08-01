@@ -62,6 +62,14 @@ def list_seams() -> list[Seam]:
     return [s for _id, s in SEAMS.items()]
 
 
+def find_seam(kind: str, target: str) -> Seam | None:
+    """The registered seam matching a (kind, target) pair, or None."""
+    for _id, s in SEAMS.items():
+        if s.kind == kind and s.target == target:
+            return s
+    return None
+
+
 def surface() -> dict[str, set]:
     """The declared optimizable surface, in the exact shape the analyst guardrails expect:
     {"config": {domains}, "prompt": {files}, "code": {recipe ids}}."""
