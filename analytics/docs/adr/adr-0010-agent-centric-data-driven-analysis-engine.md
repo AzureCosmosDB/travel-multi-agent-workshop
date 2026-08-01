@@ -309,6 +309,11 @@ memory), SCEN-001 (city-context re-ask). A miss = a real gap (missing detector /
 a **failing test**, not a vibe. The catalog thus becomes the engine's **test harness** — and "watch the
 engine find a known problem on its own" is a strong teaching moment.
 
+> **Refined by ADR-0011.** The hand-authored catalog is app-specific, of unknown coverage, and
+> negative-free, so it is **not** the rigorous regression suite — it serves as *teaching narratives +
+> acceptance anchors*. The regression suite is **synthetic, pattern-keyed, matched positive/negative
+> detector fixtures with constructed ground truth** (see ADR-0011 and Solution Architecture Guide §5.2).
+
 **Closure:** detectors (3 kinds) surface anomalies → analyst (bounded, grounded, LLM-proposes /
 engine-computes) → risk model sets apply mode → projection attaches the saving → rediscovery fixtures
 prove it.

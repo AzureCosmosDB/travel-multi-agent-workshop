@@ -23,3 +23,4 @@ This log records every architectural decision for the Agent Analytics and Optimi
 | [0008](adr-0008-optimization-apply-loop-model-selection.md) | Optimization apply-loop: live, policy-driven capability-tiered model selection (SCEN-007) | Accepted | 2026-07-09 |
 | [0009](adr-0009-generalize-optimization-framework-product-alignment.md) | Align the product (report + Console) with the general optimization framework | Proposed | 2026-07-31 |
 | [0010](adr-0010-agent-centric-data-driven-analysis-engine.md) | Agent-centric, data-driven analysis & optimization engine (supersedes the scenario-catalog organizing principle) | Proposed | 2026-07-31 |
+| [0011](adr-0011-migration-config-seam-and-validation-lessons.md) | Migration to the agent-centric design — the configuration seam as a taught step, and engine-validation lessons | Accepted | 2026-08-01 |
