@@ -446,10 +446,10 @@ optional small-sample live run — never a full-dataset attendee run.
 - Author a **Solution Architecture Guide** (new doc) that consolidates the learning concepts —
   agents × dimensions, the three-layer engine, the **seam ladder**, the **detector taxonomy**, the
   maturity + risk models, and the measurement framework — serving as both solution documentation and
-  workshop teaching material. (Owner directive 2026-07-31.) **Authored** at
-  `../solution-architecture-guide.md` (2026-07-31); it uses a ✅ built / 🔨 target (P0–P4) legend to
-  keep current-vs-redesign state honest, and is indexed in `../README.md`. Remaining: keep the
-  ✅/🔨 markers current as phases land, and fold in the workshop code-seam module once built.
+  workshop teaching material. (Owner directive.) **Authored** at `../solution-architecture-guide.md`;
+  written as a clean, standalone green-field architecture + teaching guide (no point-in-time / status
+  scaffolding), verified against the v2 code (ReAct supervisor delegation, actual Cosmos container set)
+  and indexed in `../README.md`. Remaining: fold in the workshop code-seam module once built.
 - **Sequencing / rollout (decided 2026-07-31):** PR #73 (`mjbrown/unify-v2` → **AzureCosmosDB:main**)
   is **not** reviewed/merged as-is. Because it targets the upstream *org* repo **and** the redesign is
   a long, multi-phase effort, the draft is **closed** (all 47 commits preserved on the fork branch),
