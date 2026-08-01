@@ -464,13 +464,36 @@ and lets the engine reason across apps:
 | **Evaluation / SLO** | quality targets to measure against | min judge score, SLO %, sample/effect floors | cross-cutting |
 | **Autonomy / governance** | how policies are applied | per-domain autonomy ceiling, guard/rollback thresholds, verdict confidence & min sample | cross-cutting (governs §7.1) |
 
-**Open — the body.** The `params` inside each domain are **app-specific and cannot be pre-specified**:
-this app's model-selection `params` hold a `tier→deployment` map and a complexity classifier; another
-app's hold a cascade with different tiers. The platform treats `params` as **opaque**; the **app's
-adapter** interprets them. So *future-proofing lives in the contract and lifecycle — the envelope, the
-domain taxonomy, and the stage/apply/revert/measure loop — not in a universal parameter set*, which is
-both impossible to fix and would break on real apps. Users adopt the envelope + taxonomy + lifecycle for
-free and fill in the bodies their app needs.
+**The `params` contract — where the real work is.** `params` is **not** an opaque blob; it is a **typed,
+bounded, validated contract** per domain — and this contract *is the optimizer's action space*, so getting
+it right is what makes plugging-in tractable **and** autonomy safe. Importing the store and reading a value
+is the easy half; the contract is the hard half, and it has parts, each a place the devil hides:
+
+- **A typed, bounded schema** — fields, types, enums, ranges, defaults, units. (Necessary, not sufficient.)
+- **App-runtime-bound value domains** — a knob's *valid values* are the app's real capabilities, not static
+  text: model-selection deployments = the app's actual deployment names; tool policy = the app's actual
+  tools. These are **populated from the app's runtime registry**, so the engine can never propose a
+  model/tool/agent that doesn't exist. (The biggest devil.)
+- **Cross-field invariants** — rules a type check misses (`default_deployment` must be one of `tiers`; a
+  cheaper tier must not out-rank a pricier one). Validated on write.
+- **A proven read/apply binding** — a param is *live* only if the app consumes it at a real read site
+  (request-time for config like model selection; a job for batch effects like retention). A
+  declared-but-unread param is a **silent no-op** — the platform would "tune" something that does nothing —
+  so the binding ties each param to its consumer.
+- **Schema version + fail-closed default** — every policy carries the schema version it was written
+  against; on anything missing / invalid / unknown-version the app falls back to its **hardcoded default
+  (current behavior)**. Fail-closed to "do nothing," never fail-open to an arbitrary value — the single
+  most important safety property.
+
+**A binding SDK ships the hard parts; the app fills a small, guided piece.** The platform provides: the
+schema framework, **reference/starter schemas** per canonical domain, **validate-and-clamp on write**, a
+**typed read helper** (`bind_policy(domain, schema)` → a typed accessor with the fail-closed default + TTL
+cache), a **discovery manifest** (the app advertises which domains / knobs / bounds / valid-values it
+supports, so the engine knows the action space), and **schema versioning**. The app supplies only its
+runtime value domains (deployments / tools / agents), the bounds it will allow, any app-specific
+invariants, and the **read site** where it consumes the bound value. That is the whole plug-in — typed,
+bounded, and fail-closed, not a free-form blob. *Future-proofing lives in this contract and the lifecycle,
+not in a universal parameter set.*
 
 ---
 
@@ -794,6 +817,8 @@ example:
 | **Policy envelope** | the app-agnostic fields of a policy document (domain, scope, status, version, apply_mode, autonomy_ceiling, audit, …) the platform operates on; `params` is the app-defined body (§7.2). |
 | **Policy domain** | one of the canonical tunable surfaces (model selection, memory, tools, generation params, budget, …) — prescribed as categories, bespoke in their values (§7.2). |
 | **Minimum sample** | the derived (not fixed) number of post-apply samples a statistical verdict needs — a power / CI / sequential-test threshold plus outcome-events and time-span floors (§7.1). |
+| **Policy binding (SDK)** | the provided helpers that make the `params` contract safe: reference schemas, validate-and-clamp on write, a typed read helper with a fail-closed default, a discovery manifest, and schema versioning (§7.2). |
+| **Fail-closed default** | on a missing/invalid/unknown-version policy the app falls back to its hardcoded current behavior — never to an arbitrary value; the key policy-safety property (§7.2). |
 
 ---
 

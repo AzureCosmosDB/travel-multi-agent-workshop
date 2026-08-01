@@ -61,12 +61,16 @@ pre-baked given.
 **Module scope (provided vs. built).**
 - **Provided (generic infrastructure):** the `OptimizationPolicies` container; the lifecycle service
   (`propose`/`stage`/`apply`/`revert` + audit + cache — already exists in `services/optimization_policy.py`);
-  the Console; the **policy envelope schema + domain taxonomy** (Solution Architecture Guide §7.2); and the
-  **model/pricing reference data** (seed).
-- **Built by the learner (the seam):** wire the *app* to **read one policy domain and act on it** — the
-  minimal end-to-end config seam. Concretely: read the active `model-selection` policy and route the turn's
-  model from `params` (the `select_deployment_for_turn` read). Optionally extend to a second domain (memory
-  salience/retention) to show the pattern generalizes.
+  the Console; the **policy envelope schema + domain taxonomy** (Solution Architecture Guide §7.2); the
+  **policy-binding SDK** (reference param schemas per domain, validate-and-clamp on write, a typed read
+  helper with a fail-closed default, a discovery manifest, schema versioning — §7.2 "the params contract");
+  and the **model/pricing reference data** (seed).
+- **Built by the learner (the seam):** for one domain, (a) **declare its `params` schema** — the app's
+  runtime value domains (deployment/tool/agent names), the allowed bounds, and any cross-field invariants —
+  and (b) **read one policy domain and act on it** at a real read site. Concretely: declare the
+  model-selection schema, then read the active policy and route the turn's model from `params` (the
+  `select_deployment_for_turn` read). Optionally extend to a second domain (memory salience/retention) to
+  show the pattern generalizes.
 - **The learner builds the *read + act* side; the *write/apply* side (Console, lifecycle, engine
   recommendation) is provided** — the reusable lesson is "the app reads a policy and behaves accordingly,"
   which is the config seam in one sentence.
