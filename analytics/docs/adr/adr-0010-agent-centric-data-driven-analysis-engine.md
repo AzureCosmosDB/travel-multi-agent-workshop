@@ -150,6 +150,31 @@ from the active trip — N% of its turns, $X wasted") instead of a hand-written 
   framework.)
 - **Model Selection / Memory Intelligence / Business Impact:** retained as dimension deep-dives.
 
+### Quality signal — reuse the evaluation harness (Module 06 ↔ analytics)
+
+The **agent-quality / routing / tool** dimensions don't need a new judge — the app already ships an
+**LLM-as-judge evaluation harness** (`01_exercises/evaluation/`): `llm_judges.py` (`answer_quality`,
+`correctness`, `humanness` 1–5), the `e2e` / `routing` / `tool_usage` suites (which map 1:1 to those
+dimensions), and **labeled `datasets/*.json`** (ready-made calibration gold sets). Three adaptations
+turn it into the scorecard's quality signal:
+
+1. **Reference-free scoring for production.** The e2e judges are reference-based (compare to a gold
+   `answer`); live turns have no reference. Add a rubric-only mode (`humanness` already is
+   reference-free) and judge groundedness against the **retrieved places** as a pseudo-reference.
+2. **Per-agent / node-grain, role-specific rubrics.** Judge at the node grain with per-role rubrics:
+   `find_places` → relevant / grounded / constraint-respecting; `create_or_update_itinerary` →
+   valid / complete / feasible; `supervisor` → coherent synthesis + correct routing.
+3. **Calibration.** Anchor the reference-free judge against the existing **labeled datasets** (does it
+   agree with the gold?) + periodic human spot-checks.
+
+**Cost:** pre-bake judge scores into the golden fixture (maintainer, once) + sample in production;
+teach by running the judge on ~5 turns live (per the cost strategy).
+
+**Decision — unify Module 06 (evaluation) with the analytics.** Evaluation stops being a separate
+"run these scripts" appendix: its judges *are* the quality / routing / tool dimensions of the Agent
+Scorecard, reverse-ETL'd per agent; the engine treats a quality drop as an anomaly and the analyst
+cites the judge's reasoning. This is a first-class design decision, not just signal plumbing.
+
 ## Answering the owner's questions directly
 
 - **Task complexity & model pinning — two distinct notions the current code conflates.**
@@ -334,7 +359,9 @@ optional small-sample live run — never a full-dataset attendee run.
 
 ## Open items to verify
 
-- Which per-agent quality signal to adopt (LLM-judge rubric) and how to calibrate it.
+- Quality signal: **resolved in principle** — reuse the eval harness (reference-free + per-agent role
+  rubrics), calibrated against the existing labeled datasets; unify Module 06 with the analytics.
+  Remaining: the per-role rubric text and the reference-free / groundedness judge variants.
 - Concrete detector set + baseline windows per dimension; cold-start handling.
 - Measured-complexity design (features + small classifier vs confidence cascade) and its accuracy vs
   the keyword heuristic.
