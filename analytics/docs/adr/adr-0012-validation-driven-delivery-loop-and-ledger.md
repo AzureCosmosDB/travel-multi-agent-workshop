@@ -77,13 +77,13 @@ config seam. We are not starting from zero.*
 
 | # | Element | Status | Spike question → exit criterion |
 |---|---|---|---|
-| B1 | **Agent-execution (node) grain** re-instrumentation | Spike | Can we record per-node tokens/tool-calls/recalls from the streaming path, cost-neutral? → a captured dataset with per-node token attribution on ≥1 multi-agent turn |
+| B1 | **Agent-execution (node) grain** re-instrumentation | **Spike — derivation grounded (2026-08-01); live capture pending** | `analytics/spikes/b1_node_grain_capture.py`: replays the real `astream_events`/`on_chat_model_end` shape (grounded in `travel_agents_api.py:1305-1333`, which today **sums** usage into one turn total) → one record per agent with per-node token attribution, **reconciles exactly to today's turn total** (6950 tok), **cost-neutral** (0 new model calls; pure re-shape of existing events). Remaining (needs creds): capture on a real live turn. |
 | B2 | **Agent Scorecard** (agent × dimension rollup) | Spike (needs B1) | Render one agent's 8-dimension health from node-grain data |
 | B3 | **Structural detectors** (repeated node, superseded-recalled) | Spike (low-risk) | Fires on an injected positive, silent on a clean negative |
 | B4 | **Counterfactual detector**, generalized beyond model-selection | Spike (model-sel. version grounded) | Recovers an injected saving within tolerance |
 | B5 | **Statistical detectors** + derived thresholds + min-sample/sequential verdict | Speculative | Enough data & not noisy? → stable baseline + "suppressed before N" behavior on fixtures |
 | B6 | **Measured realized-complexity** signal (replace keyword tier) | Spike | Correlates with node-grain tokens; finds more opportunity than the keyword tier |
-| B7 | **LLM analyst** (grounded, cited, seam-bounded cards) | **Speculative (biggest)** | Does an LLM reliably emit bounded, cited, non-hallucinated cards? → on N fixtures, ≥X% cards pass a rubric (bounded seam, cited evidence, no invented numbers) |
+| B7 | **LLM analyst** (grounded, cited, seam-bounded cards) | **Spike — safety half grounded (2026-08-01); quality half pending LLM** | `analytics/spikes/b7_analyst_guardrails.py`: the engine enforces the 5 guardrails deterministically — accepts valid cards, **rejects** uncited / out-of-seam / free-form-seam cards, **overrides an invented \$9999 saving to the engine-computed value** (hallucination killed), and **forces a code-seam's autonomy to staged/L3** (LLM can't self-authorize). Remaining (needs creds): does a *real* model produce cards that pass the rubric at rate ≥X%? |
 | B8 | **Projection functions** generalized + **What-If** view | Spike (model-sel. version grounded) | Projected vs. measured within tolerance for ≥2 optimization types |
 | B9 | **Quality signal**: reference-free + per-agent rubrics + calibration | Spike | Reference-free judge agrees with the labeled datasets within tolerance |
 | B10 | **Policy manifest + binding SDK** (typed params, validate/clamp, discovery, versioning, fail-closed) | Speculative | Simple enough to adopt? → a second (toy) app binds one domain; invalid write rejected; missing policy fails closed |
