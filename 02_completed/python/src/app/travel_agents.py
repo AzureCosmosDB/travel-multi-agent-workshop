@@ -211,11 +211,15 @@ def _wrap_trip_tool(mcp_tool: Any) -> Any:
         identity = _current_identity.get() or {}
         user_id = identity.get("user_id")
         tenant_id = identity.get("tenant_id")
+        session_id = identity.get("session_id")
         # Always override with the true identity — never trust an LLM-supplied value.
         if user_id:
             kwargs["user_id"] = user_id
         if tenant_id:
             kwargs["tenant_id"] = tenant_id
+        # Stamp the session correlation key on trip creation (ADR-0010 §10.4).
+        if session_id and tool_name == "create_new_trip":
+            kwargs["session_id"] = session_id
         return await mcp_tool.ainvoke(kwargs, config=config)
 
     trip_tool_with_identity.__name__ = tool_name
@@ -659,6 +663,8 @@ async def create_or_update_itinerary_tool(
     identity = {
         "user_id": configurable.get("user_id") or configurable.get("userId") or "",
         "tenant_id": configurable.get("tenant_id") or configurable.get("tenantId") or "",
+        "session_id": (configurable.get("session_id") or configurable.get("sessionId")
+                       or configurable.get("thread_id") or ""),
     }
     identity_token = _current_identity.set(identity)
     try:

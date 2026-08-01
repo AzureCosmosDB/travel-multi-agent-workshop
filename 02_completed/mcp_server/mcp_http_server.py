@@ -508,7 +508,8 @@ def create_new_trip(
         start_date: str,
         end_date: str,
         days: Optional[List[Dict[str, Any]]] = None,
-        trip_duration: Optional[int] = None
+        trip_duration: Optional[int] = None,
+        session_id: Optional[str] = None
 ) -> Dict[str, Any]:
     """
     Create a new trip itinerary.
@@ -521,6 +522,8 @@ def create_new_trip(
         end_date: Trip end date in ISO format (e.g. "2026-03-11")
         days: Optional list of day-by-day itinerary (dayNumber, date, morning, lunch, afternoon, dinner, accommodation)
         trip_duration: Optional total number of days (calculated from days array if not provided)
+        session_id: Session/correlation id (injected from request identity; ties the trip
+            outcome back to the session that produced it — do not guess it)
         
     Returns:
         Dictionary with tripId and details
@@ -534,7 +537,8 @@ def create_new_trip(
         start_date=start_date,
         end_date=end_date,
         days=days or [],
-        trip_duration=trip_duration
+        trip_duration=trip_duration,
+        session_id=session_id
     )
 
     return {

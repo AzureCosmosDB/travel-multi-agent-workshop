@@ -823,9 +823,15 @@ def create_trip(
     start_date: str,
     end_date: str,
     days: Optional[List[Dict[str, Any]]] = None,
-    trip_duration: Optional[int] = None
+    trip_duration: Optional[int] = None,
+    session_id: Optional[str] = None,
 ) -> str:
-    """Create a new trip"""
+    """Create a new trip.
+
+    ``session_id`` stamps the correlation key that ties this outcome (a Trip) back to
+    the WorkflowExecution (session) that produced it, enabling session-grain
+    cost-per-outcome (ADR-0010 §10.4). Optional for backward compatibility.
+    """
     if not trips_container:
         raise Exception("Cosmos DB not available")
     
@@ -842,6 +848,7 @@ def create_trip(
         "tripId": trip_id,
         "userId": user_id,
         "tenantId": tenant_id,
+        "sessionId": session_id,
         "destination": destination,
         "startDate": start_date,
         "endDate": end_date,
