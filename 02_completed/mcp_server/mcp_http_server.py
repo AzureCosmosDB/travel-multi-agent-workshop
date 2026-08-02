@@ -86,7 +86,12 @@ except ImportError as e:
 
 # Initialize MCP server
 print("\n🚀 Initializing Travel Assistant MCP Server...")
-port = int(os.getenv("PORT", 8080))
+_port_env = os.getenv("PORT")
+try:
+    port = int(_port_env) if _port_env not in (None, "") else 8080
+except (TypeError, ValueError):
+    print(f"⚠️  Ignoring invalid PORT value {_port_env!r}; defaulting to 8080")
+    port = 8080
 mcp = FastMCP("TravelAssistantTools", host="0.0.0.0", port=port)
 
 print(f"✅ Travel Assistant MCP server initialized")
