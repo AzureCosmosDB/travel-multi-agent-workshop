@@ -113,4 +113,4 @@ Implement Option A + A. Specifically:
   `services/azure_open_ai.py` (`get_chat_model`), `travel_agents.py`
   (`classify_complexity_tier`, `get_supervisor_for_turn`), `travel_agents_api.py`
   (tier selection + Debug recording), `analytics/optimization_mining.py` (`--verify`).
-- SCEN-007 (`docs/optimization-scenarios/scen-007-model-selection-trivial-turns.md`), ADR-0001, ADR-0007.
+- SCEN-007 (`docs/solution-architecture-guide.md`), ADR-0001, ADR-0007.

@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-07-07
 - **Deciders:** Mark Brown (@markjbrown), with agent analysis
-- **Related:** `../vision/agent-analytics-and-optimization-vision.md`, `../charter.md`, ADR-0001, ADR-0002
+- **Related:** `../vision/agent-analytics-and-optimization-vision.md`, `../vision/charter.md`, ADR-0001, ADR-0002
 
 ## Context
 
@@ -97,4 +97,4 @@ OpenInference is a **second** open standard and its names **differ from OTel** �
 - Microsoft Agent Framework — Observability: `https://learn.microsoft.com/en-us/agent-framework/agents/observability` (updated 2026-06-26).
 - OpenInference (Arize) — `https://github.com/Arize-ai/openinference` (`spec/semantic_conventions.md`).
 - Vision: `../vision/agent-analytics-and-optimization-vision.md:191–206, 275–292, 351`.
-- Token-capture verification: `../verification/2026-07-07-token-capture.md`.
+- Token-capture: verified live (PR #70; see ADR-0002).

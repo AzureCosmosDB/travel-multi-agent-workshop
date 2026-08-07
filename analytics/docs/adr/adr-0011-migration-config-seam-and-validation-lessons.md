@@ -3,7 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-08-01
 - **Deciders:** Mark Brown (@markjbrown), with agent analysis
-- **Related:** `adr-0010-agent-centric-data-driven-analysis-engine.md` (the target design), `adr-0008-optimization-apply-loop-model-selection.md`, `../optimization-scenarios/README.md`, `../solution-architecture-guide.md`
+- **Related:** `adr-0010-agent-centric-data-driven-analysis-engine.md` (the target design), `adr-0008-optimization-apply-loop-model-selection.md`, `../solution-architecture-guide.md`, `../solution-architecture-guide.md`
 
 > **Purpose.** The **Solution Architecture Guide** describes the *target* design as a clean green-field
 > artifact and deliberately carries **no** history of past-state or prior mistakes. This ADR is where
@@ -134,7 +134,7 @@ result; aligns with the exercises-vs-completed split.
 - **The base app is single-model (representative starting point):** one shared model in
   `services/azure_open_ai.py` used by the supervisor and sub-agents; the per-turn model router is
   analytics-track code, absent from the base app (see ADR-0010 Evidence).
-- **Scenario-catalog current state supports the validation lesson:** `../optimization-scenarios/README.md`
+- **Scenario-catalog current state supports the validation lesson:** `../solution-architecture-guide.md`
   states the coverage bar as "≥1 scenario per dimension," marks candidates "to be validated," and parks
   SCEN-006 as unsupported by data — i.e. human-authored, app-specific, unknown-coverage, negative-free.
 
@@ -163,6 +163,6 @@ result; aligns with the exercises-vs-completed split.
 ## References
 
 - ADR-0010 (target design; seam ladder, maturity/risk, analyst, rediscovery); ADR-0008 (apply-loop /
-  model selection); `../solution-architecture-guide.md` §5.2, §7, §8, §10; `../optimization-scenarios/README.md`.
+  model selection); `../solution-architecture-guide.md` §5.2, §7, §8, §10; `../solution-architecture-guide.md`.
 - Code: `02_completed/infra/shared/cosmosdb.bicep`, `services/optimization_policy.py`,
   `services/azure_open_ai.py`.

@@ -3,7 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-07-07
 - **Deciders:** Mark Brown (@markjbrown), with agent analysis
-- **Related:** `../verification/2026-07-07-langgraph-1x-checkpointer-derisk.md`, ADR-0002 (instrumentation), ADR-0004 (data-gen). Builds on the four merged fixes (PRs #69–#72).
+- **Related:** ADR-0002 (instrumentation), ADR-0004 (data-gen). Builds on the four merged fixes (PRs #69–#72).
 
 ## Context
 
@@ -29,7 +29,7 @@ The repo URL will be **shared publicly at an event with live demos** and used fo
 
 ## Evidence (spikes run 2026-07-07 — mostly positive)
 
-1. **Cosmos checkpointer is compatible.** `langgraph-checkpoint-cosmosdb 0.2.7` runs on **langgraph 1.2.8** (+ `langgraph-checkpoint 4.1.1`): a live functional round-trip (save / `get_state` / history / repeat-write) succeeded. This was the single biggest risk and it is **cleared**. Evidence: `../verification/2026-07-07-langgraph-1x-checkpointer-derisk.md`.
+1. **Cosmos checkpointer is compatible.** `langgraph-checkpoint-cosmosdb 0.2.7` runs on **langgraph 1.2.8** (+ `langgraph-checkpoint 4.1.1`): a live functional round-trip (save / `get_state` / history / repeat-write) succeeded. This was the single biggest risk and it is **cleared**. Evidence: verified live (save / `get_state` / history / repeat-write round-trip).
 2. **The langgraph API surface the app uses still imports on 1.2.8** (verified in a throwaway venv): `from langgraph.graph import StateGraph, START, MessagesState`; `from langgraph.prebuilt import create_react_agent`; `from langgraph.types import Command, interrupt`; `from langgraph.checkpoint.memory import MemorySaver`; `from langgraph.graph.message import add_messages`. All OK.
 3. **pip resolves the new stack** (`langgraph 1.2.8 + langchain-core 1.4.8 + langgraph-checkpoint-cosmosdb 0.2.7`) with **no conflict**.
 4. **Forward-compatibility of our fixes:** the token fix reads `usage_metadata` (the modern field newer libs populate by default) — it survives the upgrade (the `stream_options` flag becomes redundant, not broken). Summarizer/routing/transition fixes are pure logic / stable graph contracts.
@@ -71,5 +71,5 @@ The repo URL will be **shared publicly at an event with live demos** and used fo
 - Old checkpoints (≈19k, saver 0.2.4) are **not** required to be readable (we regenerate) — do not spend effort migrating them.
 
 ## References
-- Checkpointer de-risk: `../verification/2026-07-07-langgraph-1x-checkpointer-derisk.md`.
+- Checkpointer de-risk: verified live (functional round-trip).
 - API usage sites: `02_completed/python/src/app/travel_agents.py` (imports lines 18–25; `create_react_agent` 246–276), `services/azure_open_ai.py`, `services/azure_cosmos_db.py`.

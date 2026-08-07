@@ -17,12 +17,71 @@ Usage:
 """
 
 import argparse
+import json
 import logging
 import sys
 import time
+from dataclasses import dataclass
 
-# Reuse the proven API client + conversation model from the data generator.
-from data_generator import TravelAppClient, Conversation
+import httpx
+
+
+@dataclass
+class Conversation:
+    """A multi-turn conversation that a simulated user will have."""
+    title: str
+    messages: list[str]  # user messages to send in order
+
+
+class TravelAppClient:
+    """Minimal HTTP client that talks to the running Travel Multi-Agent API."""
+
+    def __init__(self, base_url: str, timeout: float = 180):
+        self.base_url = base_url.rstrip("/")
+        self.client = httpx.Client(timeout=timeout)
+
+    def health_check(self) -> bool:
+        try:
+            r = self.client.get(f"{self.base_url}/health")
+            return r.status_code == 200
+        except httpx.ConnectError:
+            return False
+
+    def create_session(self, tenant_id: str, user_id: str) -> str:
+        url = f"{self.base_url}/tenant/{tenant_id}/user/{user_id}/sessions"
+        r = self.client.post(url, params={"activeAgent": "orchestrator"})
+        r.raise_for_status()
+        data = r.json()
+        return data.get("sessionId") or data.get("id")
+
+    def send_message(self, tenant_id: str, user_id: str, session_id: str, message: str) -> list[dict]:
+        url = (
+            f"{self.base_url}/tenant/{tenant_id}/user/{user_id}"
+            f"/sessions/{session_id}/completion"
+        )
+        # The API expects a raw JSON string, not an object
+        r = self.client.post(
+            url,
+            content=json.dumps(message),
+            headers={"Content-Type": "application/json"},
+        )
+        r.raise_for_status()
+        return r.json()
+
+    def get_memories(self, tenant_id: str, user_id: str) -> list[dict]:
+        url = f"{self.base_url}/tenant/{tenant_id}/user/{user_id}/memories"
+        r = self.client.get(url)
+        r.raise_for_status()
+        return r.json()
+
+    def get_trips(self, tenant_id: str, user_id: str) -> list[dict]:
+        url = f"{self.base_url}/tenant/{tenant_id}/user/{user_id}/trips"
+        r = self.client.get(url)
+        r.raise_for_status()
+        return r.json()
+
+    def close(self):
+        self.client.close()
 
 logging.basicConfig(
     level=logging.INFO,

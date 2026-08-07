@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-07-31
 - **Deciders:** Mark Brown (@markjbrown), with agent analysis + external research
-- **Related:** `../vision/agent-analytics-and-optimization-vision.md`, `../optimization-scenarios/README.md`, `adr-0009-generalize-optimization-framework-product-alignment.md`, `adr-0004-data-generation-redesign.md`, `adr-0001-optimization-loop-surface-architecture.md`, `adr-0008-optimization-apply-loop-model-selection.md`
+- **Related:** `../vision/agent-analytics-and-optimization-vision.md`, `../solution-architecture-guide.md`, `adr-0009-generalize-optimization-framework-product-alignment.md`, `adr-0004-data-generation-redesign.md`, `adr-0001-optimization-loop-surface-architecture.md`, `adr-0008-optimization-apply-loop-model-selection.md`
 
 > **This ADR supersedes the *organizing principle* of the current analytics** (a hand-authored
 > scenario catalog surfaced through model-selection-centric dashboards). It **keeps** the plumbing
@@ -32,7 +32,7 @@ Three defects fall out of this:
    Level-1 example (vision §Maturity/L1); we never built it.
 
 2. **Scenarios are hand-authored inputs, not discovered outputs.** `SCEN-002…008` were found by
-   humans exploring (`optimization-scenarios/README.md` "Discovery methods"). The product then
+   humans exploring (`solution-architecture-guide.md` "Discovery methods"). The product then
    *hard-codes* those six as recommendation builders (`build_recommendations()` calls six fixed
    Python functions). A platform that claims to be a general analytics layer must **derive** issues
    from telemetry — the removed city-friction prompt card was the tell: a human had to report it.
@@ -354,7 +354,7 @@ goal is to *build* the Cosmos+Fabric loop), but their metric taxonomies are dire
   greeting regex → trivial); tiers→models in `seed_configuration.py:72`
   (`trivial=gpt-5-nano, routine=gpt-5-mini, complex=gpt-5.1`).
 - **Scenarios are hard-coded builders:** `build_recommendations()` calls six fixed functions
-  (redesign doc §1); catalog + discovery methods in `optimization-scenarios/README.md`.
+  (redesign doc §1); catalog + discovery methods in `solution-architecture-guide.md`.
 - **Per-agent signal is turn-grained, not agent-grained (grounded live, 02, 1,330 turns,
   2026-07-31):** the app has 3 path agents — `supervisor`, `find_places`,
   `create_or_update_itinerary`. `agent_path` is a *sequence* string on the turn (e.g.
@@ -484,7 +484,7 @@ optional small-sample live run — never a full-dataset attendee run.
 
 ## References
 
-- Repo: `../vision/agent-analytics-and-optimization-vision.md`, `../optimization-scenarios/README.md`,
+- Repo: `../vision/agent-analytics-and-optimization-vision.md`, `../solution-architecture-guide.md`,
   `adr-0009-…`, `adr-0001-…`, `adr-0008-…`; code: `travel_agents.py:376`, `seed_configuration.py:72`,
   `services/optimization_recommendations.py`, `data/export_conversations.py`.
 - RouteLLM (github.com/lm-sys/RouteLLM); FrugalGPT; "Dynamic Model Routing and Cascading for Efficient

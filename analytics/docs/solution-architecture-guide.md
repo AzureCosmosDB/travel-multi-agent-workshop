@@ -11,8 +11,8 @@
 > the analysis engine, detectors, seams, maturity/risk, the analyst). Sections 10–12 are the data
 > plumbing, the cost model, and how it all maps to the workshop. Section 13 is a glossary.
 >
-> Companion docs: `charter.md` (scope and first principles), `vision/…-vision.md` (the north-star), the
-> `optimization-scenarios/` catalog, and the `adr/` decision log for the *why* behind each choice.
+> Companion docs: `vision/charter.md` (scope and first principles), `vision/…-vision.md` (the north-star), and
+> the `adr/` decision log for the *why* behind each choice.
 
 ---
 
@@ -131,7 +131,7 @@ is the "how is each of my agents doing?" view.
 
 ### 3.1 The eight optimization dimensions
 
-The canonical axes (catalog in `optimization-scenarios/`). Confirmed-trip status (`Trips.status`) is the
+The canonical axes (the eight dimensions, §3.1). Confirmed-trip status (`Trips.status`) is the
 shared **outcome anchor** — every dimension is ultimately judged by whether it moves business outcomes.
 
 | Dimension | What it means here | Primary signal | Typical fix seam |
@@ -269,9 +269,8 @@ every human-labeled discovery in the outcome ledger (§9.2) becomes a new fixtur
 finding as a positive, a reverted false alarm as a negative — and **generalization** is checked by running
 the detectors on held-out telemetry.
 
-The **scenario catalog** (`optimization-scenarios/`) complements this as **teaching narratives** — worked,
-end-to-end walks up the maturity ladder on the real app — and as a handful of realistic **acceptance
-anchors** that exercise the full pipeline against familiar cases.
+The **acceptance scenarios** (`acceptance/acceptance-test-scenarios.md`) complement this as a handful of
+realistic **acceptance anchors** that exercise the full pipeline against familiar cases.
 
 ### 5.3 Operating model — the three planes
 
@@ -860,6 +859,7 @@ workshop (whose near-zero attendee strategy is §12).
 - **Pre-bake the engine LLM.** Run the judge/analyst **once** and persist their outputs, so the analytical
   path isn't paying LLM per view.
 - **Right-size + pause.** Pause Fabric capacity when idle; scale Cosmos RU to the mirror workload.
+- **Per-container throughput + bounded checkpoint retention.** Give the high-volume containers (`Checkpoints`, `Places`, `Debug`) their own **autoscale RU/s** rather than a shared-database bucket — the workload is asymmetric and shared throughput dilutes under partition splits. Cap `Checkpoints` (LangGraph state — high volume, low analytical value) with a **TTL**: 7 days for workshop/dev, 30–90 days in production.
 
 The workshop turns these levers into a **≈ $0 attendee experience** — see §12.
 
@@ -949,4 +949,4 @@ scorecards + opportunities → apply a policy → re-measure. **No live agents, 
 ---
 
 *For the decisions and evidence behind this architecture, see the `adr/` decision log; for scope and
-first principles, see `charter.md`.*
+first principles, see `vision/charter.md`.*

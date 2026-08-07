@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-07-07
 - **Deciders:** Mark Brown (@markjbrown), with agent analysis
-- **Related:** `../vision/…vision.md`, `../charter.md`, ADR-0001
+- **Related:** `../vision/…vision.md`, `../vision/charter.md`, ADR-0001
 
 ## Context
 
@@ -75,7 +75,7 @@ Container counts and shapes (Entra-ID query of the deployed account):
 
 ## Open items to verify
 
-- ~~**Confirm the streaming→no-usage hypothesis by live test**~~ **✅ Done (2026-07-07); IMPLEMENTED + tested end-to-end (PR #70).** Root cause confirmed. **Version-accurate correction:** the initial probe used `langchain-openai 1.3.3` (where plain `streaming=True` populates `usage_metadata`), but the app pins **`0.3.3`**, where `streaming=True` leaves both `response_metadata.token_usage` **and** `usage_metadata` empty. The working fix (verified live: `total_tokens` 2618/3178/3412 vs 0 before) is **two parts**: (1) `model_kwargs={"stream_options": {"include_usage": True}}` on the model, and (2) read `msg.usage_metadata`. Evidence: `analytics/docs/verification/2026-07-07-token-capture.md`.
+- ~~**Confirm the streaming→no-usage hypothesis by live test**~~ **✅ Done (2026-07-07); IMPLEMENTED + tested end-to-end (PR #70).** Root cause confirmed. **Version-accurate correction:** the initial probe used `langchain-openai 1.3.3` (where plain `streaming=True` populates `usage_metadata`), but the app pins **`0.3.3`**, where `streaming=True` leaves both `response_metadata.token_usage` **and** `usage_metadata` empty. The working fix (verified live: `total_tokens` 2618/3178/3412 vs 0 before) is **two parts**: (1) `model_kwargs={"stream_options": {"include_usage": True}}` on the model, and (2) read `msg.usage_metadata`. Evidence: verified live end-to-end (PR #70).
 - **Measure the RU/cost impact** of mirroring the additional containers.
 - **Finalize the new container set + partition keys** (align with existing `[tenant_id, user_id, session_id]` hierarchy where possible).
 - **Confirm** whether the `01_exercises/evaluation` harness can/should write `EvaluationResult` to Cosmos.
@@ -83,6 +83,6 @@ Container counts and shapes (Entra-ID query of the deployed account):
 ## References
 
 - `../vision/agent-analytics-and-optimization-vision.md` (Open Agent Analytics Schema)
-- `../charter.md` (Data readiness — verified live findings)
+- `../vision/charter.md` (Data readiness — verified live findings)
 - Live audit: session artifact `inspect_cosmos.py` + aggregates (2026-07-07)
 - Code: `02_completed/python/src/app/services/azure_cosmos_db.py`, `02_completed/python/src/app/travel_agents_api.py:649-735`, `02_completed/python/src/app/services/azure_open_ai.py:35-43`

@@ -169,8 +169,7 @@ There is no API input — the base URL is resolved automatically:
 ## Controls
 
 - **Dataset** — the tenant to analyze. Type any tenant id; the dropdown lists the
-  seeded demo datasets (`analytics`, `marvel`, `funnel_demo`, `before_demo`,
-  `after_demo`).
+  seeded demo datasets (`analytics`, `marvel`).
 - **Source** — Reverse-ETL (Power BI parity) vs Live (recompute). See above.
 - **auto-refresh** — re-fetch every 15 s.
 - **Refresh** — fetch now. The status pill shows load/ok/error + last-updated time.

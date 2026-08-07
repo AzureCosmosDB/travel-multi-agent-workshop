@@ -4,7 +4,7 @@
 The base app data (users, places, trips, memories) is already committed as offline
 JSON and loaded by ``seed_data.py`` with no LLM. What was missing is the *generated*
 data — conversation history and the analytics signal — which otherwise forces every
-attendee/demo user to run the expensive, slow LLM ``data_generator`` + enricher.
+attendee/demo user to generate it live through the LLM app — expensive and slow.
 
 This maintainer tool captures that generated data **once** from a live deployment so it
 can be committed and replayed offline:

@@ -22,8 +22,8 @@ python -m http.server 8060 --directory analytics\dashboard
 There is **no API box** — the portal auto-detects the API (`http://localhost:8000` locally, or
 the same-origin `/api` proxy when hosted at `/analytics/`). Two header controls drive everything:
 
-- **Dataset** — which tenant to read (`analytics` is the pre-seeded at-scale story; `before_demo`
-  / `after_demo` are the A/B pair; `marvel` is where the live app records your turns).
+- **Dataset** — which tenant to read (`analytics` is the pre-seeded at-scale story; `marvel` is
+  where the live app records your turns).
 - **Source** — **Live (recompute)** reads the raw captured turns straight from Cosmos (use this in
   Modules 07–08 and for the live moments); **Reverse-ETL (notebook)** reads the `OptimizationInsights`
   snapshot the Module 09 analytics notebook writes (use it after you run the notebook).
@@ -120,23 +120,17 @@ real agent app before anyone optimized it.** The optimization tiers trivial turn
 nano model, routine to a mini model, and keeps the premium model for the hard work.
 
 You don't need a temporal before/after. You have two better devices:
-1. A pre-baked **A/B** (two tenants, identical workload, one un-tiered and one tiered) for a
-   guaranteed apples-to-apples comparison.
+1. The **policy-aware traffic simulator** on `analytics`: the workload is fixed, so applying the
+   model-selection policy re-tiers the *same* stream (only the model changes) — a live,
+   apples-to-apples before/after via the real apply-loop, and the engine's measured saving is the
+   exact delta.
 2. A **few live turns** through the real app to prove the routing happens for real.
 
 ---
 
 ## Pre-session setup (do once, off-stage)
 
-1. **Build the A/B dataset** (paired before/after, ~28% lower cost on the tiered side):
-   ```powershell
-   python analytics/ab_demo_seed.py
-   ```
-   Writes `before_demo` (240 turns, all on gpt-5.1, `complexity_tier="default"`) and `after_demo`
-   (the *identical* 240-turn workload, tiered to nano/mini/gpt-5.1). Only the model routing
-   differs, so the cost delta is the pure saving. Deterministic (seed 42) and re-runnable.
-
-2. **Build the conversion-funnel dataset** (the business-impact story):
+1. **Build the analytics dataset** (the at-scale + business-impact story):
    ```powershell
    python analytics/funnel_seed.py
    # populate OptimizationInsights so the portal's Business tab (Reverse-ETL source) has data:
@@ -147,16 +141,16 @@ You don't need a temporal before/after. You have two better devices:
    rows to `OptimizationInsights` (in the workshop, Module 09's Fabric notebook does this). The
    portal's **Business** tab (on **Source → Reverse-ETL (notebook)**) then lights up.
 
-3. **Portal:** serve it with `python -m http.server 8060 --directory analytics\dashboard` and open
+2. **Portal:** serve it with `python -m http.server 8060 --directory analytics\dashboard` and open
    <http://localhost:8060> (when deployed it's baked into the frontend at `/analytics/`). No API URL
    to configure. *(A Power BI report over the same mirror is auto-deployed by `Provision-Fabric.ps1`
    Phase 3 and remains available as an optional surface — but the portal is the recommended demo.)*
 
-4. **Confirm the app + policy:** make sure the app is reachable and the **model-selection
+3. **Confirm the app + policy:** make sure the app is reachable and the **model-selection
    policy is NOT yet applied** (you'll apply it on stage). Locally the portal talks to the API on
    `:8000`; when hosted it's proxied at `/api` automatically — nothing to enter.
 
-5. **Dry-run the live turns once** (so you trust them on stage) — see "Live turns" below.
+4. **Dry-run the live turns once** (so you trust them on stage) — see "Live turns" below.
 
 ---
 
@@ -183,15 +177,21 @@ You don't need a temporal before/after. You have two better devices:
 > "Applying it is a reversible policy flip — not a code change, not a redeploy. That's what
 > makes this safe to automate."
 
-**5a. Prove it — the A/B (bullet-proof).**
-*Do:* flip the **Dataset** dropdown from `before_demo` to `after_demo`.
-> "Same workload, same turns. Before: everything on the premium model. After: tiered. Est cost
-> drops ~28% and trivial turns now show up as their own tier — with zero change to the user
-> experience."
+**5a. Prove it — drive a quick tiered stream.**
+*Do:* with the policy now applied, run a short burst of the traffic simulator on `analytics`, then
+**Refresh** the portal:
+```powershell
+python analytics/traffic_simulator.py --tenant analytics --rate 120 --minutes 1
+```
+> "Same workload profile as the baseline — but now that the policy is on, the simulator serves it
+> tiered. Watch the model-usage donut split into nano/mini/premium, trivial turns show up as their
+> own tier, and est cost per turn drops — with zero change to the user experience. The **Governance**
+> tab's measured saving (~28%) is the exact before/after delta, re-priced against an all-premium
+> baseline."
 
 **5b. Prove it's live — a few real turns (optional flourish).**
-*Do:* run the live-turns helper (or type them by hand — see below), then **Refresh** the portal
-with **Dataset → demo_live** and **Source → Live (recompute)**.
+*Do:* run the traffic simulator in **app mode** (or type turns by hand — see below), then **Refresh**
+the portal with **Dataset → analytics** and **Source → Live (recompute)**.
 > "And here it is happening for real: watch these new turns land — the greeting routed to nano,
 > the itinerary to the premium model."
 
@@ -226,31 +226,34 @@ This is the uplevel: mechanical cost optimizations are table stakes; the analyti
 
 ---
 
-## Live turns — automated
+## Live turns — automated (through the real app)
 
-Fires one turn per tier through the **real** app, then derives them into `OptimizationTurns`
-so they appear in the portal (on 02_completed the app writes `Debug` telemetry and
-`OptimizationTurns` is derived from it — the helper does that derive for just its turns).
+Drive a short burst of **authentic** turns through the **real** app with the traffic simulator's
+**app mode** — real agent turns with real classifier routing (a greeting on nano, an itinerary on
+the premium model) — so you can show the routing happening live, on top of the pre-baked
+synthetic stream.
 
 ```powershell
 # hosted app (web URL + /api; the API container app is internal-only):
-python analytics/demo_live_turns.py --endpoint https://<web-app>.azurecontainerapps.io/api
+python analytics/traffic_simulator.py --mode app --tenant analytics --rate 10 --minutes 1 --endpoint https://<web-app>.azurecontainerapps.io/api
 
 # local dev app:
-python analytics/demo_live_turns.py --endpoint http://localhost:8000
+python analytics/traffic_simulator.py --mode app --tenant analytics --rate 10 --minutes 1
 ```
 
-Prints how each turn was routed, e.g.:
-```
-trivial  -> gpt-5-nano   (out=128)
-trivial  -> gpt-5-nano   (out=119)
-routine  -> gpt-5-mini   (out=704)
-complex  -> gpt-5.1      (out=4227)
-```
-Then **Refresh** the portal with **Dataset → demo_live** and **Source → Live (recompute)**.
+`--mode app` posts a realistic tier mix to the completion endpoint (real model calls). On
+02_completed the app writes `Debug` telemetry, so **derive `OptimizationTurns`** from it once the
+run finishes so the turns appear in the portal:
 
-> The model-selection policy must be **active** first (step 4), or the turns record as
-> `default`. The helper warns you if that's the case.
+```powershell
+cd 02_completed/python
+python data/export_conversations.py --no-write   # derive only; don't overwrite the golden JSON
+```
+
+Then **Refresh** the portal with **Dataset → analytics** and **Source → Live (recompute)** — the
+new turns land, tiered by the active policy.
+
+> Apply the model-selection policy **first** (step 4), or the turns record as `default`.
 
 ---
 
@@ -282,15 +285,17 @@ python data/export_conversations.py --no-write   # derive only, don't overwrite 
 ## What to avoid (the "insane" list)
 - Generating hundreds of turns live (slow, flaky, dead air).
 - Rebuilding the mirror / semantic model / report on stage.
-- Relying **only** on live traffic with no pre-baked fallback — always have the A/B ready.
-- Presenting the projected saving as measured — call it a projection; the A/B and the live
-  per-turn routing are the proof.
+- Relying **only** on freshly-generated traffic — the pre-seeded `analytics` tenant is always
+  there as a fallback.
+- Presenting the projected saving as measured — call it a projection; the **measured
+  counterfactual saving** (Governance tab) and the live per-turn routing are the proof.
 
 ---
 
-## Numbers (built-in A/B, seed 42, 240 turns)
-- `before_demo` est cost ≈ **$6.90**, `after_demo` ≈ **$4.95** → **~28% lower**.
-- Split of the tiered side ≈ trivial 9% / routine 57% / complex 34% (matched trips both sides,
-  so cost-per-outcome is comparable).
+## Numbers (measured, from the tiered stream)
+- Capability-tiered model selection lands **≈28% lower** est cost than the all-premium baseline —
+  the **measured counterfactual** (Governance tab) re-prices the actual turns against an
+  all-premium baseline, so it's the real delta, not a canned one.
+- Tier split ≈ trivial 9% / routine 57% / complex 34%.
 - These are list-price *estimates* (from the Cosmos `Configuration` pricing rows); the portal
-  shows them live. Exact figures depend on the seed/size args.
+  shows them live. Exact figures depend on the traffic volume you drive.

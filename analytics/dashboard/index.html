@@ -195,8 +195,7 @@ input[type=range] { width: 100%; accent-color: var(--accent); background: transp
   <div class="cfg">
     <label>Dataset</label>
     <select id="tenant">
-      <option>analytics</option><option>marvel</option><option>funnel_demo</option>
-      <option>before_demo</option><option>after_demo</option>
+      <option>analytics</option><option>marvel</option>
     </select>
     <label>Source</label>
     <select id="source" title="Reverse-ETL reads the OptimizationInsights snapshot produced by the analytics notebook (Module 09); Live recomputes from the raw captured turns">
@@ -205,6 +204,7 @@ input[type=range] { width: 100%; accent-color: var(--accent); background: transp
     </select>
     <label><input type="checkbox" id="auto" /> auto</label>
     <button id="refresh">Refresh</button>
+    <button id="freshenTimes" title="Re-stamp captured turns into the last 2 hours so the Turns-by-minute timeline shows a current, dense trend. Timestamps only — KPIs/costs are unchanged. Uses the Live (recompute) source.">Freshen times</button>
     <span class="status-pill"><span class="dot" id="statusDot"></span><span id="statusText">idle</span></span>
   </div>
 </header>
@@ -1049,7 +1049,30 @@ $("diffCopy").addEventListener("click", async () => {
   catch (e) { toast("Copy failed — clipboard blocked. Try over http://localhost.", true); }
 });
 document.addEventListener("keydown", (ev) => { if (ev.key === "Escape") closeDiff(); });
+async function freshenTimes() {
+  const btn = $("freshenTimes");
+  btn.disabled = true;
+  setStatus("load", "freshening turn times…");
+  try {
+    const res = await fetch(`${api()}/optimizations/demo/refresh-times`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+    });
+    const txt = await res.text();
+    if (!res.ok) throw new Error(`${res.status} — ${txt.slice(0, 200)}`);
+    let n = "";
+    try { const j = JSON.parse(txt); if (j.updated != null) n = ` · re-stamped ${j.updated} turns`; } catch (e) {}
+    if ($("source")) $("source").value = "live";  // the re-stamp affects raw turns (Live), not the reverse-ETL snapshot
+    toast(`Turn times freshened into the last 2 hours${n}. Showing Live so the Turns-by-minute timeline reads current.`);
+    await refresh();
+  } catch (e) {
+    toast(`Freshen times failed: ${e.message}`, true);
+    setStatus("err", "freshen failed");
+  } finally {
+    btn.disabled = false;
+  }
+}
 $("refresh").addEventListener("click", refresh);
+$("freshenTimes").addEventListener("click", freshenTimes);
 $("tenant").addEventListener("change", refresh);
 $("source").addEventListener("change", refresh);
 let autoTimer = null;

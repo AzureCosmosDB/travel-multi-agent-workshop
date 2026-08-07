@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-07-07
 - **Deciders:** Mark Brown (@markjbrown), with agent analysis
-- **Related:** `../vision/agent-analytics-and-optimization-vision.md`, `../charter.md`, ADR-0002 (instrumentation), ADR-0003 (schema/ingestion)
+- **Related:** `../vision/agent-analytics-and-optimization-vision.md`, `../vision/charter.md`, ADR-0002 (instrumentation), ADR-0003 (schema/ingestion)
 
 ## Context
 
@@ -68,5 +68,5 @@ Capture **one** good real run (after the ADR-0002 fix) into a **versioned datase
 ## References
 
 - Current generator: `analytics/data_generator.py`, `analytics/data_enricher.py`; workshop docs `analytics/README.md`.
-- Instrumentation dependency: ADR-0002 + `../verification/2026-07-07-token-capture.md`.
+- Instrumentation dependency: ADR-0002 (token capture verified live, PR #70).
 - Schema/field-naming: ADR-0003.

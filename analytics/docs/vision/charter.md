@@ -4,7 +4,7 @@
 
 ## Vision
 
-See `vision/agent-analytics-and-optimization-vision.md`. In short: make Microsoft Fabric the analytical and optimization layer for agentic applications, with **Azure Cosmos DB as the operational system of record** and Fabric as the analytical/optimization system of record, forming a continuous learning loop (analyze → recommend → govern → apply → measure).
+See `agent-analytics-and-optimization-vision.md`. In short: make Microsoft Fabric the analytical and optimization layer for agentic applications, with **Azure Cosmos DB as the operational system of record** and Fabric as the analytical/optimization system of record, forming a continuous learning loop (analyze → recommend → govern → apply → measure).
 
 ## Scope of this workshop implementation
 

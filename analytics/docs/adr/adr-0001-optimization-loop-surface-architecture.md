@@ -3,7 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-07-07
 - **Deciders:** Mark Brown (@markjbrown), with agent analysis
-- **Related:** `../vision/agent-analytics-and-optimization-vision.md`, `../charter.md`
+- **Related:** `../vision/agent-analytics-and-optimization-vision.md`, `../vision/charter.md`
 
 ## Context
 
@@ -82,6 +82,6 @@ Build the Level 2/3 optimization loop as: **Fabric (mirror → Spark gold + reco
 ## References
 
 - Vision: `../vision/agent-analytics-and-optimization-vision.md`
-- Charter: `../charter.md`
+- Charter: `../vision/charter.md`
 - `MicrosoftDocs/fabric-docs` — `docs/database/cosmos-db/how-to-user-data-functions.md`
 - `AzureCosmosDB/cosmos-fabric-samples` — `translytical-taskflows-nosql-schema/`, `reverse-etl/`, `user-data-functions/`

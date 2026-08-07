@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-07-31
 - **Deciders:** Mark Brown (@markjbrown), with agent analysis
-- **Related:** `../vision/agent-analytics-and-optimization-vision.md`, `../optimization-scenarios/README.md`, `adr-0001-optimization-loop-surface-architecture.md`, `adr-0008-optimization-apply-loop-model-selection.md`, `../../PowerBI_Optimization_Build_Guide.md`
+- **Related:** `../vision/agent-analytics-and-optimization-vision.md`, `../solution-architecture-guide.md`, `adr-0001-optimization-loop-surface-architecture.md`, `adr-0008-optimization-apply-loop-model-selection.md`, `../../PowerBI_Optimization_Build_Guide.md`
 
 ## Context
 
@@ -16,7 +16,7 @@ The critical finding: **the framework already exists and is rigorous — the pro
 drifted from it.** The generalized "what to measure" backbone the owner is reaching for is already
 documented:
 
-- **`optimization-scenarios/README.md`** defines the **eight optimization dimensions** (agent
+- **`solution-architecture-guide.md`** defines the **eight optimization dimensions** (agent
   quality, workflow efficiency, memory effectiveness, routing, tool utilization, model selection,
   cost efficiency, business outcomes) — each with its primary signal and safe fix seam — plus a
   **scenario catalog** where every SCEN-NNN is **tagged to dimension(s)**, fix seam, risk domain,
@@ -78,14 +78,14 @@ Rename the overclaiming pages/fields; change nothing structural. **Verdict:** pa
 but insufficient; it fixes honesty but not the missing dimension backbone / portfolio view.
 
 ### Option C — Full product alignment to the documented framework (phased)
-Make the report + Console + insight rows mirror `optimization-scenarios/README.md`: dimensions as the
+Make the report + Console + insight rows mirror `solution-architecture-guide.md`: dimensions as the
 backbone, scenarios as dimension-tagged instances, a portfolio/coverage view, and honest per-scenario
 naming. **Verdict:** chosen, **phased** so the low-risk clarity fixes can ship with/near #73 and the
 structural work is a deliberate follow-up.
 
 ## Evidence
 
-- Framework already documented: `optimization-scenarios/README.md` (8 dimensions table L29–38;
+- Framework already documented: `solution-architecture-guide.md` (8 dimensions table L29–38;
   catalog with dimension tags L155–164; discovery methods L128–141; coverage goal L166–172).
 - Report is model-selection-centric: `PowerBI_Optimization_Build_Guide.md` Pages 1–3 are all the
   model-selection story; Page 5 (Measured Savings) is the only scenario-general page.
@@ -153,7 +153,7 @@ wired scenarios as **dimension-tagged worked examples**. Phase the work:
 ## References
 
 - `analytics/docs/vision/agent-analytics-and-optimization-vision.md`
-- `analytics/docs/optimization-scenarios/README.md` (+ scenario catalog)
+- `analytics/docs/solution-architecture-guide.md` (+ scenario catalog)
 - `analytics/docs/adr/adr-0001-optimization-loop-surface-architecture.md`
 - `analytics/docs/adr/adr-0008-optimization-apply-loop-model-selection.md`
 - `analytics/PowerBI_Optimization_Build_Guide.md`
