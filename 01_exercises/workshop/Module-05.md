@@ -1,6 +1,6 @@
 # Module 05 - Observability & Tracing
 
-**[< Making Memory Intelligent](./Module-04.md)** - **[Evaluating Your Multi-Agent Application >](./Module-06.md)**
+**[< Making Memory Intelligent](./Module-04.md#module-04---making-memory-intelligent-3-way-rrf-personalisation)** - **[Evaluating Your Multi-Agent Application >](./Module-06.md#module-06---evaluating-your-multi-agent-application-bonus-module)**
 
 ## Introduction
 
@@ -358,7 +358,16 @@ def create_new_trip(
     days: Optional[List[Dict[str, Any]]] = None,
     trip_duration: Optional[int] = None
 ) -> Dict[str, Any]:
-    """Create a new trip itinerary."""
+    """Create a new trip itinerary and save it to the traveller's profile.
+
+    ``days`` is the day-by-day plan: a list of day objects. Each day is
+    ``{"dayNumber": 1, "date": "YYYY-MM-DD", "morning": {...}, "lunch": {...},
+    "afternoon": {...}, "dinner": {...}, "accommodation": {...}}``. Every slot
+    (morning / lunch / afternoon / dinner / accommodation) is a SINGLE object of the
+    form ``{"activity": str, "time": "HH:MM-HH:MM", "placeId": str, "notes": str}``
+    -- never a list, and use only those slot names (no ``"evening"``). ``activity``
+    is the display name; include ``placeId`` (from ``find_places``) when available.
+    """
     # Existing code...
 
 @mcp.tool()
@@ -625,7 +634,7 @@ You must be in **multi-agent-workshop\01_exercises** folder and then use the bel
 
 ```powershell
 cd multi-agent-workshop\01_exercises
-.\venv\Scripts\Activate.ps1
+.\.venv-travel\Scripts\Activate.ps1
 ```
 
 **Terminal 2 (Backend API):**
@@ -642,7 +651,7 @@ You must be in **multi-agent-workshop\01_exercises** folder and then use the bel
 
 ```powershell
 cd multi-agent-workshop\01_exercises
-.\venv\Scripts\Activate.ps1
+.\.venv-travel\Scripts\Activate.ps1
 ```
 
 **Terminal 3 (Frontend):**
@@ -732,4 +741,4 @@ With observability in place, you can:
 
 ## What's Next?
 
-Proceed to Module 06: **[Evaluating Your Multi-Agent Application](./Module-06.md)**
+Proceed to Module 06: **[Evaluating Your Multi-Agent Application](./Module-06.md#module-06---evaluating-your-multi-agent-application-bonus-module)**

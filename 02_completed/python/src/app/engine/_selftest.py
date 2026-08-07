@@ -58,6 +58,14 @@ def run() -> bool:
     ck("detectors(structural): repeated_node SILENT on clean negative",
        repeated_node(neg) == [], f"{repeated_node(neg)}")
 
+    # --- projection for the repeated-node opportunity (tool-dedup saving) --------------
+    tdpos = project("opp-repeated-node", pos)
+    ck("projection(tool-dedup): prices the avoidable duplicate hop (>0, 1 node)",
+       tdpos is not None and tdpos.affected == 1 and tdpos.saving > 0, f"{tdpos}")
+    tdneg = project("opp-repeated-node", neg)
+    ck("projection(tool-dedup): $0 on a clean turn (no duplicates)",
+       tdneg is not None and tdneg.saving == 0.0 and tdneg.affected == 0, f"{tdneg}")
+
     # --- statistical detector: derived threshold + min-sample + not-noisy (B5) --------
     from .detectors.statistical import cost_regression, MIN_SAMPLE
 
@@ -82,7 +90,7 @@ def run() -> bool:
        len(reg) == 1 and reg[0].evidence["z"] >= 3.0 and reg[0].evidence["effect"] >= 0.2,
        f"{reg[0].evidence if reg else None}")
 
-    # --- realized-complexity signal beats the keyword tier (B6) ----------------------
+    # --- realized-complexity signal beats the keyword complexity_tier (B6) ----------------------
     from .complexity import LabeledTurn, compare_coverage
     labeled = [
         # truly trivial turns the keyword classifier MISSES (not greetings, but low-output)
@@ -95,7 +103,7 @@ def run() -> bool:
         LabeledTurn("find hotels and restaurants near the Marais", 700, False),
     ]
     cov = compare_coverage(labeled)
-    ck("complexity: measured signal finds MORE opportunity than keyword tier",
+    ck("complexity: measured signal finds MORE opportunity than keyword complexity_tier",
        cov["measured_recall"] > cov["keyword_recall"] and cov["extra_opportunities"] >= 2,
        f"keyword={cov['keyword_caught']}/{cov['truly_trivial']} measured={cov['measured_caught']}/{cov['truly_trivial']}")
     ck("complexity: measured signal does not downgrade truly-substantive turns",
@@ -124,7 +132,7 @@ def run() -> bool:
     _, s2 = bind_policy(schema, {"schema_version": 1, "params": {"default_deployment": "gpt-6-ultra"}})
     ck("policy: unknown model rejected -> fail-closed", "fail-closed" in s2, s2)
     p, s3 = bind_policy(schema, {"schema_version": 1, "params": {"enabled": True,
-            "default_deployment": "gpt-5-mini", "tiers": {"routine": "gpt-5-mini"}}})
+            "default_deployment": "gpt-5-mini", "complexity_tiers": {"routine": "gpt-5-mini"}}})
     ck("policy: valid policy accepted", "ok" in s3 and p["default_deployment"] == "gpt-5-mini", s3)
 
     # --- seam registry (B11) — the declared surface + recipe rendering ---------------
@@ -134,7 +142,7 @@ def run() -> bool:
        and "supervisor.prompty" in surface["prompt"] and "introduce-model-selector" in surface["code"],
        f"{sorted(surface['config'])} | {sorted(surface['prompt'])} | {sorted(surface['code'])}")
     rec = render_recipe("config:model-selection",
-                        {"enabled": True, "default_deployment": "gpt-5-mini", "tiers": {"routine": "gpt-5-mini"}})
+                        {"enabled": True, "default_deployment": "gpt-5-mini", "complexity_tiers": {"routine": "gpt-5-mini"}})
     ck("seams: config recipe binds params -> a fail-closed policy doc (auto/L4)",
        rec["accepted"] and rec["apply_mode"] == "auto" and rec["autonomy_ceiling"] == "L4"
        and rec["policy_doc"]["params"]["default_deployment"] == "gpt-5-mini", rec["status"])
@@ -149,24 +157,30 @@ def run() -> bool:
     from .codecontext import InMemoryProvider, scaffold_diff
     src = {
         "src/app/travel_agents.py": (
-            "def classify_turn_tier(text):\n"
-            "    return 'routine'\n\n"
-            "def select_deployment_for_turn(messages):\n"
-            "    return default, 'default'\n\n"
+            "def _select_supervisor_model(state, runtime):\n"
+            "    return optimization.get_chat_model_for_turn(state.get('messages'))\n\n"
             "def unrelated_helper(x):\n"
             "    return x\n"
+        ),
+        "src/app/services/optimization.py": (
+            "def get_chat_model_for_turn(messages):\n"
+            "    return get_chat_model(select_deployment_for_turn(messages)[0])\n"
         )
     }
     provider = InMemoryProvider(src)
-    ctx = provider.retrieve("introduce-model-selector", hints=["select_deployment_for_turn"])
+    ctx = provider.retrieve(
+        "introduce-model-selector",
+        hints=["_select_supervisor_model", "get_chat_model_for_turn"],
+    )
     got = {s.symbol for s in ctx.snippets}
     ck("codecontext: retrieves the relevant seam symbol (read-only)",
-       "select_deployment_for_turn" in got and "unrelated_helper" not in got, f"{sorted(got)}")
+       "_select_supervisor_model" in got and "get_chat_model_for_turn" in got
+       and "unrelated_helper" not in got, f"{sorted(got)}")
     ck("codecontext: provider has no write path",
        not any(hasattr(provider, m) for m in ("write", "save", "apply", "commit")))
     diff = scaffold_diff(ctx, "route trivial turns to a cheaper model")
     ck("codecontext: analyst can draft a grounded diff from retrieved context",
-       "select_deployment_for_turn" in diff and "TODO(analyst)" in diff and diff.count("--- a/") >= 1,
+       "get_chat_model_for_turn" in diff and "TODO(analyst)" in diff and diff.count("--- a/") >= 1,
        f"{len(diff)} chars")
 
     # --- reference-free quality judge + per-agent rubrics + calibration (B9) ----------
@@ -232,11 +246,11 @@ def run() -> bool:
     ck("pipeline: card saving == engine projection (not the proposer's claim)",
        msel and abs(msel[0]["saving"] - pr.saving) < 1e-6, f"{msel[0]['saving'] if msel else None}")
 
-    # --- rediscovery acceptance (B14): engine rediscovers a catalogued SCEN from data ---
+    # --- rediscovery acceptance (B14): engine rediscovers a scenario slug from data ---
     from .pipeline import rediscovered_scenarios
     scens = rediscovered_scenarios(cards)
-    ck("acceptance(B14): engine rediscovers >=1 catalogued SCEN end-to-end (SCEN-007)",
-       len(scens) >= 1 and "SCEN-007" in scens, f"rediscovered={scens}")
+    ck("acceptance(B14): engine rediscovers >=1 scenario slug end-to-end (model-selection)",
+       len(scens) >= 1 and "model-selection" in scens, f"rediscovered={scens}")
 
     # --- agent scorecard (agent x dimension rollup, B2) ------------------------------
     cards_sc = build_scorecard(nodes)

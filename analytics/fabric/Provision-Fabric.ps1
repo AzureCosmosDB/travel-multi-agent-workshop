@@ -13,7 +13,7 @@
         Phase 2  mirrored database (starts replicating)  ->  Module 09 notebook  ->  Apply/Revert UDF
         Phase 3  import the Power BI report (.pbix) and point it at your mirror (no Desktop needed)
 
-    The funnel_demo demo dataset the notebook reads is seeded automatically during `azd up`
+    The analytics demo dataset the notebook reads is seeded automatically during `azd up`
     (postprovision), so there is nothing to seed here.
 
     Configuration (subscription, resource group, Cosmos account, capacity, database) is
@@ -266,7 +266,7 @@ Write-Section 'Done'
 Write-Host 'Fabric analytics provisioned.' -ForegroundColor Green
 Write-Host 'FABRIC_WORKSPACE_ID and FABRIC_MIRROR_ID were saved to your azd environment.'
 Write-Host ''
-Write-Host 'The funnel_demo analytics dataset was seeded during azd up, so the mirror already'
+Write-Host 'The analytics dataset was seeded during azd up, so the mirror already'
 Write-Host 'has data to replicate. In the Fabric portal, open your workspace and confirm you see:'
 Write-Host '  - a mirrored database that is replicating the Cosmos containers,'
 Write-Host '  - the ConversionFunnelReverseETL notebook, and'

@@ -106,7 +106,7 @@ def run() -> bool:
           v == "observing" and p4.status == "active", f"verdict={v}, status={p4.status}")
 
     # 5. prompt/code seam adverse -> NOT auto-reverted (human-governed)
-    p5 = Policy("city-context", "prompt")
+    p5 = Policy("prompt-fix", "prompt")
     v, a = guard(p5, Observation(n=200, baseline_cost_per_outcome=1.00,
                                  measured_cost_per_outcome=1.30, predicted_cost_per_outcome=0.90))
     check("non-config adverse -> flagged, NOT auto-reverted",

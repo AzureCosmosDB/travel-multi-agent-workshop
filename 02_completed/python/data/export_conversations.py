@@ -112,7 +112,7 @@ def derive_optimization_turn(doc: dict[str, Any]) -> dict[str, Any]:
         "tenantId": doc.get("tenantId"),
         "userId": doc.get("userId"),
         "sessionId": doc.get("sessionId"),
-        "model_tier": bag.get("model_tier", "default"),
+        "complexity_tier": bag.get("complexity_tier", "default"),
         "model_deployment": bag.get("model_deployment", "Unknown"),
         "model_name": bag.get("model_name", "Unknown"),
         "input_tokens": _int(bag.get("input_tokens")),

@@ -32,14 +32,17 @@ from src.app.services.optimization_recommendations import (
     build_turn_metrics,
     read_recommendations_from_insights,
     read_metrics_from_insights,
+    read_optimization_result_from_insights,
+    read_conversion_from_insights,
+    read_memory_insights,
+    read_agent_paths_from_insights,
+    build_turns_timeline,
+    count_confirmed_trips,
     get_proposed_model_selection_params,
-    get_city_context_staged_change,
-    get_tool_dedup_staged_change,
     apply_memory_retention,
     revert_memory_retention,
     PROPOSED_MEMORY_RETENTION_PARAMS,
     MODEL_SELECTION_SCENARIO,
-    CITY_CONTEXT_SCENARIO,
     TOOL_DEDUP_SCENARIO,
     MEMORY_RETENTION_SCENARIO,
 )
@@ -57,28 +60,17 @@ _SCENARIO_DEFAULT_PROVIDERS: dict[str, Any] = {
 
 _SCENARIO_META: dict[str, dict[str, str]] = {
     MODEL_SELECTION_SCENARIO: {
-        "scenario_id": "SCEN-007",
+        "scenario_id": "model-selection",
         "title": "Capability-tiered model selection",
     },
     MEMORY_RETENTION_SCENARIO: {
-        "scenario_id": "SCEN-004",
+        "scenario_id": "memory-retention",
         "title": "Memory retention (prune stale memories)",
     },
-    CITY_CONTEXT_SCENARIO: {
-        "scenario_id": "SCEN-001",
-        "title": "Active-trip city context",
-    },
     TOOL_DEDUP_SCENARIO: {
-        "scenario_id": "SCEN-008",
+        "scenario_id": "tool-call-dedup",
         "title": "Redundant tool calls",
     },
-}
-
-# Scenarios whose "apply" is a STAGED human-governed change (prompt/code), not a
-# runtime toggle -> scenario -> provider of the proposed change (file + text).
-_STAGED_CHANGE_PROVIDERS: dict[str, Any] = {
-    CITY_CONTEXT_SCENARIO: get_city_context_staged_change,
-    TOOL_DEDUP_SCENARIO: get_tool_dedup_staged_change,
 }
 
 
@@ -192,6 +184,58 @@ def get_optimization_result(tenant_id: str) -> dict[str, Any]:
     return res
 
 
+@router.get("/{tenant_id}/turns_timeline")
+def get_turns_timeline(tenant_id: str, bucket_seconds: int = 60) -> dict[str, Any]:
+    """Per-bucket turn counts over time (the 'turns over time' line).
+
+    Computed live from the captured turns (the same raw turns Power BI's
+    ``OptimizationTurns[Turn Minute]`` line reads), bucketed by ``bucket_seconds``.
+    """
+    return build_turns_timeline(tenant_id, bucket_seconds)
+
+
+@router.get("/{tenant_id}/confirmed_trips")
+def get_confirmed_trips(tenant_id: str) -> dict[str, Any]:
+    """Booked-trip outcomes for a tenant (Option A): count of Trip docs with status
+    confirmed/completed, computed live and tenant-scoped. Matches the Power BI
+    ``Confirmed Trips`` measure once it is tenant-scoped via TREATAS."""
+    return {"tenant_id": tenant_id, "confirmed_trips": count_confirmed_trips(tenant_id), "source": "live"}
+
+
+@router.get("/{tenant_id}/conversion")
+def get_conversion(tenant_id: str) -> dict[str, Any]:
+    """Conversion funnel, abandonment causes, and conversion KPI (reverse-ETL) —
+    the same rows Power BI's Business Impact page reads. Empty until compute_insights runs."""
+    res = read_conversion_from_insights(tenant_id)
+    if res is None:
+        return {"tenant_id": tenant_id, "source": "fabric", "funnel": [], "causes": [], "kpi": {},
+                "note": "no conversion insights yet; run compute_insights / the notebook"}
+    return res
+
+
+@router.get("/{tenant_id}/memory")
+def get_memory_insights(tenant_id: str) -> dict[str, Any]:
+    """Memory-intelligence buckets + KPI (reverse-ETL) — the same rows Power BI's Memory
+    page reads. Memory is global (keyed by user, not tenant); tenant is accepted for
+    route symmetry. Empty until compute_insights runs."""
+    res = read_memory_insights()
+    if res is None:
+        return {"tenant_id": tenant_id, "source": "fabric", "by_type": [], "salience": [], "health": [], "kpi": {},
+                "note": "no memory insights yet; run compute_insights / the notebook"}
+    return res
+
+
+@router.get("/{tenant_id}/agent_paths")
+def get_agent_paths(tenant_id: str) -> dict[str, Any]:
+    """Agent-path cost concentration (reverse-ETL) — one row per agent_path with
+    turns/total_tokens/avg_tokens/token_share. Empty until compute_insights runs."""
+    res = read_agent_paths_from_insights(tenant_id)
+    if res is None:
+        return {"tenant_id": tenant_id, "source": "fabric", "total_tokens": 0, "paths": [],
+                "note": "no agent-path insights yet; run compute_insights / the notebook"}
+    return res
+
+
 @router.get("/{scenario}/policy")
 def get_scenario_policy(scenario: str) -> dict[str, Any]:
     doc = optimization_policy.get_policy(scenario)
@@ -228,12 +272,15 @@ def propose(scenario: str, body: Optional[ProposeBody] = None) -> dict[str, Any]
 @router.post("/{scenario}/apply")
 def apply(scenario: str, body: Optional[ActionBody] = None) -> dict[str, Any]:
     body = body or ActionBody()
-    # Human-governed (prompt/code) scenarios cannot be runtime-applied — they must be staged.
-    if scenario in _STAGED_CHANGE_PROVIDERS:
+    # tool-call-dedup is a MANUAL (human-deployed) prompt optimization: you review the diff
+    # and deploy supervisor.prompty yourself, so there is no in-app apply. Governance is
+    # recorded via /optimizations/agent/{tenant}/decision (Proposed→Approved→Deployed→Rolled back).
+    if scenario == TOOL_DEDUP_SCENARIO:
         raise HTTPException(
             status_code=400,
-            detail="This is a human-governed prompt change; use POST /optimizations/"
-                   f"{scenario}/stage to produce a reviewable proposal (it is not applied at runtime).",
+            detail="This is a Manual (human-deployed) prompt optimization — review the diff and "
+                   "deploy supervisor.prompty yourself; record governance via the decision endpoint. "
+                   "There is no in-app apply.",
         )
     # Auto-seed a proposal if none exists yet, so apply is genuinely one-click.
     if optimization_policy.get_policy(scenario) is None:
@@ -241,7 +288,7 @@ def apply(scenario: str, body: Optional[ActionBody] = None) -> dict[str, Any]:
     saved = optimization_policy.apply_policy(scenario, by=body.by)
     if saved is None:
         raise HTTPException(status_code=404, detail=f"No policy to apply for '{scenario}'")
-    # SCEN-004 applies a side effect: soft-prune superseded memories (reversible).
+    # Memory retention applies a side effect: soft-prune superseded memories (reversible).
     if scenario == MEMORY_RETENTION_SCENARIO:
         saved["pruned_memories"] = apply_memory_retention()
     return saved
@@ -250,35 +297,17 @@ def apply(scenario: str, body: Optional[ActionBody] = None) -> dict[str, Any]:
 @router.post("/{scenario}/revert")
 def revert(scenario: str, body: Optional[ActionBody] = None) -> dict[str, Any]:
     body = body or ActionBody()
+    # tool-call-dedup is a MANUAL prompt optimization: nothing is applied in-app, so nothing
+    # to revert here — a deployed prompt is rolled back via the decision endpoint (governance).
+    if scenario == TOOL_DEDUP_SCENARIO:
+        raise HTTPException(
+            status_code=400,
+            detail="This is a Manual (human-deployed) prompt optimization; there is no in-app "
+                   "applied policy to revert — roll back via the decision endpoint (governance).",
+        )
     saved = optimization_policy.revert_policy(scenario, by=body.by)
     if saved is None:
         raise HTTPException(status_code=404, detail=f"No policy to revert for '{scenario}'")
     if scenario == MEMORY_RETENTION_SCENARIO:
         saved["restored_memories"] = revert_memory_retention()
-    return saved
-
-
-@router.post("/{scenario}/stage")
-def stage(scenario: str, body: Optional[ActionBody] = None) -> dict[str, Any]:
-    """'Apply' for a human-governed change: record a STAGED proposal (never active).
-
-    Staging a prompt/code optimization produces a reviewable diff for a human to
-    merge via PR — it deliberately does NOT change runtime behavior (maturity L3).
-    """
-    body = body or ActionBody()
-    provider = _STAGED_CHANGE_PROVIDERS.get(scenario)
-    if provider is None:
-        raise HTTPException(status_code=400, detail=f"Scenario '{scenario}' is not a staged change.")
-    meta = _SCENARIO_META.get(scenario, {})
-    doc = {
-        "scenario": scenario,
-        "scenario_id": meta.get("scenario_id"),
-        "title": meta.get("title", scenario),
-        "apply_mode": "staged_change",
-        "proposed_change": provider(),
-        "proposed_by": body.by,
-    }
-    saved = optimization_policy.stage_policy(doc)
-    if saved is None:
-        raise HTTPException(status_code=503, detail="Policy store unavailable")
     return saved

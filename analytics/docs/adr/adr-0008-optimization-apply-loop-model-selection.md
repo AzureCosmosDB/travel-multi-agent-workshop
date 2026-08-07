@@ -5,7 +5,7 @@
 - **Deciders:** @markjbrown (mjbrown)
 - **Related:** ADR-0001 (optimization-loop surface), ADR-0006 (v2 baseline), ADR-0007 (Debug-first instrumentation), SCEN-007, SCEN-003
 
-> **Note (superseded figures):** the baseline numbers below (100% `gpt-4.1-mini`, 48% trivial) reflect the original pre-modernization dataset. The workshop now defaults to `gpt-5.1` and measures trivial via the classifier's `model_tier == "trivial"` (~23% in the current sample data). This ADR is kept as a historical record; see SCEN-007 for current figures.
+> **Note (superseded figures):** the baseline numbers below (100% `gpt-4.1-mini`, 48% trivial) reflect the original pre-modernization dataset. The workshop now defaults to `gpt-5.1` and measures trivial via the classifier's `complexity_tier == "trivial"` (~23% in the current sample data). This ADR is kept as a historical record; see SCEN-007 for current figures.
 
 ## Context
 
@@ -55,7 +55,7 @@ effect from data.
 
 - Deployed `gpt-5-nano` + `gpt-5.1` to `openai-kfpokdh52vbec`; smoke-tested both (need
   `max_completion_tokens`, reject non-default `temperature`, api `2025-04-01-preview`).
-- Full loop proven with real turns (tenant `aptest`), each Debug turn recording `model_tier` +
+- Full loop proven with real turns (tenant `aptest`), each Debug turn recording `complexity_tier` +
   `model_deployment`, and `model_name` independently confirming the serving model:
 
   | tier | deployment | model_name (actual) | total tokens | est $ |
@@ -77,9 +77,9 @@ Implement Option A + A. Specifically:
   changes runtime behavior.
 - `services/azure_open_ai.get_chat_model(deployment)` — cached per-deployment model factory;
   reasoning deployments (`gpt-5*`/o-series) omit temperature and use `2025-04-01-preview`.
-- `travel_agents.py` — `classify_turn_tier` heuristic + `get_supervisor_for_turn` (per-tier prebuilt
+- `travel_agents.py` — `classify_complexity_tier` heuristic + `get_supervisor_for_turn` (per-tier prebuilt
   supervisor, shared tools/checkpointer; default deployment when no active policy).
-- `travel_agents_api.py` — select the tiered supervisor per turn; record `model_tier`/
+- `travel_agents_api.py` — select the tiered supervisor per turn; record `complexity_tier`/
   `model_deployment` on the Debug turn log.
 - `services/optimization_recommendations.py` + `optimization_api.py` — `/optimizations` REST surface
   (recommend card, propose/apply/revert). Prices are labeled **estimates**.
@@ -111,6 +111,6 @@ Implement Option A + A. Specifically:
 - Implementation: `02_completed/python/src/app/services/optimization_policy.py`,
   `services/optimization_recommendations.py`, `optimization_api.py`,
   `services/azure_open_ai.py` (`get_chat_model`), `travel_agents.py`
-  (`classify_turn_tier`, `get_supervisor_for_turn`), `travel_agents_api.py`
+  (`classify_complexity_tier`, `get_supervisor_for_turn`), `travel_agents_api.py`
   (tier selection + Debug recording), `analytics/optimization_mining.py` (`--verify`).
 - SCEN-007 (`docs/optimization-scenarios/scen-007-model-selection-trivial-turns.md`), ADR-0001, ADR-0007.

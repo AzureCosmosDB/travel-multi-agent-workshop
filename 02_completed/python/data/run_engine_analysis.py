@@ -11,7 +11,8 @@ Two modes:
 
 Examples:
   python data/run_engine_analysis.py --simulate 1000
-  python data/run_engine_analysis.py --from-cosmos --tenant marvel --write
+  python data/run_engine_analysis.py --simulate 1000 --llm
+  python data/run_engine_analysis.py --from-cosmos --tenant marvel --write --llm
 """
 
 from __future__ import annotations
@@ -78,7 +79,11 @@ def main() -> int:
     ap.add_argument("--from-cosmos", action="store_true", help="load real node executions")
     ap.add_argument("--tenant", default="marvel")
     ap.add_argument("--write", action="store_true", help="upsert cards to OptimizationInsights")
+    ap.add_argument("--llm", action="store_true",
+                    help="use the live LLM analyst (Azure OpenAI, keyless) instead of the deterministic proposer")
     args = ap.parse_args()
+
+    surface = declared_surface()
 
     if args.from_cosmos:
         nodes = _nodes_from_cosmos(args.tenant)
@@ -88,7 +93,16 @@ def main() -> int:
         nodes = simulation.simulate(seed=7, n_turns=n)
         print(f"Simulated {len(nodes)} node executions ({n} turns)")
 
-    cards = analyze(nodes, declared_surface())
+    analyst = None
+    if args.llm:
+        from src.app.engine import make_llm_analyst
+        from src.app.services.azure_open_ai import get_model
+        analyst = make_llm_analyst(get_model(), surface)
+        print("Analyst: live LLM (Azure OpenAI, keyless) — engine guardrails authoritative")
+    else:
+        print("Analyst: deterministic default (no LLM)")
+
+    cards = analyze(nodes, surface, analyst=analyst)
     print(f"\nDiscovered {len(cards)} opportunit{'y' if len(cards) == 1 else 'ies'}:\n")
     for c in cards:
         print(json.dumps({k: c[k] for k in

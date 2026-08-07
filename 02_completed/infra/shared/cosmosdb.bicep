@@ -14,6 +14,8 @@ param summariesContainerName string = 'memories_summaries'
 param counterContainerName string = 'counter'
 param optimizationPoliciesContainerName string = 'OptimizationPolicies'
 param optimizationTurnsContainerName string = 'OptimizationTurns'
+param nodeExecutionsContainerName string = 'NodeExecutions'
+param optimizationGovernanceContainerName string = 'OptimizationGovernance'
 param optimizationInsightsContainerName string = 'OptimizationInsights'
 param configurationContainerName string = 'Configuration'
 @description('Deploy the optional analytics/optimization containers (Modules 07/08 — OptimizationPolicies/Turns/Insights). Set false for a leaner base deployment; the app still self-provisions them at runtime if the analytics features are used.')
@@ -841,6 +843,84 @@ resource cosmosContainerOptimizationTurns 'Microsoft.DocumentDB/databaseAccounts
           '/sessionId'
         ]
         kind: 'MultiHash'
+        version: 2
+      }
+      indexingPolicy: {
+        indexingMode: 'consistent'
+        automatic: true
+        includedPaths: [
+          {
+            path: '/*'
+          }
+        ]
+        excludedPaths: [
+          {
+            path: '/"_etag"/?'
+          }
+        ]
+      }
+    }
+    options: {
+      autoscaleSettings: {
+        maxThroughput: containerMaxRU
+      }
+    }
+  }
+  tags: tags
+}
+
+// Node Executions (per-agent node-grain telemetry feeding the agent scorecard) — PK [tenantId,userId,sessionId]
+resource cosmosContainerNodeExecutions 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2024-12-01-preview' = if (deployAnalytics) {
+  parent: database
+  name: nodeExecutionsContainerName
+  properties: {
+    resource: {
+      id: nodeExecutionsContainerName
+      partitionKey: {
+        paths: [
+          '/tenantId'
+          '/userId'
+          '/sessionId'
+        ]
+        kind: 'MultiHash'
+        version: 2
+      }
+      indexingPolicy: {
+        indexingMode: 'consistent'
+        automatic: true
+        includedPaths: [
+          {
+            path: '/*'
+          }
+        ]
+        excludedPaths: [
+          {
+            path: '/"_etag"/?'
+          }
+        ]
+      }
+    }
+    options: {
+      autoscaleSettings: {
+        maxThroughput: containerMaxRU
+      }
+    }
+  }
+  tags: tags
+}
+
+// Optimization Governance (append-only C1-C5 human-in-the-loop decision audit trail) — PK /tenantId
+resource cosmosContainerOptimizationGovernance 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2024-12-01-preview' = if (deployAnalytics) {
+  parent: database
+  name: optimizationGovernanceContainerName
+  properties: {
+    resource: {
+      id: optimizationGovernanceContainerName
+      partitionKey: {
+        paths: [
+          '/tenantId'
+        ]
+        kind: 'Hash'
         version: 2
       }
       indexingPolicy: {

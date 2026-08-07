@@ -14,6 +14,7 @@ param summariesContainerName string = 'memories_summaries'
 param counterContainerName string = 'counter'
 param optimizationPoliciesContainerName string = 'OptimizationPolicies'
 param optimizationTurnsContainerName string = 'OptimizationTurns'
+param nodeExecutionsContainerName string = 'NodeExecutions'
 param optimizationInsightsContainerName string = 'OptimizationInsights'
 param configurationContainerName string = 'Configuration'
 @description('Deploy the optional analytics/optimization containers (Modules 07/08 — OptimizationPolicies/Turns/Insights). Set false for a leaner base workshop that skips the analytics modules.')
@@ -836,6 +837,48 @@ resource cosmosContainerOptimizationTurns 'Microsoft.DocumentDB/databaseAccounts
   properties: {
     resource: {
       id: optimizationTurnsContainerName
+      partitionKey: {
+        paths: [
+          '/tenantId'
+          '/userId'
+          '/sessionId'
+        ]
+        kind: 'MultiHash'
+        version: 2
+      }
+      indexingPolicy: {
+        indexingMode: 'consistent'
+        automatic: true
+        includedPaths: [
+          {
+            path: '/*'
+          }
+        ]
+        excludedPaths: [
+          {
+            path: '/"_etag"/?'
+          }
+        ]
+      }
+    }
+      options: {
+      autoscaleSettings: {
+        maxThroughput: containerMaxRU
+      }
+    }
+  }
+  tags: tags
+}
+
+
+// Container: Node Executions (per-agent node-grain telemetry for the Module 09 agent scorecard)
+// Partition Key: [/tenantId, /userId, /sessionId]
+resource cosmosContainerNodeExecutions 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2024-12-01-preview' = if (deployAnalytics) {
+  parent: database
+  name: nodeExecutionsContainerName
+  properties: {
+    resource: {
+      id: nodeExecutionsContainerName
       partitionKey: {
         paths: [
           '/tenantId'

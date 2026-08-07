@@ -60,10 +60,10 @@ from src.app.services.azure_cosmos_db import (
 from src.app.travel_agents import (
     setup_agents,
     build_agent_graph,
-    get_supervisor_for_turn,
     cleanup_persistent_session,
     _current_user_preference_vector,
 )
+from src.app.services import optimization
 from src.app.services.agent_memory import get_memory_client
 
 # Setup logging
@@ -544,7 +544,7 @@ def _persist_turn_debug_log(
             agent_path=agent_path,
             handoff_count=handoff_count,
             debug_log_id=debug_log_id,
-            model_tier=dbg.get("model_tier"),
+            complexity_tier=dbg.get("complexity_tier"),
             model_deployment=dbg.get("model_deployment"),
         )
     except Exception as exc:  # noqa: BLE001
@@ -1281,19 +1281,17 @@ async def chat_event_generator(
     messages.append(HumanMessage(content=user_message))
     config = _thread_config(tenant_id, user_id, thread_id, pref_vector)
 
-    # SCEN-007 apply-loop effector: pick the model tier for this turn from the
-    # active optimization policy. Falls back to the default supervisor/model
-    # when no policy is active, so behavior is unchanged out of the box.
+    # Model selection — record which complexity tier / deployment this turn routed
+    # to. The supervisor picks its own model per turn via its model selector, so we
+    # only need to look up the tier here for analytics. No active policy -> "default".
     try:
-        selected, deployment, tier = get_supervisor_for_turn(messages)
-        if selected is not None:
-            workflow = selected
-        dbg["model_tier"] = tier
+        deployment, complexity_tier = optimization.select_deployment_for_turn(messages)
+        dbg["complexity_tier"] = complexity_tier
         dbg["model_deployment"] = deployment
-        if tier != "default":
-            logger.info(f"🎚️  Model tier '{tier}' -> deployment '{deployment}' for this turn")
+        if complexity_tier != "default":
+            logger.info(f"🎚️  Complexity tier '{complexity_tier}' -> deployment '{deployment}' for this turn")
     except Exception as exc:  # noqa: BLE001
-        logger.warning(f"Model-tier selection failed; using default supervisor: {exc}")
+        logger.warning(f"Model-selection tier lookup failed; recording default: {exc}")
 
     client.add_local(
         user_id=user_id,
@@ -1488,6 +1486,20 @@ async def get_chat_completion(
         return response_models
 
     except Exception as e:
+        # Azure OpenAI rate limits (429) are easy to hit when turns are driven quickly.
+        # Surface them as a clear, actionable message (the user can just wait and retry).
+        is_rate_limit = (
+            getattr(e, "status_code", None) == 429
+            or e.__class__.__name__ == "RateLimitError"
+            or "rate limit" in str(e).lower()
+            or "rate_limit" in str(e).lower()
+        )
+        if is_rate_limit:
+            logger.warning(f"Rate limit (429) in chat completion: {e}")
+            raise HTTPException(
+                status_code=429,
+                detail="The AI model is temporarily rate-limited (too many requests in a short window). Please wait about 30 seconds and try again.",
+            )
         logger.error(f"Error in chat completion: {e}")
         logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=f"Chat completion failed: {str(e)}")

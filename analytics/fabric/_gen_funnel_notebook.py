@@ -20,25 +20,34 @@ def code(text, tags=None):
             "source": text.splitlines(keepends=True)}
 
 
-INTRO = """# Conversion funnel — reverse-ETL from Fabric back to Cosmos
+INTRO = """# Optimization analytics — reverse-ETL from Fabric back to Cosmos
 
 **Cosmos DB** is the *operational* store for the live travel agent — low-latency reads/writes
 on the request path. **Mirroring** streams it into **Microsoft Fabric** (the *analytical* plane)
-with no ETL pipeline to build. This notebook does the kind of heavy, cross-session analysis you
-would **never** run on the transactional path — a **conversion funnel** — and then
-**reverse-ETLs** the result back into Cosmos so the app (and, at higher maturity, the agent
-itself) can *act* on it.
+with no ETL pipeline to build. This notebook runs the kind of heavy, cross-session analysis you
+would **never** run on the transactional path, then **reverse-ETLs** each result back into Cosmos
+(`OptimizationInsights`) so the app, the **Optimization Console**, and **Power BI** can *act* on it.
 
 ```
-Cosmos (operational) --mirror--> Fabric (Spark analysis) --reverse-ETL--> Cosmos OptimizationInsights --> app acts / Power BI
+Cosmos (operational) --mirror--> Fabric (Spark analysis) --reverse-ETL--> Cosmos OptimizationInsights --> app / Console / Power BI act
 ```
 
 That closed loop is the substrate for **Level 4 (autonomous)** and **Level 5 (adaptive)**
 optimization: Fabric computes the intelligence, reverse-ETL lands it where the operational
 system can use it in real time.
 
-You implement two pieces:
-- **TODO 1** — classify *why* a session didn't convert (the analytics decision).
+**What this notebook computes** — each analysis reverse-ETLs flat rows (keyed by `type`) that the
+Console and the Power BI report read directly:
+- **Conversion funnel + abandonment cause** (Sections 2–3) — where sessions leak and *why* they don't convert.
+- **Measured saving** (Section 4b) — keyed by optimization: the **model-selection counterfactual** (each captured turn re-priced under the model it actually ran on vs. the all-premium baseline) **and** the **memory-retention** telemetry saving (input tokens recalls avoided by dropping pruned memories, aggregated from the mirrored `ApiEvents`; `$0` until the policy is applied). The honest dollar figures behind the estimate cards.
+- **Agent-path cost concentration** (5b) — which `agent_path`s dominate token cost (where model tiering + tool-dedup pay off first).
+- **Turn metrics** (5c) — the Console KPIs: total turns/tokens, estimated cost, trivial-turn share, model distribution, cost-by-tier.
+- **Agent scorecard** (5d) — per-agent health across **cost efficiency**, **model selection**, and **workflow efficiency**, rolled up from the mirrored `NodeExecutions` node-grain (feeds the Power BI **Agent Performance** page 6b).
+- **Memory intelligence** (6) — salience / health / supersession of the memory subsystem.
+- **LLM analyst** (7) — the model *proposes* one recommendation card **per detected opportunity** (**model-selection** + **tool-call-dedup**) and the engine's **guardrails** *dispose*: bound it to a known seam, require citations, and override its dollar figure with the engine-measured saving. Each accepted card is reverse-ETL'd as a `discovered_opportunity` **and** a flat `recommendation_card` row — now including a compact **evidence line** and a **caveat** — so the Console and the Power BI **recommendation gallery** show the same proof, limitation, and `governed_state` badge (and the tool-dedup card **supersedes** its app-plane "awaiting analysis" placeholder).
+
+**You implement two pieces** (everything else is provided):
+- **TODO 1** — classify *why* a session didn't convert (the analytics decision you own; the notebook analog of `classify_complexity_tier`).
 - **TODO 2** — the **reverse-ETL write** back to Cosmos (the pattern this module teaches)."""
 
 CONFIG_MD = """## 0. Load the Cosmos connector (run this first)
@@ -62,7 +71,13 @@ TENANT_ID = ""                 # Entra tenant (for the Fabric->Cosmos AAD write)
 SQL_EP = ""
 SQL_DB = ""
 SOURCE_SCHEMA = COSMOS_DATABASE   # the mirror schema == the Cosmos DB name
-TENANT = "funnel_demo"            # which app tenant to analyze'''
+TENANT = "analytics"            # which app tenant to analyze
+# Azure OpenAI (the LLM analyst in Section 7 — keyless/AAD, the same account the app uses).
+# Leave blank to skip the live call: the analyst then falls back to the deterministic
+# proposer (engine parity), so the section still reverse-ETLs a guardrailed card.
+AOAI_ENDPOINT = ""              # https://<account>.openai.azure.com/
+AOAI_DEPLOYMENT = "gpt-5.1"
+AOAI_API_VERSION = "2025-04-01-preview"'''
 
 READ = '''from pyspark.sql import functions as F
 from datetime import datetime, timezone
@@ -82,6 +97,10 @@ def read_sql(table):
             .where(F.col("tenantId") == TENANT))
 
 turns = read_sql("OptimizationTurns")
+# schema-compat: pre-rename telemetry stored the model tier as `model_tier`; the current
+# app/seed write `complexity_tier` (same field). Normalize so downstream (5c) always finds it.
+if "complexity_tier" not in turns.columns and "model_tier" in turns.columns:
+    turns = turns.withColumnRenamed("model_tier", "complexity_tier")
 trips = read_sql("Trips")
 messages = read_sql("Messages")
 print("turns:", turns.count(), "trips:", trips.count(), "messages:", messages.count())'''
@@ -115,7 +134,7 @@ sess.groupBy("searched", "planned", "confirmed").count().show()'''
 TODO1_STUB = '''# ---- TODO 1: classify WHY each non-converting session leaked (the analytics decision) ----
 # Add a "cause" column. Converted sessions -> "converted". For the rest, in this order:
 #   planned == 1                        -> "cart_abandon"   (got a plan, never booked)
-#   searched == 1 and city_reask == 1   -> "city_friction"  (agent kept re-asking the city -> SCEN-001)
+#   searched == 1 and city_reask == 1   -> "city_friction"  (agent kept re-asking the city)
 #   searched == 1 and no_results == 1   -> "no_results"     (search dead-ended)
 #   searched == 1                       -> "search_stall"
 #   otherwise                           -> "no_engagement"  (never searched)
@@ -171,9 +190,11 @@ SAVING_MD = """## 4b. Measured saving — counterfactual, keyed by optimization 
 A second reverse-ETL insight: the **measured** cost saving, keyed by the **optimization**
 (scenario) — not the tenant. We price every captured turn (all tenants) under the model it
 actually ran on vs. the single premium baseline (gpt-5.1), so the gap **is** the realized
-saving from capability-tiered model selection. This flat `optimization_result` row (stored
-under a reserved `_global_optimizations` partition key — a non-tenant bucket) feeds the
-report's **Measured Saving** page, where a `scenario` slicer switches between optimizations.
+saving from capability-tiered model selection. We also aggregate the mirrored **ApiEvents**
+recall telemetry into the **memory-retention** saving (input tokens recalls avoided by
+dropping pruned memories — `$0` until that policy is applied). These flat `optimization_result`
+rows (stored under a reserved `_global_optimizations` partition key — a non-tenant bucket) feed
+the report's **Measured Saving** page, where a `scenario` slicer switches between optimizations.
 Run this cell, then include `result_df` in the reverse-ETL write below."""
 
 SAVING = '''# ---- 4b. Measured saving: counterfactual, keyed by OPTIMIZATION (PROVIDED) ----
@@ -219,26 +240,67 @@ _n = int(_agg["turns"] or 0)
 _saving = _baseline - _actual
 _saving_pct = round(100 * _saving / _baseline, 1) if _baseline else 0.0
 
+# memory-retention: MEASURED from recall telemetry over the mirrored ApiEvents. Each
+# `recall_pruned_avoided` event's response.avoided_input_tokens = the input tokens a recall
+# avoided by dropping a pruned (superseded) memory from its top-k. Priced at the baseline
+# input rate. Reads $0 until the memory-retention policy is applied and recalls run - an
+# honest telemetry measurement, never an estimate. ApiEvents is high-volume, so we offload
+# its aggregation to Fabric here (not the app plane).
+import json as _json_mr
+_mr_recalls = 0
+_mr_avoided = 0
+try:
+    _apiev_df = (spark.read.format("jdbc").option("url", _jdbc)
+                 .option("dbtable", f"[{SOURCE_SCHEMA}].[ApiEvents]")
+                 .option("accessToken", _sql_token).load())
+    # An EMPTY mirrored container surfaces only system columns (_rid/_ts) - no data schema
+    # yet - so guard on the columns existing before filtering (a raw UNRESOLVED_COLUMN error
+    # would look like a failure). ApiEvents fills at runtime (the Module 08 memory demo), so
+    # $0 here is expected, not an error.
+    if all(_c in _apiev_df.columns for _c in ("provider", "operation", "response")):
+        _apiev = (_apiev_df
+                  .where((F.col("provider") == "memory") & (F.col("operation") == "recall_pruned_avoided"))
+                  .select("response").collect())
+        _mr_recalls = len(_apiev)
+        for _e in _apiev:
+            _resp = _e["response"]
+            if isinstance(_resp, str):
+                try:
+                    _resp = _json_mr.loads(_resp)
+                except Exception:
+                    _resp = {}
+            _mr_avoided += int((_resp or {}).get("avoided_input_tokens") or 0)
+    else:
+        print("memory-retention: ApiEvents has no telemetry rows yet (empty mirror) - reads $0 until the Module 08 memory demo runs (expected, not an error).")
+except Exception as _mrx:
+    print("memory-retention telemetry skipped:", _mrx)
+_mr_saving = round(_mr_avoided * b_in / 1e6, 4)
+_MR_NOTE = ("Measured from recall telemetry (ApiEvents) - input tokens avoided by dropping pruned "
+            "memories from a recall's top-k. Reads $0 until the memory-retention policy is applied and recalls run.")
+
 # One row per applyable optimization so the report's `scenario` slicer switches between them.
-# model-selection carries the real counterfactual; the behavior-changing scenarios are "pending"
-# (zeros + a note) until a before/after measurement is wired up — same set as compute_insights.py.
-_PENDING_NOTE = "Measured before/after pending - apply the policy, then measure over the experiment window."
+# model-selection carries the real counterfactual; memory-retention the recall-telemetry
+# measurement (both computed here in Fabric); tool-call-dedup is a GOVERNED-path fix (a
+# prompt/code PR, not an in-app policy) - no measured before/after. compute_insights.py emits
+# the identical rows app-plane (idempotent by id), so notebook == console == report.
+_GOVERNED_NOTE = "Governed-path fix (human-reviewed prompt/code PR) - no in-app policy to apply, so no measured before/after here; see the turn-grain estimate on Discovered Opportunities."
 _result_rows = [
     ("result::model-selection", "optimization_result", "_global_optimizations",
      "model-selection", "Capability-tiered model selection", "counterfactual",
      _n, round(_baseline, 4), round(_actual, 4), round(_saving, 4), _saving_pct, "", now),
+    ("result::memory-retention", "optimization_result", "_global_optimizations",
+     "memory-retention", "Memory retention (prune superseded)", "telemetry",
+     _mr_recalls, 0.0, 0.0, _mr_saving, 0.0, _MR_NOTE, now),
 ]
-for _sc, _title in [("memory-retention", "Memory retention (prune superseded)"),
-                    ("active-trip-city-context", "Active-trip city context"),
-                    ("tool-call-dedup", "Redundant tool-call dedup")]:
+for _sc, _title in [("tool-call-dedup", "Redundant tool-call dedup")]:
     _result_rows.append((f"result::{_sc}", "optimization_result", "_global_optimizations",
-                         _sc, _title, "pending", 0, 0.0, 0.0, 0.0, 0.0, _PENDING_NOTE, now))
+                         _sc, _title, "governed", 0, 0.0, 0.0, 0.0, 0.0, _GOVERNED_NOTE, now))
 
 result_df = spark.createDataFrame(
     _result_rows,
     ["id", "type", "tenantId", "scenario", "title", "method", "turns",
      "baseline_cost_usd", "actual_cost_usd", "saving_usd", "saving_pct", "note", "computed_at"])
-print("measured saving (model-selection): $%.4f (%.1f%% vs all-premium baseline) over %d turns; +%d pending scenarios" % (_saving, _saving_pct, _n, len(_result_rows) - 1))'''
+print("measured saving: model-selection $%.4f (%.1f%% vs baseline) over %d turns; memory-retention $%.4f (%d recalls); +1 governed" % (_saving, _saving_pct, _n, _mr_saving, _mr_recalls))'''
 
 TODO2_STUB = '''# ---- TODO 2: reverse-ETL — write the insight rows BACK to Cosmos (the pattern) ----
 # Write funnel_df, cause_df, kpi_df, result_df to the Cosmos OptimizationInsights container
@@ -279,15 +341,15 @@ print("Reverse-ETL complete -> the Power BI Business Impact page will light up."
 
 READ_MD = "## 1. Read the mirror\nThe analytical plane reads the **mirrored** tables through the SQL endpoint — the operational Cosmos account is never touched by analytics."
 FUNNEL_MD = "## 2. Build the funnel (provided)\nAggregate turns into per-session stages and attach the friction signal."
-TODO1_MD = "## 3. TODO 1 — classify the abandonment cause\nThis is the analytics decision you own (the notebook analog of `classify_turn_tier`)."
+TODO1_MD = "## 3. TODO 1 — classify the abandonment cause\nThis is the analytics decision you own (the notebook analog of `classify_complexity_tier`)."
 BUILD_MD = "## 4. Shape the insight rows (provided)\nFlat rows, one value each, so they mirror cleanly and Power BI needs no session-math."
 TODO2_MD = "## 5. TODO 2 — reverse-ETL the insights back to Cosmos\nThe pattern that closes the loop: land Fabric-computed intelligence in the operational store."
 
-MEMORY_MD = "## 6. Memory intelligence (provided) — reverse-ETL memory health\nMemories aren't free: every recall retrieves and *pays* (tokens + latency) for what it pulls, so **stale, low-salience, and superseded** memories are cost with no benefit. This provided section reads the mirrored **`memories`** table (the same SQL-endpoint path as above), computes salience / health / supersession, and reverse-ETLs the result to `OptimizationInsights` — the funnel pattern, for the **memory pillar**.\n\n> **Reserved partition key, not a tenant.** `OptimizationInsights` is partitioned by `/tenantId`, and a *tenant* here is a customer with its own users (e.g. `marvel`, `funnel_demo`). Memory is **global** — memories are keyed by user, not tenant — so these rows use a reserved partition key **`_global_memory`** (a bucket for non-tenant rows, distinguished by `type`), never a real tenant. The Power BI **Memory Intelligence** page reads them by `type`."
+MEMORY_MD = "## 6. Memory intelligence (provided) — reverse-ETL memory health\nMemories aren't free: every recall retrieves and *pays* (tokens + latency) for what it pulls, so **stale, low-salience, and superseded** memories are cost with no benefit. This provided section reads the mirrored **`memories`** table (the same SQL-endpoint path as above), computes salience / health / supersession, and reverse-ETLs the result to `OptimizationInsights` — the funnel pattern, for the **memory pillar**.\n\n> **Reserved partition key, not a tenant.** `OptimizationInsights` is partitioned by `/tenantId`, and a *tenant* here is a customer with its own users (e.g. `marvel`, `analytics`). Memory is **global** — memories are keyed by user, not tenant — so these rows use a reserved partition key **`_global_memory`** (a bucket for non-tenant rows, distinguished by `type`), never a real tenant. The Power BI **Memory Intelligence** page reads them by `type`."
 
 MEMORY_CODE = '''# ---- memory intelligence: read mirrored `memories`, compute health, reverse-ETL (PROVIDED) ----
 # `_global_memory` is a RESERVED partition key, NOT a tenant. OptimizationInsights is
-# partitioned by /tenantId; a tenant is a customer with users (marvel, funnel_demo). Memory is
+# partitioned by /tenantId; a tenant is a customer with users (marvel, analytics). Memory is
 # global (memories are keyed by user_id/thread_id), so its rows use this reserved bucket and are
 # distinguished by `type` — they never mix with real per-tenant rows.
 MEMORY_PARTITION = "_global_memory"
@@ -317,8 +379,9 @@ HIGH_L, MED_L, LOW_L = f"High (>={SAL_HIGH})", f"Medium ({SAL_MED}-{SAL_HIGH})",
 # salience and health views stay consistent and unscored memories aren't mistaken for weak ones.
 UNSCORED_L = "Unscored"
 
-# 'superseded' exists only once conflict resolution has superseded a memory
-_sup = F.col("superseded") if "superseded" in mem.columns else F.lit(False)
+# supersession is marked by the 'superseded_by' pointer (+ superseded_at / supersede_reason),
+# populated only once conflict resolution has replaced a memory
+_sup = F.col("superseded_by").isNotNull() if "superseded_by" in mem.columns else F.lit(False)
 mem = (mem
        .withColumn("salience_tier",
                    F.when(F.col("salience").isNull(), UNSCORED_L)
@@ -342,7 +405,7 @@ a = mem.agg(F.avg("salience").alias("avg"),
             F.sum(F.when(F.col("salience") < SAL_MED, 1).otherwise(0)).alias("low")).collect()[0]
 scored = int(a["scored"] or 0)
 avg_sal = round(float(a["avg"] or 0), 3)
-sup_pct = round(100 * int(a["sup"] or 0) / max(scored, 1), 1)
+sup_pct = round(100 * int(a["sup"] or 0) / max(total, 1), 1)
 low_pct = round(100 * int(a["low"] or 0) / max(scored, 1), 1)
 
 mem_kpi_df = spark.createDataFrame(
@@ -365,6 +428,357 @@ for df in (mem_kpi_df,
 print(f"Memory reverse-ETL complete -> {total} memories ({scored} scored), avg salience {avg_sal}, {sup_pct}% superseded, {low_pct}% low-salience (of scored)")'''
 
 
+AGENTPATH_MD = "## 5b. Agent-path cost concentration (provided)\nWhere do the tokens actually go? A few **agent paths** (typically the itinerary path) dominate token cost — many times a plain supervisor turn. This provided section aggregates the tenant's turns by `agent_path` and reverse-ETLs the **top paths by average tokens** as `agent_path_cost` rows (the twin of `compute_insights.py`). The Power BI **Agent Collaboration / Agent-Path Cost** page reads them — it's where tiering and tool-dedup fixes pay off."
+
+AGENTPATH_CODE = '''# ---- 5b. agent-path cost concentration -> reverse-ETL agent_path_cost (PROVIDED) ----
+# Cost concentrated in a few agent_paths. Top 6 by avg tokens (matches compute_insights.py's
+# build_agent_path_diagnostic), so the report reads the same shape whichever producer ran.
+_ap = (turns.withColumn("agent_path", F.coalesce(F.col("agent_path"), F.lit("unknown")))
+       .groupBy("agent_path")
+       .agg(F.count(F.lit(1)).alias("turns"), F.sum("total_tokens").alias("total_tokens"))
+       .withColumn("avg_tokens", F.round(F.col("total_tokens") / F.col("turns")).cast("long"))
+       .orderBy(F.desc("avg_tokens")).limit(6).collect())
+agentpath_rows = [(f"path::{TENANT}::{i}", "agent_path_cost", TENANT, r["agent_path"],
+                   int(r["turns"]), int(r["total_tokens"] or 0), int(r["avg_tokens"] or 0), now)
+                  for i, r in enumerate(_ap)]
+agentpath_df = spark.createDataFrame(
+    agentpath_rows or [(f"path::{TENANT}::none", "agent_path_cost", TENANT, "none", 0, 0, 0, now)],
+    ["id", "type", "tenantId", "agent_path", "turns", "total_tokens", "avg_tokens", "computed_at"])
+agentpath_df.write.format("cosmos.oltp").options(**cosmos_write).mode("append").save()
+print(f"Agent-path reverse-ETL complete -> {len(agentpath_rows)} paths")'''
+
+SCORECARD_MD = "## 5d. Agent scorecard — agent × dimension health from node-grain (provided)\nThe primary ADR-0010 surface: **how is each individual agent doing?** Reads the mirrored **`NodeExecutions`** (per-agent node-grain), flattens each turn's executions, and scores every agent across the three node-grain dimensions (`cost_efficiency`, `model_selection`, `workflow_efficiency`) — mirroring `src/app/engine/scorecard` (rollup + dimensions), validated to match `build_scorecard` exactly. Reverse-ETL'd as `agent_scorecard` rows (one per agent×dimension) that the Power BI **Agent Performance** page (6b) reads. `compute_insights.py` writes the identical rows app-plane, so notebook == console == report."
+
+SCORECARD_CODE = "# ---- 5d. agent scorecard -> reverse-ETL agent_scorecard (over mirrored NodeExecutions) ----\n# Mirrors engine/scorecard/{rollup,dimensions}.py. Uses the existing Configuration pricing\n# (_pricing, loaded in 4b - per 1M tokens) so notebook cost == Console cost (the console/\n# compute_insights pass the same pricing to build_scorecard). Shares/statuses are price-invariant.\n# Node-grain is small, so flatten the per-turn arrays on the driver and score in Python.\nimport json as _json_ne\n_SC_PRICE = {r['dep']: (float(r['in_price']), float(r['out_price'])) for r in _pricing.collect()}  # Configuration, per 1M\n_SC_LOW_OUT = 250; _SC_PREMIUM = {'gpt-5.1', 'gpt-5'}; _SC_CHEAP = 'gpt-5-mini'\n_SC_ORDER = {'opportunity': 0, 'watch': 1, 'ok': 2, 'n/a': 3}\ndef _sc_tcost(dep, i, o):\n    p = _SC_PRICE.get(dep)\n    return ((i * p[0] + o * p[1]) / 1e6) if p else 0.0\n\n# nodeExecutions arrives as a JSON string over the SQL endpoint; tolerate an already-parsed list too.\n_ne_rows = read_sql('NodeExecutions').select('turnId', 'nodeExecutions').collect()\n_nodes = []\nfor _r in _ne_rows:\n    _ne = _r['nodeExecutions']\n    if isinstance(_ne, str):\n        try:\n            _ne = _json_ne.loads(_ne)\n        except Exception:\n            _ne = []\n    for _nd in (_ne or []):\n        _d = _nd.asDict() if hasattr(_nd, 'asDict') else dict(_nd)\n        _nodes.append({'turn_id': _r['turnId'], 'agent': _d.get('agent', ''),\n                       'model_deployment': _d.get('model_deployment') or _d.get('model_name') or 'Unknown',\n                       'input_tokens': int(_d.get('input_tokens') or 0), 'output_tokens': int(_d.get('output_tokens') or 0)})\n\n_by_agent = {}\nfor _nd in _nodes:\n    _by_agent.setdefault(_nd['agent'], []).append(_nd)\n_sc_total = sum(_sc_tcost(n['model_deployment'], n['input_tokens'], n['output_tokens']) for n in _nodes) or 0.0\n_scorecard_rows = []\nfor _ag, _an in _by_agent.items():\n    _cost = sum(_sc_tcost(n['model_deployment'], n['input_tokens'], n['output_tokens']) for n in _an)\n    _share = (_cost / _sc_total) if _sc_total else 0.0\n    _ce = 'watch' if _share >= 0.5 else 'ok'\n    _execs = len(_an) or 1\n    _cand = [n for n in _an if n['model_deployment'] in _SC_PREMIUM and n['output_tokens'] < _SC_LOW_OUT]\n    _sav = sum(max(0.0, _sc_tcost(n['model_deployment'], n['input_tokens'], n['output_tokens']) - _sc_tcost(_SC_CHEAP, n['input_tokens'], n['output_tokens'])) for n in _cand)\n    _ms = 'opportunity' if (len(_cand) / _execs >= 0.2 and _sav > 0) else 'ok'\n    _per = {}\n    for n in _an:\n        _per[n['turn_id']] = _per.get(n['turn_id'], 0) + 1\n    _turns = len(_per) or 1\n    _rept = sum(1 for c in _per.values() if c > 1)\n    _we = 'opportunity' if (_rept / _turns) >= 0.1 else 'ok'\n    _tokens = sum(n['input_tokens'] + n['output_tokens'] for n in _an)\n    _tpt = round(_tokens / _turns, 1)\n    _astat = min((_ce, _ms, _we), key=lambda s: _SC_ORDER.get(s, 9))\n    _hce = '$%.4f (%.0f%% of turn spend), %.0f tok/turn' % (_cost, _share * 100, _tokens / _turns)\n    _hms = ('%d/%d trivial turns on a premium model -> save $%.4f by routing to %s' % (len(_cand), _execs, _sav, _SC_CHEAP)) if _cand else ('%d exec(s), no premium-on-trivial waste' % _execs)\n    _hwe = ('repeats within a turn in %d/%d turns (%.0f%%)' % (_rept, _turns, _rept / _turns * 100)) if _rept else ('one call per turn across %d turns (no redundant hops)' % _turns)\n    _dims = {'cost_efficiency': (_ce, _hce, round(_cost, 6), '$/window'),\n             'model_selection': (_ms, _hms, round(_sav, 6), '$/window'),\n             'workflow_efficiency': (_we, _hwe, round(_rept / _turns, 4), 'repeat-turn rate')}\n    for _dim, (_dstat, _head, _val, _unit) in _dims.items():\n        _scorecard_rows.append(('scorecard::%s::%s::%s' % (TENANT, _ag, _dim), 'agent_scorecard', TENANT, _ag, _astat,\n                                round(_cost, 6), round(_share, 4), int(_execs), int(_turns), float(_tpt), _dim, _dstat, _head, float(_val), _unit, now))\n\n_sc_cols = ['id', 'type', 'tenantId', 'agent', 'agent_status', 'cost', 'cost_share', 'executions', 'turns', 'tokens_per_turn', 'dimension', 'dim_status', 'headline', 'value', 'unit', 'computed_at']\n_sc_df = spark.createDataFrame(\n    _scorecard_rows or [('scorecard::%s::none' % TENANT, 'agent_scorecard', TENANT, 'none', 'n/a', 0.0, 0.0, 0, 0, 0.0, 'none', 'n/a', '', 0.0, '', now)],\n    _sc_cols)\n_sc_df.write.format('cosmos.oltp').options(**cosmos_write).mode('append').save()\nprint('Agent scorecard reverse-ETL complete -> %d rows (%d agents)' % (len(_scorecard_rows), len(_by_agent)))"
+
+METRICS_MD = "## 5c. Turn metrics (provided)\nThe aggregate KPIs the **Optimization Console** displays — total turns/tokens, estimated cost, trivial-turn share, model distribution, and a cost-by-tier breakdown. Reverse-ETL'ing them (one `turn_metrics` row with a nested `metrics` object) means the Console reads a pre-computed result instead of re-aggregating Cosmos on every request. Same shape as `compute_insights.py`'s `build_turn_metrics`."
+
+METRICS_CODE = '''# ---- 5c. turn metrics -> reverse-ETL turn_metrics (PROVIDED) ----
+# The Console KPIs, computed once here. Priced with the same mirrored Configuration pricing
+# as Section 4b. Nested `metrics` object -> we build it in the driver and write it with an
+# EXPLICIT schema (the Cosmos connector needs typed nesting; heterogeneous inference fails).
+from pyspark.sql.types import (StructType, StructField, StringType, LongType,
+                               DoubleType, MapType, ArrayType)
+
+_tp = (turns.join(_pricing, turns["model_deployment"] == _pricing["dep"], "left")
+       .withColumn("in_price", F.coalesce(F.col("in_price"), F.lit(b_in)))
+       .withColumn("out_price", F.coalesce(F.col("out_price"), F.lit(b_out)))
+       .withColumn("cost", (F.col("input_tokens") * F.col("in_price")
+                            + F.col("output_tokens") * F.col("out_price")) / F.lit(1e6)))
+_m = _tp.agg(
+    F.count(F.lit(1)).alias("total_turns"),
+    F.sum("input_tokens").alias("in"), F.sum("output_tokens").alias("out"),
+    F.sum("total_tokens").alias("tok"), F.sum("cost").alias("cost"),
+    F.sum(F.when(F.col("output_tokens") < 60, 1).otherwise(0)).alias("trivial")).collect()[0]
+_total = int(_m["total_turns"] or 0)
+_dist = {str(r["model_name"]): int(r["count"]) for r in turns.groupBy("model_name").count().collect()}
+_tier_rows = (_tp.groupBy("complexity_tier", "model_deployment")
+              .agg(F.count(F.lit(1)).alias("turns"), F.sum("total_tokens").alias("tokens"),
+                   F.sum("cost").alias("cost")).collect())
+_by_tier = [{"complexity_tier": r["complexity_tier"] or "default",
+             "deployment": r["model_deployment"] or "Unknown",
+             "turns": int(r["turns"]), "tokens": int(r["tokens"] or 0),
+             "cost": round(float(r["cost"] or 0), 6)}
+            for r in sorted(_tier_rows, key=lambda x: -(x["cost"] or 0))]
+_est_cost = round(float(_m["cost"] or 0), 4)
+_metrics = {
+    "tenant_id": TENANT, "total_turns": _total,
+    "total_input_tokens": int(_m["in"] or 0), "total_output_tokens": int(_m["out"] or 0),
+    "total_tokens": int(_m["tok"] or 0), "estimated_cost_usd": _est_cost,
+    "trivial_turns": int(_m["trivial"] or 0),
+    "trivial_pct": round(100 * int(_m["trivial"] or 0) / max(_total, 1), 1),
+    "distinct_models": len(_dist), "model_distribution": _dist,
+    "confirmed_outcomes": int(confirmed),
+    "cost_per_outcome_usd": round(_est_cost / confirmed, 4) if confirmed else None,
+    "by_tier": _by_tier,
+}
+_metrics_schema = StructType([
+    StructField("id", StringType()), StructField("type", StringType()),
+    StructField("tenantId", StringType()),
+    StructField("metrics", StructType([
+        StructField("tenant_id", StringType()), StructField("total_turns", LongType()),
+        StructField("total_input_tokens", LongType()), StructField("total_output_tokens", LongType()),
+        StructField("total_tokens", LongType()), StructField("estimated_cost_usd", DoubleType()),
+        StructField("trivial_turns", LongType()), StructField("trivial_pct", DoubleType()),
+        StructField("distinct_models", LongType()),
+        StructField("model_distribution", MapType(StringType(), LongType())),
+        StructField("confirmed_outcomes", LongType()), StructField("cost_per_outcome_usd", DoubleType()),
+        StructField("by_tier", ArrayType(StructType([
+            StructField("complexity_tier", StringType()), StructField("deployment", StringType()),
+            StructField("turns", LongType()), StructField("tokens", LongType()),
+            StructField("cost", DoubleType())]))),
+    ])),
+    StructField("computed_at", StringType()),
+])
+metrics_df = spark.createDataFrame(
+    [(f"metrics::{TENANT}", "turn_metrics", TENANT, _metrics, now)], _metrics_schema)
+metrics_df.write.format("cosmos.oltp").options(**cosmos_write).mode("append").save()
+print(f"Turn-metrics reverse-ETL complete -> {_total} turns, est ${_est_cost}, {len(_by_tier)} tiers")'''
+
+ANALYST_MD = """## 7. LLM analyst — the model *proposes*, the engine *disposes* (provided)
+
+The final, highest-maturity step of the loop (ADR-0010 Layer 2): turn the aggregate
+telemetry above into **ranked recommendations** with an **LLM analyst**, safely.
+
+The model **proposes** one optimization card as strict JSON **per detected opportunity**
+— here two: the capability-tiered **model-selection** counterfactual (seam `config`) and
+the **repeated-node / tool-call-dedup** structural finding (seam `prompt`,
+`supervisor.prompty`). Five deterministic **guardrails** then **dispose** each card:
+1. **bounded** — the card's seam/target must be on the app's *declared* surface (else reject);
+2. **cited** — every card must cite the detector + opportunity id (else reject);
+3. **engine computes the saving** — the model's dollar figure is **ignored**; the
+   engine-measured saving wins (Section 4b re-pricing for model-selection; the priced
+   avoidable duplicate hop for tool-dedup);
+4. **apply_mode from the seam** — `config` auto-applies; `prompt`/`code` are staged;
+5. **autonomy ceiling from the seam** — `config` L4, `prompt`/`code` L3.
+
+Then we reverse-ETL each accepted card two ways: a `discovered_opportunity` row (the
+analyst's native output) **and** a flat `recommendation_card` projection the Power BI
+**Discovered Opportunities** page and the Console already read — so the tool-dedup card,
+once analyzed, **supersedes** the app-plane "insight (awaiting analysis)" card on the same
+`tool-call-dedup` id. The call is **keyless** (Entra token to the app's Azure OpenAI); if
+`AOAI_ENDPOINT` is blank or the call fails, the analyst falls back to the deterministic
+proposer, so the section always lands guardrailed cards. This mirrors the reusable engine
+analyst in `src/app/engine/analyst/llm.py` and `pipeline.analyze` — same prompt, same
+parse, same guardrails, one card per detection."""
+
+ANALYST_CODE = '''# ---- 7. LLM analyst: propose -> guardrail -> reverse-ETL (PROVIDED) ----
+# Mirrors src/app/engine/analyst/llm.py + guardrails.py (single design, two runtimes).
+import json as _json
+import requests as _rq
+
+# The declared optimizable surface — kept in lockstep with src/app/engine/seams/catalog.py.
+# Guardrail #1 bounds the analyst to exactly these seams/targets.
+SURFACE = {"config": ["model-selection"],
+           "prompt": ["itinerary_agent.prompty", "supervisor.prompty"],
+           "code": ["introduce-model-selector"]}
+SEAM_APPLY_MODE = {"config": "auto", "prompt": "staged_change", "code": "staged_change"}
+SEAM_CEILING = {"config": "L4", "prompt": "L3", "code": "L3"}
+# Which seam/target each opportunity is fixed at — mirrors pipeline.OPPORTUNITY_SEAMS.
+OPPORTUNITY_SEAMS = {"opp-modelfit-supervisor": ("config", "model-selection"),
+                     "opp-repeated-node": ("prompt", "supervisor.prompty")}
+
+SYSTEM = (
+    "You are an optimization analyst for a multi-agent app. Given a detected issue, propose "
+    "exactly ONE change as STRICT JSON (no prose, no markdown) with keys:\\n"
+    '  seam: one of "config" | "prompt" | "code"\\n'
+    "  target: MUST be one of the allowed targets for that seam (given below)\\n"
+    "  claimed_saving: number (your best dollar estimate)\\n"
+    '  apply_mode: "auto" or "staged_change"\\n'
+    '  autonomy_ceiling: "L3" | "L4" | "L5"\\n'
+    "  evidence: a list with one object {detector, opportunity_id, traces:[...]}\\n"
+    "Cite the detector + opportunity id you were given. Output ONLY the JSON object."
+)
+
+# ---- the ENGINE-computed saving for the repeated-node (tool-dedup) opportunity ----
+# Turn-grain estimate mirroring engine/projection/tool_dedup.py: a turn whose agent_path
+# repeats the same non-supervisor agent back-to-back wastes ~one hop; attribute that
+# hop's share of the turn's tokens (total / hop-count), priced under the model it ran on.
+_price_map = {r["dep"]: (float(r["in_price"]), float(r["out_price"])) for r in _pricing.collect()}
+_td_turns = 0
+_td_saving = 0.0
+for _r in turns.select("agent_path", "input_tokens", "output_tokens", "model_deployment").collect():
+    _parts = [p.strip() for p in str(_r["agent_path"] or "").split(",") if p.strip()]
+    if any(_parts[i] == _parts[i + 1] and _parts[i] != "supervisor" for i in range(len(_parts) - 1)):
+        _td_turns += 1
+        _hops = max(len(_parts), 1)
+        _pin, _pout = _price_map.get(_r["model_deployment"], (b_in, b_out))
+        _td_saving += ((float(_r["input_tokens"] or 0) * _pin
+                        + float(_r["output_tokens"] or 0) * _pout) / _hops) / 1e6
+_td_saving = round(_td_saving, 6)
+
+# The detected issues THIS data supports, each with its ENGINE-computed saving (guardrail #3
+# makes the engine number authoritative; the analyst may argue but cannot change it). The
+# loop below mirrors pipeline.analyze — one card per detection:
+#   (1) model-fit counterfactual -> Section 4b re-pricing ($ _saving over _n turns), seam=config
+#   (2) repeated-node structural -> the avoidable duplicated hop priced above, seam=prompt (L3)
+_detections = [
+    {"detector": "counterfactual.model_fit", "kind": "counterfactual", "agent": "supervisor",
+     "dimension": "model selection \\u00b7 cost", "opportunity_id": "opp-modelfit-supervisor",
+     "scenario": "model-selection", "title": "Capability-tiered model selection (discovered)",
+     "evidence": {"turns": _n, "measured_saving_usd": round(_saving, 4)},
+     "engine_saving": round(_saving, 6)},
+    {"detector": "structural.repeated_node", "kind": "structural", "agent": "find_places",
+     "dimension": "workflow efficiency \\u00b7 tool use", "opportunity_id": "opp-repeated-node",
+     "scenario": "tool-call-dedup",
+     "title": "Redundant tool calls \\u2014 supervisor prompt fix (discovered)",
+     "evidence": {"redundant_tool_turns": _td_turns, "estimated_saving_usd": _td_saving},
+     "engine_saving": _td_saving},
+]
+
+
+def _analyst_prompt(det):
+    return ("Detected issue:\\n"
+            f"  detector: {det['detector']}\\n  kind: {det['kind']}\\n  agent: {det['agent']}\\n"
+            f"  dimension: {det['dimension']}\\n  opportunity_id: {det['opportunity_id']}\\n"
+            f"  evidence: {_json.dumps(det['evidence'])}\\n\\n"
+            "Allowed targets by seam:\\n"
+            f"  config: {SURFACE['config']}\\n  prompt: {SURFACE['prompt']}\\n  code: {SURFACE['code']}\\n"
+            "Sample trace ids you may cite: ['trace-1','trace-2']")
+
+
+def _aad_token():
+    try:
+        import notebookutils as _nb
+    except Exception:
+        import mssparkutils as _nb
+    for aud in ("https://cognitiveservices.azure.com", "pbi"):
+        try:
+            tk = _nb.credentials.getToken(aud)
+            if tk:
+                return tk
+        except Exception:
+            pass
+    raise RuntimeError("no Entra token for Azure OpenAI")
+
+
+def _call_llm(system, user):
+    url = (f"{AOAI_ENDPOINT.rstrip('/')}/openai/deployments/{AOAI_DEPLOYMENT}"
+           f"/chat/completions?api-version={AOAI_API_VERSION}")
+    r = _rq.post(url, headers={"Authorization": f"Bearer {_aad_token()}",
+                               "Content-Type": "application/json"},
+                 json={"messages": [{"role": "system", "content": system},
+                                    {"role": "user", "content": user}]}, timeout=90)
+    r.raise_for_status()
+    return r.json()["choices"][0]["message"]["content"]
+
+
+def _parse_card(text, det):
+    t = (text or "").strip()
+    if t.startswith("```"):
+        t = t.strip("`")
+        t = t[t.find("{"):]
+    try:
+        obj = _json.loads(t[t.find("{"): t.rfind("}") + 1])
+    except Exception:
+        return None
+    return {"agent": det["agent"], "dimension": det["dimension"],
+            "seam": str(obj.get("seam", "")), "target": str(obj.get("target", "")),
+            "evidence": obj.get("evidence") or [],
+            "claimed_saving": float(obj.get("claimed_saving", 0) or 0),
+            "apply_mode": str(obj.get("apply_mode", "")),
+            "autonomy_ceiling": str(obj.get("autonomy_ceiling", ""))}
+
+
+def _default_card(det):   # deterministic fallback (engine parity) when the LLM is unavailable
+    seam, target = OPPORTUNITY_SEAMS.get(det["opportunity_id"], ("prompt", "supervisor.prompty"))
+    return {"agent": det["agent"], "dimension": det["dimension"], "seam": seam,
+            "target": target, "claimed_saving": 0.0, "apply_mode": "", "autonomy_ceiling": "",
+            "evidence": [{"detector": det["detector"], "opportunity_id": det["opportunity_id"],
+                          "traces": ["sample-trace"]}]}
+
+
+def _guardrail(card, engine_saving):   # the five deterministic rules; returns (normalized|None, why)
+    if card["seam"] not in SURFACE:
+        return None, f"reject: unknown seam '{card['seam']}'"
+    if card["target"] not in SURFACE[card["seam"]]:
+        return None, f"reject: target '{card['target']}' off the declared {card['seam']} surface"
+    if not card["evidence"]:
+        return None, "reject: uncited"
+    for e in card["evidence"]:
+        if not (e.get("detector") and e.get("opportunity_id") and e.get("traces")):
+            return None, "reject: evidence missing detector/opportunity_id/traces"
+    return {"agent": card["agent"], "dimension": card["dimension"], "seam": card["seam"],
+            "target": card["target"], "saving": engine_saving,
+            "apply_mode": SEAM_APPLY_MODE[card["seam"]],
+            "autonomy_ceiling": SEAM_CEILING[card["seam"]]}, "accepted (engine-computed saving; LLM $ ignored)"
+
+
+# propose -> parse -> (fallback) -> guardrail, once PER detected opportunity (pipeline.analyze's loop)
+def _propose(det):
+    if AOAI_ENDPOINT:
+        try:
+            return _parse_card(_call_llm(SYSTEM, _analyst_prompt(det)), det) or _default_card(det)
+        except Exception as _e:
+            print("LLM analyst unavailable, using deterministic fallback:", str(_e)[:160])
+            return _default_card(det)
+    print("AOAI_ENDPOINT blank -> deterministic fallback proposer for", det["opportunity_id"])
+    return _default_card(det)
+
+
+from pyspark.sql.types import StructType, StructField, StringType, LongType, DoubleType
+
+
+# Flat evidence/caveat for the BI cards: the nested `card` object does NOT surface as columns
+# over the Fabric mirror, so we project a compact one-line proof + a caveat onto each row.
+# Mirrors summarize_card_evidence / card_caveat in
+# src/app/services/optimization_recommendations.py so these analyst cards read identically to
+# the app-plane cards they supersede (no regression when the notebook runs last).
+def _evidence_line(_det):
+    _s = _det["scenario"]
+    if _s == "model-selection":
+        _mm = globals().get("_metrics") or {}
+        _md = _mm.get("model_distribution") or {}
+        return (f"{_mm.get('total_turns', _n):,} turns \\u00b7 "
+                f"{_mm.get('trivial_turns', 0):,} trivial "
+                f"({_mm.get('trivial_pct', 0)}%) \\u00b7 {len(_md)} models")
+    if _s == "tool-call-dedup":
+        return f"{_td_turns:,} redundant tool turns of {_n:,}"
+    return ""
+
+
+def _caveat_line(_det):
+    _s = _det["scenario"]
+    if _s == "model-selection":
+        return ("Counterfactual estimate \\u2014 every captured turn re-priced under the model it "
+                "actually ran on vs. the all-premium baseline.")
+    if _s == "tool-call-dedup":
+        return ("Turn-grain estimate \\u2014 one avoidable duplicated hop per repeated-node turn, "
+                "priced under the model it ran on.")
+    return ""
+
+
+_disc_rows, _rec_rows = [], []
+for _rank, _det in enumerate(_detections):
+    _norm, _why = _guardrail(_propose(_det), _det["engine_saving"])
+    if _norm is None:                          # a bad LLM proposal -> fall back and guardrail that
+        print("guardrail rejected the LLM card:", _why)
+        _norm, _why = _guardrail(_default_card(_det), _det["engine_saving"])
+    print(f"analyst card [{_det['opportunity_id']}]:", _json.dumps(_norm), "->", _why)
+    _disc_rows.append(
+        (f"disc:{TENANT}:{_det['opportunity_id']}", "discovered_opportunity", TENANT, _rank,
+         _det["opportunity_id"], _det["kind"], _norm["agent"], _norm["dimension"],
+         _norm["seam"], _norm["target"], float(_norm["saving"]), _norm["apply_mode"],
+         _norm["autonomy_ceiling"], _json.dumps(_det["evidence"]), now))
+    _card_obj = {"scenario": _det["scenario"], "scenario_id": _det["scenario"], "title": _det["title"],
+                 "dimension": _norm["dimension"], "apply_mode": _norm["apply_mode"],
+                 "maturity": "discovered by the LLM analyst (engine-guardrailed)",
+                 "estimated_saving_usd": float(_norm["saving"]), "status": "insight"}
+    _rec_rows.append(
+        (f"reccard::{TENANT}::{_det['scenario']}", "recommendation_card", TENANT, _det["scenario"],
+         _det["scenario"], _rank, _card_obj["title"], _card_obj["dimension"], _card_obj["apply_mode"],
+         _card_obj["maturity"], float(_card_obj["estimated_saving_usd"]),
+         _evidence_line(_det), _caveat_line(_det), _card_obj, now))
+
+# reverse-ETL: the analyst's native discovered_opportunity rows + flat recommendation_card projections
+disc_df = spark.createDataFrame(
+    _disc_rows,
+    ["id", "type", "tenantId", "rank", "opportunity_id", "kind", "agent", "dimension", "seam",
+     "target", "saving", "apply_mode", "autonomy_ceiling", "evidence_json", "computed_at"])
+
+_rec_schema = StructType([
+    StructField("id", StringType()), StructField("type", StringType()), StructField("tenantId", StringType()),
+    StructField("scenario", StringType()), StructField("scenario_id", StringType()),
+    StructField("order", LongType()), StructField("title", StringType()), StructField("dimension", StringType()),
+    StructField("apply_mode", StringType()), StructField("maturity", StringType()),
+    StructField("estimated_saving_usd", DoubleType()),
+    StructField("evidence_line", StringType()), StructField("caveat", StringType()),
+    StructField("card", StructType([
+        StructField("scenario", StringType()), StructField("scenario_id", StringType()),
+        StructField("title", StringType()), StructField("dimension", StringType()),
+        StructField("apply_mode", StringType()), StructField("maturity", StringType()),
+        StructField("estimated_saving_usd", DoubleType()), StructField("status", StringType())])),
+    StructField("computed_at", StringType()),
+])
+rec_df = spark.createDataFrame(_rec_rows, _rec_schema)
+
+for _df in (disc_df, rec_df):
+    _df.write.format("cosmos.oltp").options(**cosmos_write).mode("append").save()
+print(f"Analyst reverse-ETL complete -> {len(_disc_rows)} discovered_opportunity + "
+      f"{len(_rec_rows)} recommendation_card rows ("
+      + ", ".join(f"{d['scenario']} ${d['engine_saving']}" for d in _detections) + ")")'''
+
+
 def notebook(solution: bool):
     return {
         "nbformat": 4, "nbformat_minor": 5,
@@ -380,7 +794,11 @@ def notebook(solution: bool):
             md(BUILD_MD), code(BUILD),
             md(SAVING_MD), code(SAVING),
             md(TODO2_MD), code(TODO2_SOLUTION if solution else TODO2_STUB),
+            md(AGENTPATH_MD), code(AGENTPATH_CODE),
+            md(METRICS_MD), code(METRICS_CODE),
+            md(SCORECARD_MD), code(SCORECARD_CODE),
             md(MEMORY_MD), code(MEMORY_CODE),
+            md(ANALYST_MD), code(ANALYST_CODE),
         ],
     }
 

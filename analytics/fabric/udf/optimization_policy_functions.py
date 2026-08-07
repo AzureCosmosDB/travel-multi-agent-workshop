@@ -54,11 +54,11 @@ def _lookup_params(database, scenario: str) -> dict[str, Any]:
         try:
             cfg = database.get_container_client(CONFIG_CONTAINER)
             doc = cfg.read_item(item="model_selection_defaults", partition_key="model_selection_defaults")
-            if isinstance(doc.get("tiers"), dict):
+            if isinstance(doc.get("complexity_tiers"), dict):
                 return {
                     "enabled": bool(doc.get("enabled", True)),
                     "default_deployment": doc.get("default_deployment", "gpt-5.1"),
-                    "tiers": doc["tiers"],
+                    "complexity_tiers": doc["complexity_tiers"],
                     "classifier": doc.get("classifier", {}),
                 }
         except Exception:  # noqa: BLE001 -- not seeded / not found -> minimal fallback

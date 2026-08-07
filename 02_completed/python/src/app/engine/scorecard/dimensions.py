@@ -59,7 +59,7 @@ PENDING_DIMENSIONS: dict[str, str] = {
 
 @DIMENSIONS.register("cost_efficiency")
 def cost_efficiency(agent_nodes: list[NodeExec], all_nodes: list[NodeExec], pricing=None) -> DimensionScore:
-    """$ and tokens this agent spends — the cost-concentration signal (SCEN-005)."""
+    """$ and tokens this agent spends — the agent-path cost concentration signal."""
     cost = sum(token_cost(n.model_deployment, n.input_tokens, n.output_tokens, pricing) for n in agent_nodes)
     total_cost = sum(token_cost(n.model_deployment, n.input_tokens, n.output_tokens, pricing) for n in all_nodes)
     share = (cost / total_cost) if total_cost else 0.0
@@ -78,15 +78,15 @@ def cost_efficiency(agent_nodes: list[NodeExec], all_nodes: list[NodeExec], pric
 
 @DIMENSIONS.register("model_selection")
 def model_selection(agent_nodes: list[NodeExec], all_nodes: list[NodeExec], pricing=None) -> DimensionScore:
-    """Premium model spent on trivial (low realized-complexity) turns → downgrade saving (SCEN-007)."""
+    """Premium model spent on trivial (low realized-complexity) turns → downgrade saving for model selection."""
     execs = len(agent_nodes) or 1
     candidates = [n for n in agent_nodes
                   if n.model_deployment in PREMIUM_DEPLOYMENTS and n.output_tokens < LOW_COMPLEXITY_OUTPUT]
     saving = sum(max(0.0, reprice_saving(n, CHEAP_TARGET, pricing)) for n in candidates)
     share = len(candidates) / execs
     status = "opportunity" if (share >= 0.2 and saving > 0) else "ok"
-    hl = (f"{len(candidates)}/{execs} trivial turns on a premium model -> save ${saving:.4f} "
-          f"by routing to {CHEAP_TARGET}") if candidates else f"{execs} exec(s), no premium-on-trivial waste"
+    hl = (f"{len(candidates)}/{execs} premium turns with short output (<{LOW_COMPLEXITY_OUTPUT} tok) -> save ${saving:.4f} "
+          f"by routing to {CHEAP_TARGET}") if candidates else f"{execs} exec(s), no premium-on-short-output waste"
     return DimensionScore(
         dimension="model_selection", status=status, headline=hl,
         value=round(saving, 6), unit="$/window",
@@ -98,7 +98,7 @@ def model_selection(agent_nodes: list[NodeExec], all_nodes: list[NodeExec], pric
 
 @DIMENSIONS.register("workflow_efficiency")
 def workflow_efficiency(agent_nodes: list[NodeExec], all_nodes: list[NodeExec], pricing=None) -> DimensionScore:
-    """Repeated invocation of the same agent within a turn — a redundant-hop signal (SCEN-008)."""
+    """Repeated invocation of the same agent within a turn — a redundant-hop signal for redundant tool calls."""
     per_turn: dict[str, int] = {}
     for n in agent_nodes:
         per_turn[n.turn_id] = per_turn.get(n.turn_id, 0) + 1

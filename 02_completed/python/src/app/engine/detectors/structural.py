@@ -8,7 +8,7 @@ from .base import DETECTORS, Detection
 @DETECTORS.register("structural.repeated_node")
 def repeated_node(nodes):
     """A turn that invokes the same non-supervisor agent back-to-back (e.g.
-    find_places,find_places) — redundant work. Mirrors the SCEN-005/008 pattern at
+    find_places,find_places) — redundant work. Mirrors the agent-path cost concentration and redundant tool calls pattern at
     node grain (services/optimization_recommendations.py::_redundant_tool_turns)."""
     by_turn: dict[str, list] = {}
     for n in nodes:

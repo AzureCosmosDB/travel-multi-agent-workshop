@@ -21,9 +21,9 @@ humans and agents can find it later without cluttering the learning content.
 - `timeStamp` is ISO-8601 **text** — don't put it on a time axis directly.
 
 ## Trivial definition
-- Canonical = the classifier's output **`model_tier == "trivial"`** (from `classify_turn_tier`).
+- Canonical = the classifier's output **`complexity_tier == "trivial"`** (from `classify_complexity_tier`).
   The original `handoff_count == 0 AND output_tokens < 60` was a pre-optimization proxy on the old
-  gpt-4.1-mini baseline; the shipped gpt-5.1 seed is ~23% trivial by `model_tier`.
+  gpt-4.1-mini baseline; the shipped gpt-5.1 seed is ~23% trivial by `complexity_tier`.
 
 ## Renaming model tables (dropping the `V2`/schema prefix) without breaking the report
 - **Do it with Power BI Desktop's native rename** (Fields pane / Model view → double-click). It
@@ -57,6 +57,29 @@ humans and agents can find it later without cluttering the learning content.
 - The mirror's **SQL analytics endpoint** surfaces the new table automatically, but its metadata can
   lag — hit **Refresh** on the SQL endpoint in the Fabric portal if `Configuration` isn't yet visible
   in Power BI's navigator.
+
+## Adding `NodeExecutions` to the mirror (agent scorecard, Page 6b)
+- `NodeExecutions` (per-agent node-grain that feeds the agent scorecard) is in `MIRROR_TABLES`. On a
+  **fresh** deploy it mirrors automatically. On an **existing** deploy, add it the same way as
+  `Configuration` above:
+  - **Automated:** re-run `.\Provision-Fabric.ps1 -ConnectionId <your-connection-id>` (or
+    `python provision_fabric.py --phase 2 --connection-id <id>`). `get_or_create_mirror` detects
+    `NodeExecutions` is missing, `update_mirror_tables` mounts it, and `_restart_mirroring` stops/starts
+    so the running mirror re-snapshots it.
+  - **Portal fallback:** open the mirrored database → **Manage/Configure replication** → add
+    `NodeExecutions` → **Stop** then **Start** mirroring → **Refresh** the SQL endpoint.
+- **Prerequisite:** the Cosmos `NodeExecutions` container must exist and hold data first
+  (`python data/seed_data.py` seeds it via `seed_node_executions`; live turns also populate it). After
+  the restart it re-snapshots (`Snapshotting` → `Replicating`); then the Module 09 notebook's agent
+  scorecard section can read it.
+
+> **`ApiEvents` + `OptimizationGovernance` are mirrored the same way.** Both were added to
+> `MIRROR_TABLES` (and `OptimizationGovernance` to the Bicep), so the **same re-run/restart adds all
+> three at once**. Rationale (scale): high-volume telemetry is computed in the **analytics plane**,
+> not scanned from operational Cosmos — the notebook aggregates `ApiEvents` (`recall_pruned_avoided`
+> → the memory-retention saving) and `NodeExecutions` (the agent scorecard) over the mirror.
+> `OptimizationGovernance` (the C1–C5 decision audit) is mirrored so the report can show the same
+> governance trail the console does.
 
 ## Pointing an existing report at `Configuration` pricing (migrating off the old CSV)
 An earlier build loaded pricing from `model_pricing.csv` as a `ModelPricing` table. To switch a

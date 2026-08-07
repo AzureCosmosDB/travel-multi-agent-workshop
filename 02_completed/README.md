@@ -89,7 +89,7 @@ URLs: API docs `:8000/docs`, MCP `:8080`, frontend `:4200`.
 
 ## Configure, run & demo this solution
 
-**→ See the [User & Demo Guide](./USER_GUIDE.md)** — an end-to-end runbook for the complete solution: configure and deploy, stand up the Fabric analytics (`Provision-Fabric.ps1 -Solution`), run the app + Optimization Console + Power BI, drive traffic, and walk the full optimization + translytical demo narrative.
+**→ See the [User & Demo Guide](./USER_GUIDE.md)** — an end-to-end runbook for the complete solution: configure and deploy, stand up the Fabric analytics (`Provision-Fabric.ps1 -Solution`), run the app + web Analytics Portal (optional Power BI), drive traffic, and walk the full optimization + translytical demo narrative.
 
 ## Memory layer
 

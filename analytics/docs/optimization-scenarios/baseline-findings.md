@@ -24,7 +24,7 @@ candidate scenarios in the [catalog](README.md) with real signal from data we al
 ### ✅ SCEN-007 — full model used for trivial turns (STRONG; **L4/L5 autonomous**)
 - With no policy applied, turns use the `gpt-5.1` default (single model — no task-based selection).
 - **~23% of turns (90/395)** are **trivial** by the canonical classifier signal
-  (`model_tier = "trivial"`: short greetings/acks, ≤6 words plus a greeting/ack pattern,
+  (`complexity_tier = "trivial"`: short greetings/acks, ≤6 words plus a greeting/ack pattern,
   no delegation) yet use the full model until routed.
 - Cache-hit ratio is already high (**~74%**), so the remaining lever is **model-selection policy**
   (route trivial turns to `gpt-5-nano`) — a lower-risk domain that can reach autonomous L4/L5.

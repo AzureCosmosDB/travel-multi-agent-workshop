@@ -23,7 +23,7 @@ Two "how do we get from here to there" questions surfaced while consolidating th
    apps look like — no policy store capturing models, prices, thresholds)?
 
 2. **How the engine is validated.** ADR-0010's rediscovery subsection framed the hand-authored scenario
-   catalog (`SCEN-001…008`) as "the engine's test harness / answer key." On reflection that overclaims:
+   catalog (`SCEN-002…008`) as "the engine's test harness / answer key." On reflection that overclaims:
    a discovery engine cannot be regression-tested by a fixed, app-specific, human-authored list.
 
 ## Decision drivers
@@ -99,7 +99,7 @@ positive/negative detector fixtures with constructed ground truth** (Solution Ar
   suite is **living** — grown from human-labeled discoveries in the outcome ledger (ADR-0010 §analyst /
   guide §9.2).
 
-The `SCEN-001…008` catalog serves as **teaching narratives** and a few **acceptance anchors** on the real
+The `SCEN-002…008` catalog serves as **teaching narratives** and a few **acceptance anchors** on the real
 app — **not** the regression suite.
 
 **Lesson (why the earlier framing was insufficient).** A hand-authored catalog fails as a regression suite
@@ -128,7 +128,7 @@ result; aligns with the exercises-vs-completed split.
 
 - **The policy/config store exists and the apply-loop depends on it:** containers `OptimizationPolicies`,
   `OptimizationTurns`, `OptimizationInsights`, `Configuration` (`02_completed/infra/shared/cosmosdb.bicep`,
-  `deployAnalytics` gated); `apply_policy` / `revert_policy` / `stage_policy`
+  `deployAnalytics` gated); `apply_policy` / `revert_policy`
   (`services/optimization_policy.py`); `Configuration` holds mirrored model-pricing rows read by the
   report.
 - **The base app is single-model (representative starting point):** one shared model in

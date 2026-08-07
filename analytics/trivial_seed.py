@@ -76,7 +76,7 @@ def run(base_url: str, tenant: str, count: int, delay: float) -> int:
 def main() -> None:
     ap = argparse.ArgumentParser(description="Seed authentic trivial turns via the running app.")
     ap.add_argument("--base-url", default="http://localhost:8000")
-    ap.add_argument("--tenant", default="analytics_demo")
+    ap.add_argument("--tenant", default="analytics")
     ap.add_argument("--count", type=int, default=30)
     ap.add_argument("--delay", type=float, default=1.5)
     args = ap.parse_args()

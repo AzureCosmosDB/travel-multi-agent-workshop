@@ -10,9 +10,9 @@
     runs analytics/traffic_simulator.py under the venv. Ctrl+C to stop.
 
 .PARAMETER Tenant
-    Tenant to write the live turns under. Prompted (default `DemoLive`) when omitted.
-    `DemoLive` is a dedicated demo tenant, separate from the seeded tenants; to watch it,
-    filter your report/console to the tenant you choose here.
+    Tenant to write the live turns under. Prompted (default `analytics`) when omitted.
+    `analytics` is the shared at-scale demo tenant (the same one the seed scripts use); to
+    watch it, filter your report/console to the tenant you choose here.
 
 .PARAMETER Rate
     Turns per minute (default 120).
@@ -104,8 +104,8 @@ if ($LASTEXITCODE -ne 0) { Fail "You are not signed in to Azure. Run 'az login' 
 
 # --- Tenant prompt -----------------------------------------------------------
 if (-not $Tenant) {
-    $entered = Read-Host "Tenant to write live turns under [DemoLive]"
-    $Tenant = if ([string]::IsNullOrWhiteSpace($entered)) { 'DemoLive' } else { $entered.Trim() }
+    $entered = Read-Host "Tenant to write live turns under [analytics]"
+    $Tenant = if ([string]::IsNullOrWhiteSpace($entered)) { 'analytics' } else { $entered.Trim() }
 }
 
 # --- Read the deployment's Cosmos endpoint so we target the right account -----

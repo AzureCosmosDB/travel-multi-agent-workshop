@@ -1,6 +1,6 @@
 # Module 06 - Evaluating Your Multi-Agent Application (Bonus Module)
 
-**[< Observability & Experimentation](./Module-05.md)** - **[Agent Analytics >](./Module-07.md)**
+**[< Observability & Experimentation](./Module-05.md#module-05---observability-tracing)** - **[Agent Analytics >](./Module-07.md#module-07---agent-analytics-visibility-insight)**
 
 ## Introduction
 
@@ -262,14 +262,14 @@ You must be in **multi-agent-workshop\01_exercises** folder and then use the bel
 
 ```powershell
 cd multi-agent-workshop\01_exercises
-.\venv\Scripts\Activate.ps1
+.\.venv-travel\Scripts\Activate.ps1
 ```
 
 **Now run the E2E evaluation, Open a new terminal tab**
 
 ```powershell
 cd multi-agent-workshop\01_exercises\evaluation
-.\venv\Scripts\Activate.ps1
+.\.venv-travel\Scripts\Activate.ps1
 $env:PYTHONPATH="..\python"; python e2e_evaluation.py
 ```
 
@@ -792,10 +792,11 @@ To add a new test case, edit `evaluation/datasets/e2e_dataset.json`:
 }
 ```
 
-Then re-run the evaluation:
+Then re-run the evaluation with the **same command from [Step 3](#step-3-run-the-evaluation-script)** — venv active, in a terminal from the `evaluation` folder:
 
-```bash
-python evaluation/e2e_evaluation.py
+```powershell
+.\.venv-travel\Scripts\Activate.ps1
+$env:PYTHONPATH="..\python"; python e2e_evaluation.py
 ```
 
 The new test case will be included in the next evaluation run.
@@ -819,4 +820,15 @@ With comprehensive evaluation in place, you can make changes confidently, knowin
 
 ---
 
-**[< Observability & Experimentation](./Module-05.md)** - **[Agent Analytics >](./Module-07.md)**
+## Where to next?
+
+The next three modules — **07–09** — are the **optional Agent Analytics & Optimization track**:
+instrument your agents, then **detect → recommend → apply → verify** cost and quality wins, viewed
+live in the web **Analytics Portal** (with Microsoft Fabric reverse-ETL in Module 09).
+
+- **Continuing with analytics?** Head to **[Module 07 — Agent Analytics »](./Module-07.md#module-07---agent-analytics-visibility-insight)**.
+- **Short on time, or skipping the analytics track?** Jump straight to **[Module 10 — Lessons Learned & The Future »](./Module-10.md#module-10---lessons-learned-the-future-of-agentic-systems)** to wrap up. You can always come back to 07–09 later.
+
+---
+
+**[< Observability & Experimentation](./Module-05.md#module-05---observability-tracing)** - **[Agent Analytics >](./Module-07.md#module-07---agent-analytics-visibility-insight)**

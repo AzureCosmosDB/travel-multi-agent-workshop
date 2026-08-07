@@ -149,7 +149,7 @@ def capture(tenant: str, session: str, retries: int = 6) -> None:
         turn = {
             "id": f"turn-{base_id}", "type": "optimization_turn",
             "tenantId": d.get("tenantId"), "userId": d.get("userId"), "sessionId": d.get("sessionId"),
-            "model_tier": b.get("model_tier", "default"),
+            "complexity_tier": b.get("complexity_tier", "default"),
             "model_deployment": b.get("model_deployment", "Unknown"),
             "model_name": b.get("model_name", "Unknown"),
             "input_tokens": _int(b.get("input_tokens")), "output_tokens": _int(b.get("output_tokens")),
@@ -159,9 +159,9 @@ def capture(tenant: str, session: str, retries: int = 6) -> None:
         }
         opt.upsert_item(turn)
         written += 1
-        print(f"   {turn['model_tier']:8} -> {turn['model_deployment']} (out={turn['output_tokens']})")
+        print(f"   {turn['complexity_tier']:8} -> {turn['model_deployment']} (out={turn['output_tokens']})")
     print(f"   ✓ {written} turn(s) written to OptimizationTurns")
-    if rows and all(_bag(d).get("model_tier", "default") == "default" for d in rows):
+    if rows and all(_bag(d).get("complexity_tier", "default") == "default" for d in rows):
         print("   ⚠️  all 'default' — the model-selection policy isn't active yet (apply it first).")
 
 

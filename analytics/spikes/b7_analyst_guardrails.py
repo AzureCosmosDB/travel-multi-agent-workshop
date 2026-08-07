@@ -39,7 +39,7 @@ DECLARED_SURFACE = {
 ENGINE_PROJECTION = {
     "opp-modelfit-supervisor": 58.653406,
     "opp-tool-dedup": 4.20,
-    "opp-city-context": 12.75,
+    "opp-prompt-fix": 12.75,
 }
 
 # apply_mode + autonomy ceiling are functions of the seam (never the LLM's choice).

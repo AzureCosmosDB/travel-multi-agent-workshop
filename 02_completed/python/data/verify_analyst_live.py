@@ -11,7 +11,6 @@ Run:  cd 02_completed/python ; ../.venv-travel/Scripts/python.exe data/verify_an
 
 from __future__ import annotations
 
-import json
 import os
 import sys
 
@@ -27,60 +26,17 @@ except Exception:
 from langchain_core.messages import SystemMessage, HumanMessage  # noqa: E402
 
 from src.app.services.azure_open_ai import get_model             # noqa: E402
-from src.app.engine import simulation                            # noqa: E402
-from src.app.engine.detectors import run_all, Detection          # noqa: E402
+from src.app.engine import simulation, seams                     # noqa: E402
+from src.app.engine.detectors import run_all                     # noqa: E402
 from src.app.engine.core.schema import NodeExec                  # noqa: E402
 from src.app.engine.projection import project                    # noqa: E402
-from src.app.engine.analyst import RecommendationCard, process_card  # noqa: E402
-
-SURFACE = {"config": {"model-selection", "memory-retention"},
-           "prompt": {"supervisor.prompty", "itinerary_agent.prompty"},
-           "code": {"introduce-model-selector"}}
-
-SYSTEM = (
-    "You are an optimization analyst for a multi-agent app. Given a detected issue, propose "
-    "exactly ONE change as STRICT JSON (no prose, no markdown) with keys:\n"
-    '  seam: one of "config" | "prompt" | "code"\n'
-    "  target: MUST be one of the allowed targets for that seam (given below)\n"
-    "  claimed_saving: number (your best dollar estimate)\n"
-    '  apply_mode: "auto" or "staged_change"\n'
-    '  autonomy_ceiling: "L3" | "L4" | "L5"\n'
-    "  evidence: a list with one object {detector, opportunity_id, traces:[...]}\n"
-    "Cite the detector + opportunity id you were given. Output ONLY the JSON object."
+from src.app.engine.analyst import (                             # noqa: E402
+    RecommendationCard, process_card, build_prompt, parse_card, SYSTEM,
 )
 
-
-def _prompt(det: Detection) -> str:
-    return (
-        f"Detected issue:\n"
-        f"  detector: {det.detector}\n  kind: {det.kind}\n  agent: {det.agent}\n"
-        f"  dimension: {det.dimension}\n  opportunity_id: {det.opportunity_id}\n"
-        f"  evidence: {json.dumps(det.evidence)}\n\n"
-        f"Allowed targets by seam:\n"
-        f"  config: {sorted(SURFACE['config'])}\n  prompt: {sorted(SURFACE['prompt'])}\n"
-        f"  code: {sorted(SURFACE['code'])}\n"
-        f"Sample trace ids you may cite: ['trace-1','trace-2']"
-    )
-
-
-def _parse_card(text: str, det: Detection) -> RecommendationCard | None:
-    t = text.strip()
-    if t.startswith("```"):
-        t = t.strip("`")
-        t = t[t.find("{"):]
-    try:
-        obj = json.loads(t[t.find("{"): t.rfind("}") + 1])
-    except Exception:
-        return None
-    return RecommendationCard(
-        agent=det.agent, dimension=det.dimension,
-        seam=str(obj.get("seam", "")), target=str(obj.get("target", "")),
-        evidence=obj.get("evidence") or [],
-        opportunity_id=det.opportunity_id,
-        claimed_saving=float(obj.get("claimed_saving", 0) or 0),
-        apply_mode=str(obj.get("apply_mode", "")),
-        autonomy_ceiling=str(obj.get("autonomy_ceiling", "")),
-    )
+# The declared optimizable surface, from the seam registry (single source of truth —
+# the same surface the pipeline and the notebook analyst bind to).
+SURFACE = seams.surface()
 
 
 def main() -> int:
@@ -103,8 +59,8 @@ def main() -> int:
 
     accepted = overridden_saving = 0
     for det in detections:
-        resp = model.invoke([SystemMessage(content=SYSTEM), HumanMessage(content=_prompt(det))])
-        card = _parse_card(getattr(resp, "content", "") or "", det)
+        resp = model.invoke([SystemMessage(content=SYSTEM), HumanMessage(content=build_prompt(det, SURFACE))])
+        card = parse_card(getattr(resp, "content", "") or "", det)
         if card is None:
             ck(f"[{det.opportunity_id}] LLM produced parseable JSON card", False, "unparseable")
             continue

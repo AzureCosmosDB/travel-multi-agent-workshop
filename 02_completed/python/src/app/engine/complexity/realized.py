@@ -3,9 +3,9 @@ Realized-complexity signal (ADR-0010 §4.1, spike B6).
 
 Two ways to judge a turn's complexity:
 
-  * **Declared (keyword tier)** — classify the *user text* with hand-authored patterns
+  * **Declared (keyword complexity_tier)** — classify the *user text* with hand-authored patterns
     BEFORE the turn runs. This is what the app's model-selection classifier does
-    (`travel_agents.classify_turn_tier`): conservative — only short greetings become
+    (`services.optimization.classify_complexity_tier`): conservative — only short greetings become
     "trivial", so it downgrades very few turns and leaves real savings on the table.
 
   * **Measured (realized complexity)** — read what the turn ACTUALLY produced: the
@@ -14,7 +14,7 @@ Two ways to judge a turn's complexity:
     `model_fit` detector already uses.
 
 This module makes the measured signal a first-class, reusable primitive and provides a
-head-to-head comparison so the "finds more opportunity than the keyword tier" claim is
+head-to-head comparison so the "finds more opportunity than the keyword complexity_tier" claim is
 checkable on labeled data (see `_selftest`). It stays pure stdlib — a small mirror of the
 app's classifier lives here so the comparison is self-contained (the app module carries
 heavy runtime deps the engine deliberately avoids).
@@ -30,7 +30,7 @@ from ..core.costs import LOW_COMPLEXITY_OUTPUT
 # --- measured signal --------------------------------------------------------------
 
 def realized_tier(output_tokens: int, low: int = LOW_COMPLEXITY_OUTPUT) -> str:
-    """Measured tier from what the turn actually produced."""
+    """Measured complexity_tier from what the turn actually produced."""
     return "trivial" if output_tokens <= low else "substantive"
 
 
@@ -50,7 +50,7 @@ _TRIVIAL_MAX_WORDS = 6
 
 
 def keyword_tier(text: str) -> str:
-    """Declared tier from the user text — mirrors app `classify_turn_tier` (trivial/routine/complex)."""
+    """Declared complexity_tier from the user text — mirrors app `classify_complexity_tier` (trivial/routine/complex)."""
     t = (text or "").strip().lower()
     if not t:
         return "routine"

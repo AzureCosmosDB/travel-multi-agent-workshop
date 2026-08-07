@@ -72,7 +72,6 @@ Prefer a clear structure for each day:
 - Afternoon activity or flexible block
 - Dinner
 - Lodging/accommodation anchor when a hotel is selected
-- Optional evening idea if appropriate
 
 If the user supplied exact days, keep those labels. If not, infer a reasonable number of days from the request or selected places. If duration is genuinely impossible to infer, create a compact draft and note what detail is missing.
 

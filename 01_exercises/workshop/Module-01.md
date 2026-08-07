@@ -1,6 +1,6 @@
 # Module 01 - Creating Your First Agent
 
-**[< Deployment and Setup](./Module-00.md)** - **[Agent Specialization >](./Module-02.md)**
+**[< Deployment and Setup](./Module-00.md#module-00---deployment-and-setup)** - **[Agent Specialization >](./Module-02.md#module-02---specialized-sub-agent-tools)**
 
 ## Introduction
 
@@ -903,6 +903,20 @@ async def get_chat_completion(
         return response_models
 
     except Exception as e:
+        # Azure OpenAI rate limits (429) are easy to hit when turns are driven quickly.
+        # Surface them as a clear, actionable message (the user can just wait and retry).
+        is_rate_limit = (
+            getattr(e, "status_code", None) == 429
+            or e.__class__.__name__ == "RateLimitError"
+            or "rate limit" in str(e).lower()
+            or "rate_limit" in str(e).lower()
+        )
+        if is_rate_limit:
+            logger.warning(f"Rate limit (429) in chat completion: {e}")
+            raise HTTPException(
+                status_code=429,
+                detail="The AI model is temporarily rate-limited (too many requests in a short window). Please wait about 30 seconds and try again.",
+            )
         logger.error(f"Error in chat completion: {e}")
         import traceback
         logger.error(traceback.format_exc())
@@ -1538,4 +1552,4 @@ Reply: "Got it — boutique hotel in Shibuya, around $300/night, for next month.
 
 ---
 
-**[< Deployment and Setup](./Module-00.md)** - **[Agent Specialization >](./Module-02.md)**
+**[< Deployment and Setup](./Module-00.md#module-00---deployment-and-setup)** - **[Agent Specialization >](./Module-02.md#module-02---specialized-sub-agent-tools)**

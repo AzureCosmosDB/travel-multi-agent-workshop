@@ -1,9 +1,9 @@
 """
-Optimization layer (Module 07 — Analytics & Optimization).
+Optimization layer (Modules 07-08 — Analytics & Optimization).
 
 A self-contained, additive "apply-loop" engine for capability-tiered model
-selection (SCEN-007). It bolts onto the app you built in Modules 01-06 with a
-few small hooks (see Module 07) — it does NOT require changes to the earlier
+selection. It bolts onto the app you built in Modules 01-06 with a
+few small hooks (see Modules 07-08) — it does NOT require changes to the earlier
 modules.
 
 The loop it enables:  instrument -> detect -> recommend -> apply -> verify
@@ -11,12 +11,12 @@ The loop it enables:  instrument -> detect -> recommend -> apply -> verify
 What ships here (provided):
   - a Cosmos-backed, reversible **policy store** (OptimizationPolicies)
   - a per-deployment **model factory** (get_chat_model)
-  - per-turn **tier selection** (select_deployment_for_turn / get_supervisor_for_turn)
+  - the per-turn complexity decision and model selector
   - per-turn **capture** (record_optimization_turn -> OptimizationTurns)
   - **recommendation** cards mined from the captured turns
 
-What YOU implement in Module 07:
-  - classify_turn_tier(...)  <-- the one function marked TODO below
+`travel_agents.py` only supplies the small LangGraph model-selector hook that
+calls get_chat_model_for_turn (Module 08).
 
 Infra note: the OptimizationPolicies and OptimizationTurns containers, and the
 gpt-5-nano / gpt-5.1 model deployments, are provisioned by Bicep (`azd up`).
@@ -36,6 +36,8 @@ from typing import Any, Callable, Optional
 
 from langchain_openai import AzureChatOpenAI
 
+from azure.cosmos import PartitionKey
+
 from src.app.services import azure_cosmos_db as cosmos
 from src.app.services.azure_open_ai import (
     model,
@@ -54,6 +56,7 @@ logger = logging.getLogger(__name__)
 MODEL_SELECTION_SCENARIO = "model-selection"
 POLICIES_CONTAINER = "OptimizationPolicies"
 TURNS_CONTAINER = "OptimizationTurns"
+NODE_EXECUTIONS_CONTAINER = "NodeExecutions"
 
 # API version known to support the gpt-5 / o-series reasoning deployments.
 _REASONING_API_VERSION = "2025-04-01-preview"
@@ -91,7 +94,7 @@ def load_pricing() -> dict[str, dict[str, float]]:
 _CODE_MODEL_SELECTION_PARAMS: dict[str, Any] = {
     "enabled": True,
     "default_deployment": AZURE_OPENAI_DEPLOYMENT,
-    "tiers": {
+    "complexity_tiers": {
         "trivial": "gpt-5-nano",
         "routine": AZURE_OPENAI_DEPLOYMENT,
         "complex": "gpt-5.1",
@@ -105,18 +108,18 @@ PROPOSED_MODEL_SELECTION_PARAMS: dict[str, Any] = dict(_CODE_MODEL_SELECTION_PAR
 
 
 def get_proposed_model_selection_params() -> dict[str, Any]:
-    """Proposed tier/classifier policy from the Configuration container → code default."""
+    """Proposed complexity-tier/classifier policy from the Configuration container → code default."""
     try:
         from src.app.services import configuration_store
 
         doc = configuration_store.get_model_selection_defaults()
-        if doc and isinstance(doc.get("tiers"), dict):
+        if doc and isinstance(doc.get("complexity_tiers"), dict):
             return {
                 "enabled": bool(doc.get("enabled", True)),
                 "default_deployment": doc.get(
                     "default_deployment", _CODE_MODEL_SELECTION_PARAMS["default_deployment"]
                 ),
-                "tiers": doc["tiers"],
+                "complexity_tiers": doc["complexity_tiers"],
                 "classifier": doc.get("classifier", _CODE_MODEL_SELECTION_PARAMS["classifier"]),
             }
     except Exception as exc:  # noqa: BLE001
@@ -139,6 +142,66 @@ _DEFAULT_COMPLEX_PATTERNS = [
     r"full (trip )?plan",
 ]
 _DEFAULT_TRIVIAL_MAX_WORDS = 6
+
+
+def _latest_user_text(messages: Any) -> str:
+    """Return the most recent human/user message text."""
+    for message in reversed(list(messages or [])):
+        if isinstance(message, dict):
+            role, content = message.get("role"), message.get("content")
+        else:
+            role, content = getattr(message, "type", None), getattr(message, "content", None)
+        if role in ("human", "user") and isinstance(content, str):
+            return content
+    return ""
+
+
+def classify_complexity_tier(text: str, classifier: Optional[dict[str, Any]] = None) -> str:
+    """Classify a turn conservatively as trivial, routine, or complex."""
+    classifier = classifier or {}
+    trivial_max = int(classifier.get("trivial_max_words", _DEFAULT_TRIVIAL_MAX_WORDS))
+    trivial_patterns = classifier.get("trivial_patterns", _DEFAULT_TRIVIAL_PATTERNS)
+    complex_patterns = classifier.get("complex_patterns", _DEFAULT_COMPLEX_PATTERNS)
+
+    normalized = (text or "").strip().lower()
+    if not normalized:
+        return "routine"
+    if any(re.search(pattern, normalized) for pattern in complex_patterns):
+        return "complex"
+
+    words = re.findall(r"[a-z0-9']+", normalized)
+    if len(words) <= trivial_max and any(
+        re.search(pattern, normalized) for pattern in trivial_patterns
+    ):
+        return "trivial"
+    return "routine"
+
+
+def select_deployment_for_turn(messages: Any) -> tuple[str, str]:
+    """Return (deployment_name, complexity_tier) from the active policy."""
+    default = AZURE_OPENAI_DEPLOYMENT
+    try:
+        policy = get_active_policy(MODEL_SELECTION_SCENARIO)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Could not read model-selection policy; using default model: %s", exc)
+        policy = None
+
+    if not policy:
+        return default, "default"
+    params = policy.get("params", {}) or {}
+    if not params.get("enabled", False):
+        return default, "default"
+
+    complexity_tier = classify_complexity_tier(
+        _latest_user_text(messages),
+        params.get("classifier"),
+    )
+    deployment = (
+        (params.get("complexity_tiers", {}) or {}).get(complexity_tier)
+        or params.get("default_deployment")
+        or default
+    )
+    return deployment, complexity_tier
 
 
 def _now_iso() -> str:
@@ -194,6 +257,12 @@ def get_chat_model(deployment_name: Optional[str] = None) -> AzureChatOpenAI:
     logger.info(f"✅ Tiered chat model ready: deployment={deployment_name} "
                 f"reasoning={_is_reasoning_deployment(deployment_name)}")
     return tiered
+
+
+def get_chat_model_for_turn(messages: Any) -> AzureChatOpenAI:
+    """Return the chat model selected by the active policy for this turn."""
+    deployment, _complexity_tier = select_deployment_for_turn(messages)
+    return get_chat_model(deployment)
 
 
 # ---------------------------------------------------------------------------
@@ -306,107 +375,6 @@ def revert_policy(scenario: str, by: str = "dashboard") -> Optional[dict[str, An
 
 
 # ---------------------------------------------------------------------------
-# The decision layer  (YOUR JOB in Module 07)
-# ---------------------------------------------------------------------------
-
-def classify_turn_tier(text: str, classifier: dict[str, Any] | None = None) -> str:
-    """Classify a turn as 'trivial', 'complex', or 'routine' from the user text.
-
-    - 'complex'  : explicit planning / itinerary requests -> capable model
-    - 'trivial'  : short greetings / acknowledgements       -> cheap model
-    - 'routine'  : everything else (incl. place queries)    -> default model
-
-    TODO (Module 07, Activity 5): implement this. Be CONSERVATIVE — only clearly
-    trivial greetings become 'trivial', and only explicit planning asks become
-    'complex', so a real place query never loses quality on the cheap model.
-
-    Helpers you can use (defined above):
-      - classifier.get("trivial_max_words", _DEFAULT_TRIVIAL_MAX_WORDS)
-      - classifier.get("trivial_patterns", _DEFAULT_TRIVIAL_PATTERNS)
-      - classifier.get("complex_patterns", _DEFAULT_COMPLEX_PATTERNS)
-    Suggested order: check complex patterns first, then trivial (short AND
-    greeting-like), else 'routine'.
-    """
-    classifier = classifier or {}
-    # TODO: replace this with your implementation.
-    return "routine"
-
-
-def _latest_user_text(messages: Any) -> str:
-    """Return the most recent human/user message text from a messages list."""
-    for m in reversed(list(messages or [])):
-        if isinstance(m, dict):
-            role, content = m.get("role"), m.get("content")
-        else:
-            role, content = getattr(m, "type", None), getattr(m, "content", None)
-        if role in ("human", "user") and isinstance(content, str):
-            return content
-    return ""
-
-
-def select_deployment_for_turn(messages: Any) -> tuple[str, str]:
-    """Return (deployment_name, tier) for this turn from the active policy.
-
-    With no active/enabled policy this returns the default deployment and tier
-    'default', so the app behaves exactly as before.
-    """
-    default = AZURE_OPENAI_DEPLOYMENT
-    try:
-        policy = get_active_policy(MODEL_SELECTION_SCENARIO)
-    except Exception as exc:  # noqa: BLE001
-        logger.warning(f"Could not read model-selection policy; using default model: {exc}")
-        policy = None
-    if not policy:
-        return default, "default"
-    params = policy.get("params", {}) or {}
-    if not params.get("enabled", False):
-        return default, "default"
-    tiers = params.get("tiers", {}) or {}
-    tier = classify_turn_tier(_latest_user_text(messages), params.get("classifier"))
-    deployment = tiers.get(tier) or params.get("default_deployment") or default
-    return deployment, tier
-
-
-# ---------------------------------------------------------------------------
-# Per-tier supervisor selection
-# ---------------------------------------------------------------------------
-# You register your supervisor builder once at startup (Module 07). It must
-# accept a chat model and return a compiled graph, e.g.:
-#     optimization.register_supervisor_factory(lambda m: create_supervisor(m))
-
-_supervisor_factory: Optional[Callable[[Any], Any]] = None
-_supervisor_by_deployment: dict[str, Any] = {}
-
-
-def register_supervisor_factory(factory: Callable[[Any], Any]) -> None:
-    """Register a `(chat_model) -> compiled_graph` builder for tiered supervisors."""
-    global _supervisor_factory
-    _supervisor_factory = factory
-    _supervisor_by_deployment.clear()
-
-
-def get_supervisor_for_turn(messages: Any, default_graph: Any = None) -> tuple[Any, str, str]:
-    """Return (supervisor_graph, deployment, tier) for this turn.
-
-    If no policy is active (tier 'default') or no factory is registered, returns
-    `default_graph` unchanged so behavior is identical to the un-optimized app.
-    """
-    deployment, tier = select_deployment_for_turn(messages)
-    if tier == "default" or _supervisor_factory is None:
-        return default_graph, AZURE_OPENAI_DEPLOYMENT, "default"
-
-    graph = _supervisor_by_deployment.get(deployment)
-    if graph is None:
-        try:
-            graph = _supervisor_factory(get_chat_model(deployment))
-            _supervisor_by_deployment[deployment] = graph
-        except Exception as exc:  # noqa: BLE001
-            logger.error(f"Failed to build supervisor for '{deployment}'; using default: {exc}")
-            return default_graph, AZURE_OPENAI_DEPLOYMENT, "default"
-    return graph, deployment, tier
-
-
-# ---------------------------------------------------------------------------
 # Per-turn capture (the "instrument" step) -> OptimizationTurns
 # ---------------------------------------------------------------------------
 
@@ -419,13 +387,13 @@ def record_optimization_turn(
     tenant_id: str,
     user_id: str,
     session_id: str,
-    tier: str,
+    complexity_tier: str,
     deployment: str,
     usage: Optional[dict[str, Any]] = None,
     model_name: str = "Unknown",
     handoff_count: int = 0,
 ) -> None:
-    """Record one turn's tier + token usage for the detect/verify steps.
+    """Record one turn's complexity tier + token usage for the detect/verify steps.
 
     `usage` is the per-turn token dict your completion handler already builds,
     e.g. {"input_tokens", "output_tokens", "total_tokens", "cached_tokens"}.
@@ -446,7 +414,7 @@ def record_optimization_turn(
         "tenantId": tenant_id,
         "userId": user_id,
         "sessionId": session_id,
-        "model_tier": tier,
+        "complexity_tier": complexity_tier,
         "model_deployment": deployment,
         "model_name": model_name,
         "input_tokens": int(usage.get("input_tokens") or 0),
@@ -461,6 +429,107 @@ def record_optimization_turn(
         container.upsert_item(doc)
     except Exception as exc:  # noqa: BLE001
         logger.error(f"Failed to record optimization turn: {exc}")
+
+
+# ---------------------------------------------------------------------------
+# Node-grain capture (per-agent) -> NodeExecutions  (Module 07, optional Hook 3)
+# ---------------------------------------------------------------------------
+# The per-turn recorder above collapses a turn to ONE aggregate row. That answers
+# "what did this turn cost?" but not "which AGENT drove the cost?". The node-grain
+# recorder below keeps the per-agent attribution the graph already produces (one
+# `{node: {messages}}` update per agent that ran), so Module 09's Fabric notebook can
+# roll it up into the **agent scorecard** (agent x dimension health). Self-provisions
+# the container so the capture works before a Bicep redeploy; the Bicep also declares
+# it for future deployments.
+
+_node_executions_container_cache = None
+
+
+def _node_executions_container():
+    global _node_executions_container_cache
+    if _node_executions_container_cache is not None:
+        return _node_executions_container_cache
+    db = _database()
+    if db is None:
+        return None
+    try:
+        _node_executions_container_cache = db.create_container_if_not_exists(
+            id=NODE_EXECUTIONS_CONTAINER,
+            partition_key=PartitionKey(
+                path=["/tenantId", "/userId", "/sessionId"], kind="MultiHash"
+            ),
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.error(f"Could not initialize NodeExecutions container: {exc}")
+        _node_executions_container_cache = None
+    return _node_executions_container_cache
+
+
+def record_node_executions(
+    tenant_id: str,
+    user_id: str,
+    session_id: str,
+    turn_id: str,
+    node_execs: list[dict[str, Any]],
+) -> int:
+    """Persist per-agent (node-grain) executions for one turn -> NodeExecutions.
+
+    `node_execs` is the list of per-node token records your completion handler
+    reconstructs from the graph's per-node updates — one dict per agent that ran
+    this turn: {"agent", "model_deployment", "model_name", "input_tokens",
+    "output_tokens", "total_tokens", "cached_tokens"}. One document per turn holds
+    the whole list (shape mirrors the per-turn debug log), so Module 09's Fabric
+    notebook can group and score it into the agent scorecard. Returns the count stored.
+    """
+    if not node_execs:
+        return 0
+    container = _node_executions_container()
+    if container is None:
+        return 0
+    now = datetime.now(timezone.utc)
+    doc = {
+        "id": turn_id or str(uuid.uuid4()),
+        "tenantId": tenant_id,
+        "userId": user_id,
+        "sessionId": session_id,
+        "turnId": turn_id,
+        "debugLogId": turn_id,
+        "nodeExecutions": node_execs,
+        "nodeCount": len(node_execs),
+        "timeStamp": now.isoformat(),
+        "turn_epoch": int(now.timestamp()),
+    }
+    try:
+        container.upsert_item(doc)
+        return len(node_execs)
+    except Exception as exc:  # noqa: BLE001
+        logger.error(f"Failed to record node executions: {exc}")
+        return 0
+
+
+def record_optimization_turn_for_message(
+    tenant_id: str,
+    user_id: str,
+    session_id: str,
+    user_message: str,
+    usage: Optional[dict[str, Any]] = None,
+    model_name: str = "Unknown",
+    handoff_count: int = 0,
+) -> None:
+    """Classify and record a turn from framework-neutral completion telemetry."""
+    deployment, complexity_tier = select_deployment_for_turn(
+        [{"role": "user", "content": user_message}]
+    )
+    record_optimization_turn(
+        tenant_id=tenant_id,
+        user_id=user_id,
+        session_id=session_id,
+        complexity_tier=complexity_tier,
+        deployment=deployment,
+        usage=usage,
+        model_name=model_name,
+        handoff_count=handoff_count,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -483,7 +552,7 @@ def _query_turns(tenant_id: str) -> list[dict]:
 
 
 def build_model_selection_recommendation(tenant_id: str) -> dict[str, Any]:
-    """Build the SCEN-007 candidate card from captured OptimizationTurns."""
+    """Build the model selection candidate card from captured OptimizationTurns."""
     turns = _query_turns(tenant_id)
     total = len(turns)
     trivial = trivial_in = trivial_out = 0
@@ -507,7 +576,7 @@ def build_model_selection_recommendation(tenant_id: str) -> dict[str, Any]:
 
     return {
         "scenario": MODEL_SELECTION_SCENARIO,
-        "scenario_id": "SCEN-007",
+        "scenario_id": "model-selection",
         "title": "Capability-tiered model selection",
         "status": status,
         "evidence": {
@@ -526,15 +595,51 @@ def build_model_selection_recommendation(tenant_id: str) -> dict[str, Any]:
     }
 
 
+def _card_has_signal(card: dict[str, Any]) -> bool:
+    """A card is worth showing only when its underlying data has signal. Keeps the
+    console clean on a fresh/low-traffic tenant (e.g. marvel before you've driven
+    turns) instead of rendering empty zero-value cards."""
+    ev = card.get("evidence", {}) or {}
+    scen = card.get("scenario")
+    if scen == MODEL_SELECTION_SCENARIO:
+        return int(ev.get("total_turns") or 0) > 0
+    if scen == MEMORY_RETENTION_SCENARIO:
+        return int(ev.get("total_memories") or 0) > 0
+    if scen == TOOL_DEDUP_SCENARIO:
+        # Only surface when there is an actual redundant tool call to review — not
+        # merely because the dataset has traffic.
+        return int(ev.get("redundant_tool_turns") or 0) > 0
+    if scen == "cost-per-outcome":
+        return int(ev.get("total_tokens") or 0) > 0
+    if scen == "agent-path-cost":
+        # Cost *concentration* needs at least two distinct paths to compare; a dataset
+        # where every turn is a bare "supervisor" turn (no tools) has nothing to show.
+        return len(ev.get("paths") or []) >= 2
+    return True
+
+
 def build_recommendations(tenant_id: str) -> list[dict[str, Any]]:
-    return [
+    cards = [
         build_model_selection_recommendation(tenant_id),
         build_memory_retention_recommendation(tenant_id),
-        build_city_context_recommendation(tenant_id),
         build_redundant_tool_recommendation(tenant_id),
         build_cost_per_outcome_diagnostic(tenant_id),
         build_agent_path_diagnostic(tenant_id),
     ]
+    # An empty dataset (no captured turns) should open completely empty. The other
+    # cards self-gate on their own signal; the memory card is *global* (not tied to a
+    # dataset), so we additionally gate its display on this dataset having any activity
+    # — otherwise a brand-new dataset would show a lone memory card.
+    ms_turns = int((cards[0].get("evidence") or {}).get("total_turns") or 0)
+    dbg_turns = int((cards[2].get("evidence") or {}).get("total_turns") or 0)
+    has_activity = ms_turns > 0 or dbg_turns > 0
+    out: list[dict[str, Any]] = []
+    for c in cards:
+        if c.get("scenario") == MEMORY_RETENTION_SCENARIO and not has_activity:
+            continue
+        if _card_has_signal(c):
+            out.append(c)
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -638,7 +743,7 @@ def read_optimization_result_from_insights(tenant_id: str) -> dict[str, Any] | N
 
 
 # ---------------------------------------------------------------------------
-# SCEN-004 — memory retention: a lower-risk AUTONOMOUS (L4/L5) policy. Memory
+# memory retention: a lower-risk AUTONOMOUS (L4/L5) policy. Memory
 # accumulates superseded ("stale") entries as preferences change; applying the
 # policy soft-prunes them (a reversible mark), so recall stays cheaper/cleaner.
 # "Superseded" = a memory whose id appears in another memory's supersedes_ids.
@@ -681,8 +786,90 @@ def _superseded_memory_rows() -> list[dict]:
     return [r for r in rows if r.get("id") in superseded_ids]
 
 
+# --- recall-time memory-retention measurement (the hook the recall tool calls) ----
+# Keeps the `recall_memories` MCP tool thin: the tool hands its recall hits to
+# `prune_and_measure_recall`, which drops pruned memories AND records the input tokens
+# each drop avoids. Housing this in the optimization service (not the tool) makes it the
+# single home for the logic — adopting it in another app is one hook call from the recall.
+try:
+    import tiktoken
+    _MEM_ENCODER = tiktoken.get_encoding("cl100k_base")
+except Exception:  # noqa: BLE001 - tokenizer optional; fall back to a char estimate
+    _MEM_ENCODER = None
+
+
+def _count_tokens(text: str) -> int:
+    """Token count for a memory's content (tiktoken when available, else ~chars/4)."""
+    if not text:
+        return 0
+    if _MEM_ENCODER is not None:
+        try:
+            return len(_MEM_ENCODER.encode(text))
+        except Exception:  # noqa: BLE001
+            pass
+    return max(1, len(text) // 4)
+
+
+def prune_and_measure_recall(records: list[dict[str, Any]], user_id: str,
+                             thread_id: str | None = None, query: str = "",
+                             top_k: int = 10) -> list[dict[str, Any]]:
+    """Recall hook: drop pruned memories and record the input tokens each drop avoids.
+
+    The ``recall_memories`` MCP tool calls this with its recall hits (as dicts). A pruned
+    memory that ranked into the top-k is dropped with no backfill, so its tokens are input
+    cost the model no longer pays — recorded as one best-effort ``recall_pruned_avoided``
+    ApiEvent (global ``_global_memory`` key). Returns the kept memories in original order.
+    """
+    kept: list[dict[str, Any]] = []
+    excluded = avoided = 0
+    for d in records:
+        if d.get("retention_status") == "pruned":
+            excluded += 1
+            avoided += _count_tokens(str(d.get("content") or ""))
+        else:
+            kept.append(d)
+    if excluded:
+        try:
+            cosmos.record_api_event(
+                session_id=thread_id or "unknown", tenant_id="_global_memory",
+                provider="memory", operation="recall_pruned_avoided",
+                request={"user_id": user_id, "thread_id": thread_id, "query": query, "top_k": top_k},
+                response={"returned": len(kept), "excluded_pruned": excluded,
+                          "avoided_input_tokens": avoided},
+                keywords=["memory-retention", "avoided-tokens"],
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("recall-savings telemetry skipped: %s", exc)
+    return kept
+
+
+def _memory_recall_savings() -> dict[str, Any]:
+    """Measured memory-retention impact aggregated from recall telemetry (ApiEvents).
+
+    Each ``recall_pruned_avoided`` event records the input tokens a recall avoided by
+    dropping a pruned (superseded) memory that had ranked into its top-k. Summed and
+    priced at the default input rate, that is the *measured* saving — ``$0`` until the
+    policy is applied and recalls run (never a fabricated estimate). Global signal."""
+    db = _database()
+    if db is None:
+        return {"recalls": 0, "avoided_tokens": 0, "saving_usd": 0.0}
+    try:
+        rows = list(db.get_container_client("ApiEvents").query_items(
+            query=("SELECT c.response FROM c WHERE c.provider='memory' "
+                   "AND c.operation='recall_pruned_avoided'"),
+            enable_cross_partition_query=True,
+        ))
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("recall-savings aggregation failed: %s", exc)
+        return {"recalls": 0, "avoided_tokens": 0, "saving_usd": 0.0}
+    avoided = sum(int((r.get("response") or {}).get("avoided_input_tokens") or 0) for r in rows)
+    input_price = load_pricing().get("gpt-5.1", _DEFAULT_PRICING["gpt-5.1"])["input"]
+    return {"recalls": len(rows), "avoided_tokens": avoided,
+            "saving_usd": round(avoided * input_price / 1_000_000, 4)}
+
+
 def build_memory_retention_recommendation(tenant_id: str) -> dict[str, Any]:
-    """Detect stale (superseded) memory accumulation (SCEN-004). Memory is keyed by
+    """Detect stale (superseded) memory accumulation. Memory is keyed by
     (user_id, thread_id), not tenant — a global memory-hygiene signal."""
     container = _memories_container()
     total = 0
@@ -695,30 +882,42 @@ def build_memory_retention_recommendation(tenant_id: str) -> dict[str, Any]:
     superseded = _superseded_memory_rows()
     n_sup = len(superseded)
     n_pruned = sum(1 for r in superseded if r.get("retention_status") == "pruned")
+    savings = _memory_recall_savings()
     status = (get_policy(MEMORY_RETENTION_SCENARIO) or {}).get("status", "not_proposed")
     if get_active_policy(MEMORY_RETENTION_SCENARIO):
         status = "active"
     return {
         "scenario": MEMORY_RETENTION_SCENARIO,
-        "scenario_id": "SCEN-004",
+        "scenario_id": "memory-retention",
         "title": "Memory retention (prune stale memories)",
-        "dimension": "memory · cost + quality",
+        "dimension": "memory · global — spans all users (not tenant-scoped) · cost + quality",
         "maturity": "L4/L5 (lower-risk autonomous policy)",
         "apply_mode": "policy",
         "status": status,
+        # MEASURED (not estimated): input tokens recalls avoided by dropping pruned
+        # memories, priced at the default input rate. $0 until the policy is applied
+        # and recalls run — deliberately never a fabricated pre-apply estimate.
+        "estimated_saving_usd": savings["saving_usd"],
         "evidence": {
             "total_memories": total,
             "superseded_memories": n_sup,
             "superseded_pct": round(100 * n_sup / max(total, 1), 1),
             "pruned_memories": n_pruned,
+            "avoided_recall_tokens": savings["avoided_tokens"],
+            "measured_recalls": savings["recalls"],
+            "measured_saving_usd": savings["saving_usd"],
         },
         "rationale": (
             "Preferences change, so memory accumulates superseded entries. A large stale share "
             "means recall wades through (and pays for) memories that no longer apply."
         ),
         "estimate_caveat": (
-            "Applying soft-prunes superseded memories (a reversible mark). Recall excludes pruned "
-            "memories where the memory client surfaces the flag; the mark is always reversible."
+            "Global signal — memory is keyed by user, not tenant, so this card reads the "
+            "same for every tenant. Applying soft-prunes superseded memories (a reversible "
+            "mark). Recall excludes pruned memories where the memory client surfaces the "
+            "flag; the mark is always reversible. The saving is MEASURED from recall telemetry "
+            "(input tokens avoided when a pruned memory is dropped from a recall's top-k), not "
+            "estimated — so it reads $0 until the policy is applied and recalls run."
         ),
         "proposed_params": PROPOSED_MEMORY_RETENTION_PARAMS,
         "actions": {
@@ -779,140 +978,12 @@ def revert_memory_retention() -> int:
 
 
 # ---------------------------------------------------------------------------
-# Scenario B (SCEN-001) — active-trip city context: a HUMAN-GOVERNED (L3) prompt
-# optimization. Unlike model selection, its "apply" does NOT toggle runtime — it
-# STAGES a proposed prompt change for human review (a prompt/code change is
-# higher-risk, so it caps at maturity L3 and goes through a PR).
-# ---------------------------------------------------------------------------
-
-CITY_CONTEXT_SCENARIO = "active-trip-city-context"
-
-_CITY_ASK_RE = re.compile(
-    r"which city|what city|city (is|are) (it|this|that|you|the hotel)"
-    r"|in which city|which city .* located|what city .* in",
-    re.I,
-)
-
-# The prompt change this scenario recommends (added to supervisor.prompty).
-PROPOSED_CITY_CONTEXT_CHANGE = (
-    "When the user refers to a hotel/place by name and an active trip exists, use the "
-    "active trip's destination city as the search city instead of asking the user which "
-    "city it is in. Only ask for a city when no active trip or destination is known."
-)
-
-
-def _query_assistant_texts(tenant_id: str) -> list[str]:
-    db = _database()
-    if db is None:
-        return []
-    try:
-        rows = db.get_container_client("Messages").query_items(
-            query="SELECT d.role, d.content FROM d WHERE d.tenantId=@t",
-            parameters=[{"name": "@t", "value": tenant_id}],
-            enable_cross_partition_query=True,
-        )
-        return [r.get("content", "") for r in rows
-                if str(r.get("role", "")).lower() == "assistant" and isinstance(r.get("content"), str)]
-    except Exception:  # noqa: BLE001
-        return []
-
-
-def _trip_count(tenant_id: str) -> int:
-    db = _database()
-    if db is None:
-        return 0
-    try:
-        rows = list(db.get_container_client("Trips").query_items(
-            query="SELECT VALUE COUNT(1) FROM d WHERE d.tenantId=@t",
-            parameters=[{"name": "@t", "value": tenant_id}],
-            enable_cross_partition_query=True,
-        ))
-        return int(rows[0]) if rows else 0
-    except Exception:  # noqa: BLE001
-        return 0
-
-
-def build_city_context_recommendation(tenant_id: str) -> dict[str, Any]:
-    """Detect the 'agent re-asks for a city it already knows' pattern (SCEN-001)."""
-    reasks = sum(1 for t in _query_assistant_texts(tenant_id) if _CITY_ASK_RE.search(t))
-    trips = _trip_count(tenant_id)
-
-    doc = get_policy(CITY_CONTEXT_SCENARIO) or {}
-    status = doc.get("status", "not_proposed")
-
-    return {
-        "scenario": CITY_CONTEXT_SCENARIO,
-        "scenario_id": "SCEN-001",
-        "title": "Active-trip city context",
-        "dimension": "agent quality · prompt",
-        "maturity": "L3 (human-governed)",
-        "apply_mode": "staged_change",  # NOT a runtime toggle
-        "risk": "higher-risk (prompt change → human review / PR)",
-        "status": status,
-        "evidence": {
-            "city_reasks": reasks,
-            "trips": trips,
-        },
-        "rationale": (
-            "The supervisor re-asks which city a hotel is in even when an active trip already "
-            "fixes the destination — a prompt gap, not a policy knob."
-        ),
-        "proposed_change": {
-            "file": "python/src/app/prompts/supervisor.prompty",
-            "add": PROPOSED_CITY_CONTEXT_CHANGE,
-        },
-        "note": (
-            "Because this is a prompt change (higher-risk), it cannot be applied at runtime. "
-            "Staging it produces a reviewable proposal for a human to merge via PR (maturity L3)."
-        ),
-    }
-
-
-def stage_prompt_change(scenario: str, by: str = "dashboard") -> Optional[dict[str, Any]]:
-    """'Apply' for a human-governed change: record it as STAGED (never active).
-
-    Returns the staged proposal (the diff/text) for a human to review and merge.
-    This deliberately does NOT change runtime behavior.
-    """
-    if scenario == CITY_CONTEXT_SCENARIO:
-        scenario_id, title, change = "SCEN-001", "Active-trip city context", {
-            "file": "python/src/app/prompts/supervisor.prompty",
-            "add": PROPOSED_CITY_CONTEXT_CHANGE,
-        }
-    elif scenario == TOOL_DEDUP_SCENARIO:
-        scenario_id, title, change = "SCEN-008", "Redundant tool calls", {
-            "file": "python/src/app/prompts/supervisor.prompty",
-            "add": PROPOSED_TOOL_DEDUP_CHANGE,
-        }
-    else:
-        return None
-    doc = {
-        "scenario": scenario,
-        "scenario_id": scenario_id,
-        "title": title,
-        "status": "staged",              # never 'active' -> no runtime effect
-        "apply_mode": "staged_change",
-        "proposed_change": change,
-        "audit": list((get_policy(scenario) or {}).get("audit", [])) + [
-            {"ts": _now_iso(), "action": "staged", "by": by}
-        ],
-    }
-    saved = upsert_policy(doc)
-    return saved
-
-
-# ---------------------------------------------------------------------------
-# SCEN-008 (staged) + SCEN-003 / SCEN-005 (diagnostic) — mined from Debug
-# telemetry, which now carries agent_path / handoff_count (see
-# store_debug_log_from_response).
+# repeated-node (INSIGHT) + cost per outcome / agent-path cost concentration
+# (diagnostic) — mined from Debug telemetry, which carries agent_path /
+# handoff_count (see store_debug_log_from_response).
 # ---------------------------------------------------------------------------
 
 TOOL_DEDUP_SCENARIO = "tool-call-dedup"
-
-PROPOSED_TOOL_DEDUP_CHANGE = (
-    "When a place/tool lookup for a query already returned results this turn, reuse them "
-    "instead of calling the same tool again. Only re-query on a materially different search."
-)
 
 
 def _bag(doc: dict) -> dict:
@@ -935,40 +1006,47 @@ def _query_debug(tenant_id: str) -> list[dict]:
 
 
 def _redundant_tool_turns(debug: list[dict]) -> int:
-    n = 0
+    """Count structural repeated-node turns over Debug.agent_path telemetry: the
+    same agent/tool invoked back-to-back within a turn (the generic pattern the
+    analytics engine calls structural.repeated_node)."""
+    red = 0
     for d in debug:
         parts = [p.strip() for p in str(_bag(d).get("agent_path") or "").split(",") if p.strip()]
         if any(parts[i] == parts[i + 1] and parts[i] != "supervisor" for i in range(len(parts) - 1)):
-            n += 1
-    return n
+            red += 1
+    return red
 
 
 def build_redundant_tool_recommendation(tenant_id: str) -> dict[str, Any]:
-    """Detect redundant back-to-back tool/agent calls (SCEN-008) — a staged prompt fix."""
+    """Surface the repeated-node structural pattern as a read-only INSIGHT.
+
+    Detecting the pattern is operational (telemetry). *Proposing* and *measuring* a
+    fix is offline analytical work performed by the optimization analytics notebook —
+    not in-app. Until that analysis lands, this stays an insight with no action: we do
+    NOT hand-author a prompt "fix" (a guessed change is not grounded in analysis and
+    would violate the data-grounded first principle).
+    """
     debug = _query_debug(tenant_id)
-    redundant = _redundant_tool_turns(debug)
-    status = (get_policy(TOOL_DEDUP_SCENARIO) or {}).get("status", "not_proposed")
     return {
         "scenario": TOOL_DEDUP_SCENARIO,
-        "scenario_id": "SCEN-008",
+        "scenario_id": "tool-call-dedup",
         "title": "Redundant tool calls",
         "dimension": "agent quality · tool use",
-        "maturity": "L3 (human-governed)",
-        "apply_mode": "staged_change",
-        "risk": "higher-risk (prompt/code change → human review / PR)",
-        "status": status,
-        "evidence": {"redundant_tool_turns": redundant, "total_turns": len(debug)},
-        "rationale": (
-            "Some turns invoke the same place-search tool/agent twice in a row — redundant "
-            "token spend with no added grounding."
-        ),
-        "proposed_change": {
-            "file": "python/src/app/prompts/supervisor.prompty",
-            "add": PROPOSED_TOOL_DEDUP_CHANGE,
+        "maturity": "insight (awaiting analysis)",
+        "apply_mode": "diagnostic",
+        "status": "insight",
+        "evidence": {
+            "redundant_tool_turns": _redundant_tool_turns(debug),
+            "total_turns": len(debug),
         },
+        "rationale": (
+            "Some turns show the same agent/tool repeated back-to-back in agent_path — a "
+            "generic structural telemetry pattern that often means redundant token spend."
+        ),
         "note": (
-            "Prompt/code change (higher-risk) — stage for human review (maturity L3), "
-            "not applied at runtime."
+            "Insight — detected from telemetry. Proposing and measuring a fix is offline "
+            "analytical work (the optimization analytics notebook), not an in-app computation; "
+            "it stays an insight with no action until that analysis produces a measured change."
         ),
     }
 
@@ -989,13 +1067,14 @@ def _converting_users(tenant_id: str) -> set:
         return set()
 
 
+_CITY_FRICTION_RE = re.compile(r"which city|what city", re.I)
 _NO_RESULTS_RE = re.compile(
     r"couldn'?t find|could not find|no (matching )?(results|places|hotels|options)|nothing (found|matched)",
     re.I,
 )
 
 _ABANDON_FIX = {
-    "city_friction": "the active-trip city-context prompt fix (SCEN-001) — it lifts conversion, not just cost",
+    "city_friction": "a prompt fix that reduces repeated city clarification and lifts conversion",
     "cart_abandon": "a proactive 'shall I book it?' confirmation at the itinerary step",
     "no_results": "better place-search grounding (broaden/relax the query before giving up)",
     "search_stall": "clearer next-step prompting after a search returns",
@@ -1036,7 +1115,7 @@ def _session_friction(tenant_id: str) -> dict[str, dict]:
         if str(r.get("role", "")).lower() != "assistant" or not isinstance(r.get("content"), str):
             continue
         f = out.setdefault(r.get("sessionId"), {"city_reask": False, "no_results": False})
-        if _CITY_ASK_RE.search(r["content"]):
+        if _CITY_FRICTION_RE.search(r["content"]):
             f["city_reask"] = True
         if _NO_RESULTS_RE.search(r["content"]):
             f["no_results"] = True
@@ -1059,7 +1138,7 @@ def _conversion_funnel(tenant_id: str) -> dict[str, Any]:
             s["planned"] = True
         s["tokens"] += int(b.get("total_tokens") or 0)
 
-    # Conversion is session-level when trips carry a sessionId (e.g. funnel_demo),
+    # Conversion is session-level when trips carry a sessionId (e.g. analytics),
     # else falls back to user-level (real trips have no sessionId).
     converted_sessions = _converted_sessions(tenant_id)
     converting_users = _converting_users(tenant_id)
@@ -1069,12 +1148,19 @@ def _conversion_funnel(tenant_id: str) -> dict[str, Any]:
     wasted = total = 0
     for sid, s in sessions.items():
         total += s["tokens"]
+        converted = sid in converted_sessions or s.get("user") in converting_users
+        if converted:
+            # A booked trip means the session necessarily searched and planned, even if
+            # the agent_path telemetry for those earlier stages wasn't captured. Credit
+            # the whole journey so a real confirmation always advances the funnel.
+            s["searched"] = True
+            s["planned"] = True
         funnel["engaged"] += 1
         if s["searched"]:
             funnel["searched"] += 1
         if s["planned"]:
             funnel["planned"] += 1
-        if s.get("planned") and (sid in converted_sessions or s.get("user") in converting_users):
+        if converted:
             funnel["confirmed"] += 1
             continue
         wasted += s["tokens"]
@@ -1097,7 +1183,7 @@ def _conversion_funnel(tenant_id: str) -> dict[str, Any]:
 
 
 def build_cost_per_outcome_diagnostic(tenant_id: str) -> dict[str, Any]:
-    """Cost per outcome upleveled to a conversion funnel (SCEN-003): not just *how
+    """Cost per outcome upleveled to a conversion funnel: not just *how
     much* is wasted, but *where* sessions leak and *why* — pointing at the fix."""
     f = _conversion_funnel(tenant_id)
     total_tokens = f["total_tokens"]
@@ -1114,7 +1200,7 @@ def build_cost_per_outcome_diagnostic(tenant_id: str) -> dict[str, Any]:
                 "the leak and the lever; otherwise the levers are spend control and richer instrumentation.")
     return {
         "scenario": "cost-per-outcome",
-        "scenario_id": "SCEN-003",
+        "scenario_id": "cost-per-outcome",
         "title": "Cost per outcome & conversion funnel",
         "dimension": "business impact · conversion",
         "maturity": "diagnostic (points at the conversion fix)",
@@ -1138,7 +1224,7 @@ def build_cost_per_outcome_diagnostic(tenant_id: str) -> dict[str, Any]:
 
 
 def build_agent_path_diagnostic(tenant_id: str) -> dict[str, Any]:
-    """Where the tokens go: cost concentrated in a few agent_paths (SCEN-005)."""
+    """Where the tokens go: cost concentrated in a few agent_paths."""
     debug = _query_debug(tenant_id)
     agg: dict[str, list[int]] = {}
     for d in debug:
@@ -1154,7 +1240,7 @@ def build_agent_path_diagnostic(tenant_id: str) -> dict[str, Any]:
     )
     return {
         "scenario": "agent-path-cost",
-        "scenario_id": "SCEN-005",
+        "scenario_id": "agent-path-cost-concentration",
         "title": "Agent-path cost concentration",
         "dimension": "cost efficiency · routing",
         "maturity": "diagnostic (informs tiering + tool fixes)",
@@ -1166,8 +1252,8 @@ def build_agent_path_diagnostic(tenant_id: str) -> dict[str, Any]:
             "many times a plain supervisor turn. That's where tiering and tool fixes pay off."
         ),
         "note": (
-            "A lens: act via model tiering (SCEN-007) on the expensive paths and by removing "
-            "redundant tool calls (SCEN-008)."
+            "A lens: act via model tiering on the expensive paths and by removing "
+            "redundant tool calls."
         ),
     }
 
@@ -1210,7 +1296,7 @@ def build_turn_metrics(tenant_id: str) -> dict[str, Any]:
     total_in = total_out = total_tokens = trivial = 0
     est_cost = 0.0
     models: dict[str, int] = {}
-    by_tier: dict[str, dict[str, Any]] = {}
+    by_complexity_tier: dict[str, dict[str, Any]] = {}
 
     for d in turns:
         i = int(d.get("input_tokens") or 0)
@@ -1226,8 +1312,8 @@ def build_turn_metrics(tenant_id: str) -> dict[str, Any]:
         pin, pout = _price_for(dep)
         cost = (i * pin + o * pout) / 1_000_000
         est_cost += cost
-        key = f"{d.get('model_tier', 'default')} ({dep})"
-        row = by_tier.setdefault(key, {"tier": d.get("model_tier", "default"), "deployment": dep,
+        key = f"{d.get('complexity_tier', 'default')} ({dep})"
+        row = by_complexity_tier.setdefault(key, {"complexity_tier": d.get("complexity_tier", "default"), "deployment": dep,
                                        "turns": 0, "tokens": 0, "cost": 0.0})
         row["turns"] += 1
         row["tokens"] += int(d.get("total_tokens") or 0)
@@ -1247,5 +1333,5 @@ def build_turn_metrics(tenant_id: str) -> dict[str, Any]:
         "model_distribution": models,
         "confirmed_outcomes": confirmed,
         "cost_per_outcome_usd": round(est_cost / confirmed, 4) if confirmed else None,
-        "by_tier": sorted(by_tier.values(), key=lambda r: -r["cost"]),
+        "by_complexity_tier": sorted(by_complexity_tier.values(), key=lambda r: -r["cost"]),
     }

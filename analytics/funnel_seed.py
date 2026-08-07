@@ -1,12 +1,12 @@
 """
 Conversion-funnel demo dataset — models WHY sessions don't convert.
 
-The cost-per-outcome signal (SCEN-003) says *how much* is spent on sessions that
+The cost-per-outcome signal (cost per outcome) says *how much* is spent on sessions that
 never book. This dataset lets the analytics go the "extra mile" — business impact,
 not just mechanical cost — by encoding realistic **abandonment causes** so a funnel
 diagnostic can show *where* sessions leak and *why*, pointing at the fix.
 
-It writes a set of sessions to the ``funnel_demo`` tenant with a controlled outcome:
+It writes a set of sessions to the ``analytics`` tenant with a controlled outcome:
 
   Funnel stages (from each session's Debug agent_path):
     Engaged -> Searched -> Planned -> Confirmed
@@ -14,17 +14,19 @@ It writes a set of sessions to the ``funnel_demo`` tenant with a controlled outc
   Outcomes / causes:
     - converted        : Engaged -> Searched -> Planned -> Confirmed (a booked Trip)
     - no_engagement    : never searched (vague/greeting-only)
-    - city_friction    : searched, stalled re-asking "which city?" (the SCEN-001 gap)
+    - city_friction    : searched, stalled re-asking "which city?" (funnel friction)
     - no_results       : searched, the place search dead-ended ("couldn't find any…")
     - cart_abandon     : got a full itinerary, never confirmed (last-mile drop)
 
-Each session writes authentic-shaped OptimizationTurns (agent_path, tokens,
-handoff_count), a few Messages carrying the friction signal, and — for converted
-sessions — a Trip (status=confirmed) that records the sessionId so conversion is
-session-level.
+Each session writes authentic-shaped OptimizationTurns AND Debug docs (agent_path,
+tokens, handoff_count), a few Messages carrying the friction signal, and — for
+converted sessions — a Trip (status=confirmed) that records the sessionId so
+conversion is session-level. The in-app funnel reads Debug.agent_path; the Module 09
+notebook reads OptimizationTurns via the Fabric mirror — so the journey is written to
+both, keyed by the same sessionId as the Trip.
 
 Deterministic (fixed seed) and idempotent (stable ids). Turns land in
-OptimizationTurns/Messages/Trips (read by the Module 09 notebook via the Fabric mirror).
+OptimizationTurns/Debug/Messages/Trips.
 
 Usage (repo root; Cosmos via DefaultAzureCredential):
   python analytics/funnel_seed.py                 # ~120 sessions
@@ -65,7 +67,7 @@ if not os.environ.get("COSMOSDB_ENDPOINT"):
             if os.environ.get("COSMOSDB_ENDPOINT"):
                 break
 
-TENANT = "funnel_demo"
+TENANT = "analytics"
 CITIES = ["Amsterdam", "Paris", "Tokyo", "Rome", "Barcelona", "London", "New York"]
 
 # Outcome mix (must sum to ~1.0). Tuned so the funnel has a clear, teachable leak:
@@ -94,18 +96,16 @@ def _pick_outcome(rng: random.Random) -> str:
     return OUTCOMES[0][0]
 
 
-def _turn_doc(tenant, user, session, stage, ts, idx):
+def _turn_doc(tenant, user, session, stage, ts, idx, it, ot):
     """Flat OptimizationTurns doc (matches record_optimization_turn's schema, plus
     agent_path) so the Module 09 notebook can read it from the mirror."""
-    path, in_r, out_r, handoffs = stage
-    it = random.randint(*in_r)
-    ot = random.randint(*out_r)
+    path, _in_r, _out_r, handoffs = stage
     timestamp = ts.isoformat()
     return {
         "id": f"funnel::{session}::{idx}",
         "type": "optimization_turn",
         "tenantId": tenant, "userId": user, "sessionId": session,
-        "model_tier": "default",
+        "complexity_tier": "default",
         "model_deployment": "gpt-5.1",
         "model_name": "gpt-5.1-2025-11-13",
         "input_tokens": it,
@@ -116,6 +116,35 @@ def _turn_doc(tenant, user, session, stage, ts, idx):
         "agent_path": path,
         "timeStamp": timestamp,
         "turn_epoch": int(ts.timestamp()),
+    }
+
+
+def _debug_doc(tenant, user, session, stage, ts, idx, it, ot):
+    """Debug-container doc (matches store_debug_log's shape). The in-app conversion
+    funnel reads Debug.agent_path (not OptimizationTurns), so without this the seeded
+    journey never reaches the funnel and converted sessions can't join to their Trip by
+    sessionId. Writing it here is what lets the funnel show real confirmed conversions."""
+    path, _in_r, _out_r, handoffs = stage
+    timestamp = ts.isoformat()
+    agent_selected = path.split(",")[-1] if path else "supervisor"
+    bag = [
+        {"key": "agent_selected", "value": agent_selected, "timeStamp": timestamp},
+        {"key": "model_name", "value": "gpt-5.1-2025-11-13", "timeStamp": timestamp},
+        {"key": "input_tokens", "value": it, "timeStamp": timestamp},
+        {"key": "output_tokens", "value": ot, "timeStamp": timestamp},
+        {"key": "total_tokens", "value": it + ot, "timeStamp": timestamp},
+        {"key": "cached_tokens", "value": int(it * 0.7), "timeStamp": timestamp},
+        {"key": "transfer_success", "value": handoffs > 0, "timeStamp": timestamp},
+        {"key": "tool_calls", "value": "[]", "timeStamp": timestamp},
+        {"key": "agent_path", "value": path, "timeStamp": timestamp},
+        {"key": "handoff_count", "value": handoffs, "timeStamp": timestamp},
+    ]
+    _id = f"funnel-debug::{session}::{idx}"
+    return {
+        "id": _id, "debugLogId": _id, "messageId": f"{_id}::msg",
+        "type": "debug_log",
+        "sessionId": session, "tenantId": tenant, "userId": user,
+        "timeStamp": timestamp, "propertyBag": bag,
     }
 
 
@@ -152,7 +181,7 @@ def build_session(outcome, rng):
         msgs = [("assistant", f"Here is your itinerary for {city}.")]
         return stages, msgs, False  # planned, never confirmed
     if outcome == "city_friction":
-        # searched but stalls re-asking which city (the SCEN-001 gap)
+        # searched but stalls re-asking which city (funnel friction)
         stages = [_SUPERVISOR, _SEARCH, _SUPERVISOR, _SUPERVISOR]
         msgs = [
             ("user", "book the Krasnapolsky"),
@@ -187,6 +216,7 @@ def main() -> None:
     turns = db.get_container_client("OptimizationTurns")
     messages = db.get_container_client("Messages")
     trips = db.get_container_client("Trips")
+    debug = db.get_container_client("Debug")
 
     now = datetime.now(timezone.utc)
     step = timedelta(hours=args.hours) / max(args.sessions, 1)
@@ -200,7 +230,15 @@ def main() -> None:
         ts0 = now - timedelta(hours=args.hours) + step * i
         stages, msgs, converts = build_session(outcome, rng)
         for j, stage in enumerate(stages):
-            turns.upsert_item(_turn_doc(TENANT, user, session, stage, ts0 + timedelta(seconds=j * 30), j))
+            _path, in_r, out_r, _h = stage
+            it = random.randint(*in_r)
+            ot = random.randint(*out_r)
+            ts_j = ts0 + timedelta(seconds=j * 30)
+            # Journey lands in BOTH containers: OptimizationTurns (Module 09 notebook /
+            # Fabric mirror + the model-selection tile) and Debug (the in-app funnel +
+            # agent-path / redundant detectors).
+            turns.upsert_item(_turn_doc(TENANT, user, session, stage, ts_j, j, it, ot))
+            debug.upsert_item(_debug_doc(TENANT, user, session, stage, ts_j, j, it, ot))
         for k, (role, content) in enumerate(msgs):
             messages.upsert_item(_msg_doc(TENANT, user, session, role, content, ts0 + timedelta(seconds=k * 20), k))
         if converts:

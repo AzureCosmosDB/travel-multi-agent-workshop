@@ -30,3 +30,4 @@ from . import codecontext      # noqa: F401
 from . import quality          # noqa: F401
 
 from .pipeline import analyze, OPPORTUNITY_SEAMS, default_analyst  # noqa: F401,E402
+from .analyst import make_llm_analyst  # noqa: F401,E402

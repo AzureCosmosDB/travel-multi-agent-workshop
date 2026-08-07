@@ -34,15 +34,18 @@ from src.app.engine.policy import Field, PolicySchema, bind_policy, discovery_ma
 from src.app.engine.scorecard import build_scorecard
 from src.app.services import node_executions as ne
 from src.app.services import optimization_governance as gov
+from src.app.services import optimization_policy
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/optimizations/agent", tags=["optimization-agent"])
 
 _APP_DIR = os.path.dirname(os.path.abspath(__file__))          # .../src/app
-_CODE_ALLOWLIST = ["travel_agents.py"]                          # read-only code-seam surface
+_CODE_ALLOWLIST = ["travel_agents.py", "services/optimization.py"]  # read-only code-seam surface
 
-_DECISION_KINDS = {"approve", "reject", "attest", "confirm-revert"}
+_DECISION_KINDS = {"approve", "reject", "attest", "confirm-revert",
+                   "staged", "unstaged", "applied", "reverted",  # legacy (pre-vocabulary)
+                   "approved", "deployed", "rolled-back", "dismissed"}  # human-attested lifecycle
 _TYPE_MAP = {"int": int, "float": float, "bool": bool, "str": str}
 
 
@@ -65,6 +68,16 @@ def _total_cost(nodes: list[NodeExec]) -> float:
     return sum(token_cost(n.model_deployment, n.input_tokens, n.output_tokens) for n in nodes)
 
 
+def _config_pricing() -> dict[str, dict[str, float]]:
+    """Existing Configuration pricing (per 1M tokens) mapped to the engine's per-1K
+    ``{deployment: {"in", "out"}}`` format, so the Console scorecard cost matches the
+    Power BI report (compute_insights) and the notebook — all pass the same pricing to
+    ``build_scorecard`` instead of the engine's illustrative ``DEFAULT_PRICING``."""
+    from src.app.services import optimization_recommendations as rec
+    return {m: {"in": p.get("input", 0.0) / 1000.0, "out": p.get("output", 0.0) / 1000.0}
+            for m, p in rec.load_pricing().items()}
+
+
 def _opportunities(tenant_id: str) -> tuple[list[dict], float, dict]:
     """Discovered opportunities for a tenant + total spend + the SLO policy (engine-computed)."""
     nodes = _load_nodes(tenant_id)
@@ -80,6 +93,20 @@ def _opportunities(tenant_id: str) -> tuple[list[dict], float, dict]:
         c["clears_slo"] = effect >= min_effect          # the engine consumes the SLO policy
         state = gov.latest_state(tenant_id, c["opportunity_id"])
         c["governed_state"] = state["kind"] if state else "new"
+        # Applied-state comes from the OptimizationPolicies source of truth — the same
+        # store the app reads at request time and the Power BI report reflects — so the
+        # Console and the report can never disagree on whether an optimization is live.
+        # `governed_state` above is the human-decision audit (C1/C4), a SEPARATE axis
+        # from whether the policy is actually applied. Only config-seam opportunities
+        # map to a policy scenario (its `target` is the scenario slug); prompt/code
+        # seams have no runtime policy, so their applied-state is "n/a".
+        scenario = c["target"] if c.get("seam") == "config" else None
+        if scenario:
+            applied = optimization_policy.get_active_policy(scenario)
+            c["applied_state"] = "active" if applied else (
+                (optimization_policy.get_policy(scenario) or {}).get("status", "not_proposed"))
+        else:
+            c["applied_state"] = "n/a"
         enriched.append(c)
     return enriched, total, slo
 
@@ -90,7 +117,7 @@ def _opportunities(tenant_id: str) -> tuple[list[dict], float, dict]:
 def scorecard(tenant_id: str, session: Optional[str] = None) -> dict[str, Any]:
     """Agent × dimension health rolled up from node-grain telemetry."""
     nodes = _load_nodes(tenant_id, session)
-    cards = build_scorecard(nodes)
+    cards = build_scorecard(nodes, pricing=_config_pricing())
     return {"tenant_id": tenant_id, "node_count": len(nodes),
             "agents": [c.to_dict() for c in cards]}
 
@@ -101,6 +128,27 @@ def opportunities(tenant_id: str) -> dict[str, Any]:
     cards, total, slo = _opportunities(tenant_id)
     return {"tenant_id": tenant_id, "total_spend": round(total, 6), "slo": slo,
             "opportunities": cards}
+
+
+_PROMPT_SUGGESTIONS = {
+    "opp-repeated-node": (
+        "## Tool-use efficiency (engine-suggested guardrail — review & attest before applying)\n"
+        "Do not call the same tool twice in a row within a single turn. If a tool has already "
+        "returned a result during this turn, use that result and continue — do not re-invoke the "
+        "same tool with identical arguments. Prefer one decisive tool call per step over repeated "
+        "back-to-back calls."
+    ),
+}
+
+
+def _prompt_suggestion(opportunity_id: str, dimension: str) -> str:
+    """A concrete, deterministic prompt edit for a detected pattern. Clearly labeled as a
+    suggestion — a human reviews the diff and attests the deploy (never auto-applied)."""
+    return _PROMPT_SUGGESTIONS.get(
+        opportunity_id,
+        ("## Engine-suggested edit (review & attest before applying)\n"
+         f"Revise this prompt to address: {dimension} ({opportunity_id})."),
+    )
 
 
 @router.get("/{tenant_id}/opportunity/{opportunity_id}/diff")
@@ -118,19 +166,31 @@ def staged_diff(tenant_id: str, opportunity_id: str) -> dict[str, Any]:
     if kind == "code":
         from src.app.engine.codecontext import FileBackedProvider, scaffold_diff
         provider = FileBackedProvider(root=_APP_DIR, allowlist=_CODE_ALLOWLIST)
-        ctx = provider.retrieve(target, hints=["select_deployment_for_turn", "classify_turn_tier"])
+        ctx = provider.retrieve(
+            target,
+            hints=["_select_supervisor_model", "get_chat_model_for_turn"],
+        )
         diff = scaffold_diff(ctx, f"{card['dimension']} — {opportunity_id}")
         return {"opportunity_id": opportunity_id, "seam": kind, "target": target,
                 "apply_mode": seam.apply_mode, "diff": diff, "requires": "human review of staged diff"}
 
     if kind == "prompt":
         rec = seams.render_recipe(seam.id, {"guidance": f"address {card['dimension']} ({opportunity_id})"})
+        before = ""
+        try:
+            with open(os.path.join(_APP_DIR, "prompts", target), "r", encoding="utf-8") as fh:
+                before = fh.read()
+        except OSError:
+            before = ""
+        suggestion = _prompt_suggestion(opportunity_id, card["dimension"])
+        after = (before.rstrip() + "\n\n" + suggestion + "\n") if before else suggestion + "\n"
         return {"opportunity_id": opportunity_id, "seam": kind, "target": target,
-                "apply_mode": seam.apply_mode, "diff": rec["edit"], "requires": rec["requires"]}
+                "apply_mode": seam.apply_mode, "diff": rec["edit"], "requires": rec["requires"],
+                "before": before, "after": after, "suggestion": suggestion}
 
     # config: render the fail-closed policy document the apply would write
     rec = seams.render_recipe(seam.id, {"enabled": True, "default_deployment": "gpt-5-mini",
-                                        "tiers": {"routine": "gpt-5-mini"}})
+                                        "complexity_tiers": {"routine": "gpt-5-mini"}})
     return {"opportunity_id": opportunity_id, "seam": kind, "target": target,
             "apply_mode": seam.apply_mode, "policy_doc": rec.get("policy_doc"),
             "status": rec.get("status")}

@@ -1,6 +1,6 @@
 # Module 03 - Adding Memory with the Cosmos DB Agent Memory Toolkit
 
-[← Module 02: Specialized Sub-Agent Tools](./Module-02.md) | [Home](./Home.md) | [Module 04: Making Memory Intelligent →](./Module-04.md)
+[← Module 02: Specialized Sub-Agent Tools](./Module-02.md#module-02---specialized-sub-agent-tools) | [Home](./Home.md#build-a-multi-agent-workshop) | [Module 04: Making Memory Intelligent →](./Module-04.md#module-04---making-memory-intelligent-3-way-rrf-personalisation)
 
 ---
 
@@ -1802,7 +1802,16 @@ def create_new_trip(
     days: Optional[List[Dict[str, Any]]] = None,
     trip_duration: Optional[int] = None,
 ) -> Dict[str, Any]:
-    """Create a new trip itinerary."""
+    """Create a new trip itinerary and save it to the traveller's profile.
+
+    ``days`` is the day-by-day plan: a list of day objects. Each day is
+    ``{"dayNumber": 1, "date": "YYYY-MM-DD", "morning": {...}, "lunch": {...},
+    "afternoon": {...}, "dinner": {...}, "accommodation": {...}}``. Every slot
+    (morning / lunch / afternoon / dinner / accommodation) is a SINGLE object of the
+    form ``{"activity": str, "time": "HH:MM-HH:MM", "placeId": str, "notes": str}``
+    -- never a list, and use only those slot names (no ``"evening"``). ``activity``
+    is the display name; include ``placeId`` (from ``find_places``) when available.
+    """
     logger.info(f"🎒 Creating trip for user: {user_id} with {len(days or [])} days")
 
     trip_id = create_trip(
@@ -2275,4 +2284,4 @@ user:
 
 ---
 
-[← Module 02: Specialized Sub-Agent Tools](./Module-02.md) | [Home](./Home.md) | [Module 04: Making Memory Intelligent →](./Module-04.md)
+[← Module 02: Specialized Sub-Agent Tools](./Module-02.md#module-02---specialized-sub-agent-tools) | [Home](./Home.md#build-a-multi-agent-workshop) | [Module 04: Making Memory Intelligent →](./Module-04.md#module-04---making-memory-intelligent-3-way-rrf-personalisation)

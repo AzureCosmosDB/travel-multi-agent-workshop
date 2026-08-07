@@ -5,7 +5,7 @@ Cosmos (transactional) -> mirror to Fabric -> Power BI / Console update live.
 
 The travel app is one-user-at-a-time, which makes "watch the dashboard move"
 hard to show live. This simulator solves that for a demo: it writes turns (and
-occasional confirmed trips) at a controllable rate with a realistic tier mix, so
+occasional confirmed trips) at a controllable rate with a realistic complexity-tier mix, so
 the dashboards visibly change as it runs.
 
 Two modes:
@@ -26,8 +26,8 @@ The policy is re-checked every ~10s, so applying/reverting it mid-run visibly
 changes the stream. Override with --assume {auto,baseline,tiered}.
 
 Usage (repo root, Cosmos access via DefaultAzureCredential):
-  python analytics/traffic_simulator.py --tenant DemoLive --rate 60 --minutes 10
-  python analytics/traffic_simulator.py --tenant DemoLive --forever --rate 120
+  python analytics/traffic_simulator.py --tenant analytics --rate 60 --minutes 10
+  python analytics/traffic_simulator.py --tenant analytics --forever --rate 120
 """
 from __future__ import annotations
 
@@ -58,16 +58,16 @@ if not os.environ.get("COSMOSDB_ENDPOINT"):
             if os.environ.get("COSMOSDB_ENDPOINT"):
                 break
 
-# Realistic tier mix + per-tier token/model profile. Kept consistent with the canonical
+# Realistic complexity-tier mix + per-complexity-tier token/model profile. Kept consistent with the canonical
 # trivial definition used everywhere (handoff_count == 0 AND output_tokens < 60): only the
-# trivial tier has 0 handoffs and <60 output tokens. Trivial share ~10% matches the real
+# trivial complexity tier has 0 handoffs and <60 output tokens. Trivial share ~10% matches the real
 # opportunity measured on the seeded conversations (not an inflated demo number).
-TIERS = [
-    {"tier": "trivial", "weight": 0.10, "deployment": "gpt-5-nano",
+COMPLEXITY_PROFILES = [
+    {"complexity_tier": "trivial", "weight": 0.10, "deployment": "gpt-5-nano",
      "model": "gpt-5-nano-2025-08-07", "in": (2800, 3600), "out": (20, 55), "handoffs": 0},
-    {"tier": "routine", "weight": 0.55, "deployment": "gpt-5-mini",
+    {"complexity_tier": "routine", "weight": 0.55, "deployment": "gpt-5-mini",
      "model": "gpt-5-mini-2025-08-07", "in": (6000, 16000), "out": (200, 450), "handoffs": 1},
-    {"tier": "complex", "weight": 0.35, "deployment": "gpt-5.1",
+    {"complexity_tier": "complex", "weight": 0.35, "deployment": "gpt-5.1",
      "model": "gpt-5.1-2025-11-13", "in": (28000, 33000), "out": (1400, 1900), "handoffs": 2},
 ]
 CITIES = ["Amsterdam", "Paris", "Tokyo", "Rome", "Barcelona", "London", "New York"]
@@ -78,14 +78,14 @@ DEFAULT_MODEL = "gpt-5.1-2025-11-13"
 MODEL_SELECTION_SCENARIO = "model-selection"
 
 
-def _pick_tier() -> dict:
+def _pick_complexity_profile() -> dict:
     r = random.random()
     cum = 0.0
-    for t in TIERS:
-        cum += t["weight"]
+    for profile in COMPLEXITY_PROFILES:
+        cum += profile["weight"]
         if r <= cum:
-            return t
-    return TIERS[-1]
+            return profile
+    return COMPLEXITY_PROFILES[-1]
 
 
 def _model_selection_active(policies) -> bool:
@@ -104,28 +104,28 @@ def _model_selection_active(policies) -> bool:
     return doc.get("status") == "active" and bool((doc.get("params") or {}).get("enabled", False))
 
 
-def _turn_doc(tenant: str, user: str, session: str, tier: dict, applied: bool) -> dict:
-    """One OptimizationTurn. The workload (tokens/handoffs) comes from ``tier``;
+def _turn_doc(tenant: str, user: str, session: str, profile: dict, applied: bool) -> dict:
+    """One OptimizationTurn. The workload (tokens/handoffs) comes from ``profile``;
     ``applied`` decides which model served it — tiered (True) vs the single
-    premium baseline (False). Only the model/tier fields differ between the two,
+    premium baseline (False). Only the model/complexity-tier fields differ between the two,
     so the cost delta between a baseline run and an applied run is exactly the
     optimization saving."""
-    it = random.randint(*tier["in"])
-    ot = random.randint(*tier["out"])
+    it = random.randint(*profile["in"])
+    ot = random.randint(*profile["out"])
     now = datetime.now(timezone.utc)
     if applied:
-        model_tier, deployment, model = tier["tier"], tier["deployment"], tier["model"]
+        complexity_tier, deployment, model = profile["complexity_tier"], profile["deployment"], profile["model"]
     else:
-        model_tier, deployment, model = "default", DEFAULT_DEPLOYMENT, DEFAULT_MODEL
+        complexity_tier, deployment, model = "default", DEFAULT_DEPLOYMENT, DEFAULT_MODEL
     return {
         "id": str(uuid.uuid4()),
         "type": "optimization_turn",
         "tenantId": tenant, "userId": user, "sessionId": session,
-        "model_tier": model_tier, "model_deployment": deployment,
+        "complexity_tier": complexity_tier, "model_deployment": deployment,
         "model_name": model,
         "input_tokens": it, "output_tokens": ot, "total_tokens": it + ot,
         "cached_tokens": int(it * random.uniform(0.6, 0.9)),
-        "handoff_count": tier["handoffs"],
+        "handoff_count": profile["handoffs"],
         "timeStamp": now.isoformat(),
         "turn_epoch": int(now.timestamp()),
     }
@@ -190,11 +190,11 @@ def run_direct(args) -> None:
             # occasionally rotate a user's session (new conversation)
             if random.random() < 0.05:
                 sessions[user] = f"sess-{uuid.uuid4().hex[:8]}"
-            tier = _pick_tier()
-            turns.upsert_item(_turn_doc(args.tenant, user, sessions[user], tier, applied))
+            profile = _pick_complexity_profile()
+            turns.upsert_item(_turn_doc(args.tenant, user, sessions[user], profile, applied))
             n_turns += 1
             # a complex turn sometimes results in a confirmed trip (an outcome)
-            if tier["tier"] == "complex" and random.random() < 0.35:
+            if profile["complexity_tier"] == "complex" and random.random() < 0.35:
                 trips.upsert_item(_trip_doc(args.tenant, user))
                 n_trips += 1
             if n_turns % 20 == 0:
@@ -237,7 +237,7 @@ def run_app(args) -> None:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="Continuous optimization-turn traffic simulator.")
-    ap.add_argument("--tenant", default="DemoLive")
+    ap.add_argument("--tenant", default="analytics")
     ap.add_argument("--mode", choices=["direct", "app"], default="direct")
     ap.add_argument("--rate", type=int, default=60, help="turns per minute")
     ap.add_argument("--minutes", type=float, default=10)

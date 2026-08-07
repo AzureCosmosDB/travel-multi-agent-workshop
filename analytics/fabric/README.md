@@ -155,13 +155,13 @@ The mirror is **continuous / near-real-time**, so this shows the "analytics on a
 Cosmos workload" story live:
 
 1. Point a Power BI report at the **mirror SQL endpoint** (Direct Lake or DirectQuery):
-   - SQL endpoint: `TravelAssistantV2Analytics` (id `421ed091-5396-40b6-bc2b-df2f8291198c`)
-   - connection string: `…-….msit-datawarehouse.fabric.microsoft.com`, database `TravelAssistantV2Analytics`.
+   - mirrored database: `TravelAssistantAnalytics` — provisioning names it `{CosmosDbName}Analytics` (Cosmos DB `TravelAssistant` → `TravelAssistantAnalytics`); the **schema** inside is your Cosmos DB name (`TravelAssistant`).
+   - connection string: copy the **current** one from the mirror's **SQL analytics endpoint** dropdown in the Fabric portal (`<id>.msit-datawarehouse.fabric.microsoft.com`) — it's regenerated per deployment, so don't hard-code an old one.
    - **Direct Lake** is ideal — it reads OneLake directly, so visuals update as the mirror updates,
      with no dataset refresh.
 2. Start the traffic simulator:
    ```powershell
-   python analytics/traffic_simulator.py --tenant DemoLive --rate 120 --forever
+   python analytics/traffic_simulator.py --tenant analytics --rate 120 --forever
    ```
 3. Watch: simulator → Cosmos (transactional) → mirror (~seconds) → Power BI visuals move. **Verified:**
    83 simulated turns appeared in the mirror within ~60s.

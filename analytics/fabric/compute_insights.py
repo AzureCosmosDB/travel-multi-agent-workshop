@@ -16,11 +16,11 @@ the report reads them with trivial DAX:
   {type:"conversion_kpi",    tenantId, engaged, confirmed, conversion_rate,
                              wasted_pct, tokens_per_outcome, biggest_leak}
   {type:"agent_path_cost",   tenantId, agent_path, turns, total_tokens, avg_tokens}
+  {type:"agent_scorecard",   tenantId, agent, dimension, dim_status, agent_status, cost, cost_share, ...}
   {type:"memory_retention",  tenantId, total_memories, superseded_memories, superseded_pct}
 
 Usage (repo root; Cosmos via DefaultAzureCredential):
-  python analytics/fabric/compute_insights.py --tenant funnel_demo
-  python analytics/fabric/compute_insights.py --tenant analytics_demo
+  python analytics/fabric/compute_insights.py --tenant analytics
 """
 from __future__ import annotations
 
@@ -62,7 +62,7 @@ INSIGHTS_CONTAINER = "OptimizationInsights"
 
 # --- Reserved partition keys (NOT tenants) -------------------------------------------
 # OptimizationInsights is partitioned by /tenantId. A real *tenant* is a customer/workspace
-# with its own users (e.g. marvel -> tony/steve/bruce/peter; funnel_demo). Some rows are
+# with its own users (e.g. marvel -> tony/steve/bruce/peter; analytics). Some rows are
 # GLOBAL / cross-tenant with no single customer -- memory intelligence (memories are keyed
 # by user, not tenant) and the scenario-keyed optimization results (measured across all
 # tenants). They still need a partition value, so they use reserved keys prefixed `_global_`.
@@ -73,6 +73,23 @@ _STAGE_ORDER = {"engaged": 1, "searched": 2, "planned": 3, "confirmed": 4}
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _scorecard_nodes_from_dicts(recs: list[dict]):
+    """Convert flat NodeExecutions records (node_executions.query_node_executions) into
+    engine NodeExec objects for build_scorecard."""
+    from src.app.engine.core.schema import NodeExec
+    out = []
+    for r in recs:
+        out.append(NodeExec(
+            tenant_id=r.get("tenant_id", ""), user_id=r.get("user_id", ""),
+            session_id=r.get("session_id", ""), turn_id=r.get("turn_id", ""),
+            seq=r.get("seq", 0), agent=r.get("agent", ""),
+            model_deployment=r.get("model_deployment", r.get("model_name", "Unknown")),
+            input_tokens=r.get("input_tokens", 0), output_tokens=r.get("output_tokens", 0),
+            cached_tokens=r.get("cached_tokens", 0), model_name=r.get("model_name", "Unknown"),
+        ))
+    return out
 
 
 def build_insight_rows(tenant_id: str) -> list[dict]:
@@ -127,8 +144,44 @@ def build_insight_rows(tenant_id: str) -> list[dict]:
         "type": "memory_retention", "tenantId": tenant_id,
         "total_memories": mem["total_memories"],
         "superseded_memories": mem["superseded_memories"],
-        "superseded_pct": mem["superseded_pct"], "computed_at": now,
+        "superseded_pct": mem["superseded_pct"],
+        "avoided_recall_tokens": mem.get("avoided_recall_tokens", 0),
+        "measured_saving_usd": mem.get("measured_saving_usd", 0.0),
+        "computed_at": now,
     })
+
+    # Per-agent x dimension health from node-grain (the agent scorecard the Console shows),
+    # flattened one row per (agent, scored dimension) for the Power BI Agent Performance page.
+    # Turn totals are measured; the per-agent token/cost SPLIT is the app's live capture
+    # (travel_agents_api.py -> NodeExecutions) or, on seeded demo data, a reconstruction
+    # (seed_data.py) that reconciles to each turn -- so per-agent COST is exact on live traffic
+    # and modeled on seed. The 5 unscored dimensions (see engine PENDING_DIMENSIONS) are omitted
+    # here rather than emitted as fabricated n/a rows; the report footnote lists them.
+    try:
+        from src.app.engine.scorecard import build_scorecard
+        from src.app.services import node_executions as ne
+        # Use the existing Configuration pricing (per 1M) -> engine per-1K format, so the scorecard
+        # cost matches the notebook and the console (all three pass the same pricing).
+        _sc_pricing = {m: {"in": p.get("input", 0.0) / 1000.0, "out": p.get("output", 0.0) / 1000.0}
+                       for m, p in rec.load_pricing().items()}
+        nodes = _scorecard_nodes_from_dicts(ne.query_node_executions(tenant_id))
+        for card in build_scorecard(nodes, pricing=_sc_pricing):
+            agent_fields = {
+                "agent": card.agent, "agent_status": card.status,
+                "cost": round(card.cost, 6), "cost_share": round(card.cost_share, 4),
+                "executions": card.executions, "turns": card.turns,
+                "total_tokens": card.total_tokens,
+                "tokens_per_turn": round(card.total_tokens / max(card.turns, 1), 1),
+            }
+            for dim, sc in card.dimensions.items():
+                rows.append({
+                    "id": f"scorecard::{tenant_id}::{card.agent}::{dim}",
+                    "type": "agent_scorecard", "tenantId": tenant_id, **agent_fields,
+                    "dimension": dim, "dim_status": sc.status, "headline": sc.headline,
+                    "value": sc.value, "unit": sc.unit, "computed_at": now,
+                })
+    except Exception as exc:  # noqa: BLE001
+        logging.getLogger("compute_insights").debug("agent_scorecard rows skipped: %s", exc)
     return rows
 
 
@@ -151,7 +204,22 @@ def build_recommendation_rows(tenant_id: str) -> list[dict]:
             "id": f"reccard::{tenant_id}::{card.get('scenario')}",
             "type": "recommendation_card", "tenantId": tenant_id,
             "scenario": card.get("scenario"), "scenario_id": card.get("scenario_id"),
-            "order": order, "card": card, "computed_at": now,
+            "order": order,
+            # Flat display fields so BI can render the card without reaching into
+            # the nested `card` object — nested fields don't surface cleanly over
+            # the Fabric mirror / DirectQuery. Consumed by the HTML-card measure
+            # in PowerBI_Optimization_Build_Guide.md (Page 3).
+            "title": card.get("title"),
+            "dimension": card.get("dimension"),
+            "apply_mode": card.get("apply_mode") or "policy",
+            "maturity": card.get("maturity"),
+            "estimated_saving_usd": card.get("estimated_saving_usd") or 0,
+            # Flattened evidence summary + caveat so the BI cards can show the same
+            # headline numbers / yellow limitation line the Console does (the nested
+            # `evidence`/`estimate_caveat` don't surface over the mirror).
+            "evidence_line": rec.summarize_card_evidence(card),
+            "caveat": rec.card_caveat(card),
+            "card": card, "computed_at": now,
         })
     rows.append({
         "id": f"metrics::{tenant_id}",
@@ -161,17 +229,18 @@ def build_recommendation_rows(tenant_id: str) -> list[dict]:
     return rows
 
 
-# The applyable optimizations the report can switch between. model-selection is
-# measured (counterfactual); the behavior-changing ones are "pending" until a
-# before/after measurement is wired up. Scenario-keyed, stored under one reserved
-# `_global_optimizations` partition key (NOT a tenant -- see the note by MEMORY_PARTITION)
-# so the report slices on `scenario`, never on tenant.
+# The optimizations the report can switch between. model-selection is measured
+# (counterfactual) and memory-retention is measured (telemetry); tool-call-dedup is a
+# GOVERNED-path fix (a human-reviewed prompt/code PR, not an in-app policy) so it carries
+# no measured before/after here — its turn-grain *estimate* lives on the Discovered
+# Opportunities page (the notebook analyst's recommendation_card). Scenario-keyed, stored
+# under one reserved `_global_optimizations` partition key (NOT a tenant -- see the note by
+# MEMORY_PARTITION) so the report slices on `scenario`, never on tenant.
 MEASUREMENT_PARTITION = "_global_optimizations"
 OPTIMIZATION_SCENARIOS = [
     ("model-selection", "Capability-tiered model selection", "counterfactual"),
-    ("memory-retention", "Memory retention (prune superseded)", "pending"),
-    ("active-trip-city-context", "Active-trip city context", "pending"),
-    ("tool-call-dedup", "Redundant tool-call dedup", "pending"),
+    ("memory-retention", "Memory retention (prune superseded)", "telemetry"),
+    ("tool-call-dedup", "Redundant tool-call dedup", "governed"),
 ]
 
 
@@ -213,9 +282,11 @@ def build_optimization_result_rows(db) -> list[dict]:
     ``_global_optimizations`` partition, so a Power BI slicer on ``scenario`` switches between
     optimizations. model-selection carries a real **counterfactual** measurement (price
     each captured turn under the model it actually ran on vs. the all-premium baseline,
-    across all tenants); the behavior-changing scenarios are ``pending`` until a
-    before/after measurement is wired up. Keyed by scenario + measured analytically —
-    the tenant is never the axis for "which optimization am I looking at".
+    across all tenants); memory-retention carries a real **telemetry** measurement (input
+    tokens recalls avoided by dropping pruned memories); tool-call-dedup is a **governed**-path
+    row (a prompt/code PR, not an in-app policy) so it has no measured before/after here — its
+    turn-grain estimate lives on the Discovered Opportunities page. Keyed by scenario + measured
+    analytically — the tenant is never the axis for "which optimization am I looking at".
     """
     now = _now()
     n, baseline_cost, actual_cost = _model_selection_counterfactual(db)
@@ -236,11 +307,28 @@ def build_optimization_result_rows(db) -> list[dict]:
                 "saving_usd": round(saving, 4),
                 "saving_pct": round(100 * saving / baseline_cost, 1) if baseline_cost else 0.0,
             })
+        elif scenario == "memory-retention":
+            # Measured from recall telemetry: the input tokens recalls avoided by dropping
+            # pruned (superseded) memories from their top-k, priced at the default input rate.
+            # Not a before/after re-price — reads $0 until the policy is applied and recalls run.
+            from src.app.services import optimization_recommendations as rec
+            ms = rec._memory_recall_savings()
+            row.update({
+                "turns": ms["recalls"],
+                "baseline_cost_usd": 0.0, "actual_cost_usd": 0.0,
+                "saving_usd": ms["saving_usd"], "saving_pct": 0.0,
+                "avoided_recall_tokens": ms["avoided_tokens"],
+                "note": ("Measured from recall telemetry — input tokens avoided by dropping "
+                         "pruned memories from a recall's top-k. Reads $0 until the memory-"
+                         "retention policy is applied and recalls run."),
+            })
         else:
             row.update({
                 "turns": 0, "baseline_cost_usd": 0.0, "actual_cost_usd": 0.0,
                 "saving_usd": 0.0, "saving_pct": 0.0,
-                "note": "Measured before/after pending — apply the policy, then measure over the experiment window.",
+                "note": ("Governed-path fix (human-reviewed prompt/code PR) - no in-app policy "
+                         "to apply, so no measured before/after here; see the turn-grain estimate "
+                         "on the Discovered Opportunities page."),
             })
         rows.append(row)
     return rows
@@ -254,7 +342,7 @@ def build_memory_intelligence_rows(db) -> list[dict]:
     now = _now()
     try:
         items = list(db.get_container_client("memories").query_items(
-            "SELECT c.salience, c.type, c.superseded FROM c", enable_cross_partition_query=True))
+            "SELECT c.salience, c.type, c.superseded_by FROM c", enable_cross_partition_query=True))
     except Exception:
         return []
     total = len(items)
@@ -286,7 +374,7 @@ def build_memory_intelligence_rows(db) -> list[dict]:
         return high_l if s >= hi else med_l if s >= med else low_l
 
     def _health(m: dict) -> str:
-        if m.get("superseded"):
+        if m.get("superseded_by"):
             return "Superseded"
         s = m.get("salience")
         if s is None:
@@ -295,14 +383,14 @@ def build_memory_intelligence_rows(db) -> list[dict]:
 
     scored = [m for m in items if m.get("salience") is not None]
     n_scored = len(scored)
-    superseded = sum(1 for m in items if m.get("superseded"))
+    superseded = sum(1 for m in items if m.get("superseded_by"))
     low = sum(1 for m in scored if m["salience"] < med)
     avg_sal = round(sum(m["salience"] for m in scored) / n_scored, 3) if n_scored else 0.0
 
     rows = [{
         "id": f"memkpi::{MEMORY_PARTITION}", "type": "memory_kpi", "tenantId": MEMORY_PARTITION,
         "total_memories": total, "scored_memories": n_scored, "avg_salience": avg_sal,
-        "supersession_rate": round(100 * superseded / max(n_scored, 1), 1),
+        "supersession_rate": round(100 * superseded / max(total, 1), 1),
         "low_salience_rate": round(100 * low / max(n_scored, 1), 1), "computed_at": now,
     }]
 

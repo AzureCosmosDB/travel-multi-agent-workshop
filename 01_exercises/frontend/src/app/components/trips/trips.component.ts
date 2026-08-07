@@ -85,6 +85,21 @@ export class TripsComponent implements OnInit {
     this.selectedTrip = null;
   }
 
+  confirmTrip(trip: Trip): void {
+    this.travelApi.updateTrip(trip.tripId, { status: 'confirmed' }).subscribe({
+      next: (updated) => {
+        trip.status = updated?.status ?? 'confirmed';
+        if (this.selectedTrip?.tripId === trip.tripId) {
+          this.selectedTrip = { ...this.selectedTrip, status: trip.status };
+        }
+      },
+      error: (error) => {
+        console.error('Error confirming trip:', error);
+        alert('Failed to confirm trip');
+      }
+    });
+  }
+
   deleteTrip(trip: Trip): void {
     if (confirm(`Delete trip to ${trip.destination}?`)) {
       this.travelApi.deleteTrip(trip.tripId).subscribe({

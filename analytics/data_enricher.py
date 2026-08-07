@@ -31,7 +31,7 @@ logging.basicConfig(
 log = logging.getLogger("enricher")
 
 DEFAULT_BASE_URL = "http://localhost:8000"
-DEFAULT_TENANT = "analytics_demo"
+DEFAULT_TENANT = "analytics"
 DEFAULT_DELAY = 3
 
 

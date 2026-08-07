@@ -11,3 +11,7 @@ analytics/fabric/.provision-fabric.local.json
 # Python bytecode caches
 __pycache__/
 *.pyc
+
+# OS junk
+.DS_Store
+Thumbs.db

@@ -39,7 +39,7 @@ def _prompt_recipe(seam: Seam, params: dict, **_) -> dict:
         "seam": seam.id, "kind": seam.kind, "target": seam.target,
         "apply_mode": seam.apply_mode, "autonomy_ceiling": seam.ceiling,
         "edit": f"Edit prompts/{seam.target}: {guidance}",
-        "requires": "human attestation (staged change; regenerate a sample + re-measure)",
+        "requires": "human attestation (you edit & deploy the prompt file, then re-measure)",
     }
 
 

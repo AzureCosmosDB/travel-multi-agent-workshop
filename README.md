@@ -27,6 +27,19 @@ Memory is provided by the [`azure-cosmos-agent-memory`](https://pypi.org/project
 - Practice observability and experimentation techniques
 - Deploy and manage AI applications on Azure
 
+## Optional: Agent Analytics & Optimization
+
+Modules **07–09** are an **optional track** that turns the assistant into a self-observing system:
+you instrument every turn, then **detect → recommend → apply → verify** cost and quality
+optimizations. You read and act on the results in a single-page **web Analytics Portal**
+(`analytics/dashboard/`) — live KPIs, per-agent scorecards, a conversion funnel, and one-click
+**Apply / Revert** of reversible policies — backed by **Microsoft Fabric** reverse-ETL (Module 09)
+and an optional Power BI report.
+
+Not planning to do the analytics track? You can **skip it**: build the assistant in Modules 00–06,
+then jump straight to **Module 10** to wrap up (Module 06 has an exit ramp for exactly this). You
+can always return to 07–09 later.
+
 ## Getting Started
 
 This repository contains two main directories:

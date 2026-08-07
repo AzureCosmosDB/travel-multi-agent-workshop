@@ -26,7 +26,7 @@ from typing import Any
 AVAILABLE_DEPLOYMENTS = {"gpt-5.1", "gpt-5-mini", "gpt-5-nano"}
 
 # The app's hardcoded current behavior (what fail-closed falls back to).
-SAFE_DEFAULT = {"enabled": False, "trivial_max_words": 6, "default_deployment": "gpt-5.1", "tiers": {}}
+SAFE_DEFAULT = {"enabled": False, "trivial_max_words": 6, "default_deployment": "gpt-5.1", "complexity_tiers": {}}
 
 SCHEMA_VERSION = 1
 
@@ -40,7 +40,7 @@ class ValidationResult:
 
 def validate_and_clamp(params: dict[str, Any]) -> ValidationResult:
     """Validate model-selection params against the (bounded, runtime-bound) schema."""
-    allowed = {"enabled", "trivial_max_words", "default_deployment", "tiers"}
+    allowed = {"enabled", "trivial_max_words", "default_deployment", "complexity_tiers"}
     notes: list[str] = []
     cleaned: dict[str, Any] = {}
 
@@ -72,18 +72,18 @@ def validate_and_clamp(params: dict[str, Any]) -> ValidationResult:
         return ValidationResult(False, notes=[f"reject: default_deployment '{dd}' not a real deployment"])
     cleaned["default_deployment"] = dd
 
-    # tiers : map<tier -> deployment in runtime domain> -> hard reject unknown model
-    tiers = params.get("tiers", SAFE_DEFAULT["tiers"])
-    if not isinstance(tiers, dict):
-        return ValidationResult(False, notes=["reject: 'tiers' must be a map"])
-    for tier, model in tiers.items():
+    # complexity_tiers : map<complexity_tier -> deployment in runtime domain> -> hard reject unknown model
+    complexity_tiers = params.get("complexity_tiers", SAFE_DEFAULT["complexity_tiers"])
+    if not isinstance(complexity_tiers, dict):
+        return ValidationResult(False, notes=["reject: 'complexity_tiers' must be a map"])
+    for complexity_tier, model in complexity_tiers.items():
         if model not in AVAILABLE_DEPLOYMENTS:
-            return ValidationResult(False, notes=[f"reject: tier '{tier}' -> '{model}' is not a real deployment"])
-    cleaned["tiers"] = dict(tiers)
+            return ValidationResult(False, notes=[f"reject: complexity_tier '{complexity_tier}' -> '{model}' is not a real deployment"])
+    cleaned["complexity_tiers"] = dict(complexity_tiers)
 
-    # cross-field invariant: default_deployment must appear among the tiers (if tiers set)
-    if tiers and dd not in tiers.values():
-        return ValidationResult(False, notes=[f"reject: invariant — default_deployment '{dd}' not in tiers {list(tiers.values())}"])
+    # cross-field invariant: default_deployment must appear among the complexity_tiers (if set)
+    if complexity_tiers and dd not in complexity_tiers.values():
+        return ValidationResult(False, notes=[f"reject: invariant — default_deployment '{dd}' not in complexity_tiers {list(complexity_tiers.values())}"])
 
     return ValidationResult(True, cleaned, notes)
 
@@ -103,7 +103,7 @@ def bind_policy(active_policy: dict[str, Any] | None) -> tuple[dict[str, Any], s
 def discovery_manifest() -> dict[str, Any]:
     """What the app advertises to the engine (the action space)."""
     return {"model-selection": {"schema_version": SCHEMA_VERSION,
-                                "knobs": ["enabled", "trivial_max_words", "default_deployment", "tiers"],
+                                "knobs": ["enabled", "trivial_max_words", "default_deployment", "complexity_tiers"],
                                 "value_domain": {"deployments": sorted(AVAILABLE_DEPLOYMENTS)}}}
 
 
@@ -115,7 +115,7 @@ def run() -> bool:
 
     # 1. valid params -> accepted, typed read returns them
     good = {"schema_version": 1, "params": {"enabled": True, "trivial_max_words": 6,
-            "default_deployment": "gpt-5-mini", "tiers": {"trivial": "gpt-5-nano", "routine": "gpt-5-mini"}}}
+            "default_deployment": "gpt-5-mini", "complexity_tiers": {"trivial": "gpt-5-nano", "routine": "gpt-5-mini"}}}
     p, src = bind_policy(good)
     check("valid policy accepted", "ok" in src and p["default_deployment"] == "gpt-5-mini", f"src={src}")
 
@@ -138,7 +138,7 @@ def run() -> bool:
     check("unknown schema_version -> fail-closed", p == SAFE_DEFAULT and "schema_version" in src, src)
 
     # 6. cross-field invariant violation -> fail-closed
-    inv = {"schema_version": 1, "params": {"default_deployment": "gpt-5.1", "tiers": {"trivial": "gpt-5-nano"}}}
+    inv = {"schema_version": 1, "params": {"default_deployment": "gpt-5.1", "complexity_tiers": {"trivial": "gpt-5-nano"}}}
     p, src = bind_policy(inv)
     check("cross-field invariant enforced", p == SAFE_DEFAULT and "invariant" in src, src)
 

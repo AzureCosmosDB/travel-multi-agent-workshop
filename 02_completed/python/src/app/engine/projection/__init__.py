@@ -10,3 +10,4 @@ from .base import PROJECTIONS, ProjectionResult, project  # noqa: F401
 from .whatif import scale_to_monthly, cost_per_outcome, project_business_impact  # noqa: F401
 
 from . import model_selection  # noqa: F401,E402  (registers the projection)
+from . import tool_dedup  # noqa: F401,E402  (registers the projection)

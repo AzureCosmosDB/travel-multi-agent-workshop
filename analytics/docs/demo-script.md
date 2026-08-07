@@ -9,9 +9,112 @@ The loop this demonstrates is the one the workshop teaches:
 
 ---
 
+## The Analytics Portal — the demo surface (tab-by-tab)
+
+The whole demo now runs in the **web analytics portal** — a single dark-themed page that reads
+the Travel API's `/optimizations/*` endpoints live. Serve it and open it:
+
+```powershell
+python -m http.server 8060 --directory analytics\dashboard
+# then open http://localhost:8060
+```
+
+There is **no API box** — the portal auto-detects the API (`http://localhost:8000` locally, or
+the same-origin `/api` proxy when hosted at `/analytics/`). Two header controls drive everything:
+
+- **Dataset** — which tenant to read (`analytics` is the pre-seeded at-scale story; `before_demo`
+  / `after_demo` are the A/B pair; `marvel` is where the live app records your turns).
+- **Source** — **Live (recompute)** reads the raw captured turns straight from Cosmos (use this in
+  Modules 07–08 and for the live moments); **Reverse-ETL (notebook)** reads the `OptimizationInsights`
+  snapshot the Module 09 analytics notebook writes (use it after you run the notebook).
+
+> *Power BI is still shipped as an optional report over the same Fabric mirror, but the portal is
+> the recommended demo surface — it's live, needs no Desktop, and every tab below is one click.*
+
+Seven tabs, front to back:
+
+### 1. Overview — the portfolio picture
+![Overview tab](../media/portal/portal-01-overview.png)
+
+**What it shows:** top-line **Portfolio KPIs** (turns captured, estimated cost, trivial-turn share,
+models used, cache hit, confirmed trips, cost per outcome), an **Optimization band** (open
+optimizations, estimated vs measured saving, active policies), and a **Turn breakdown** (turns-by-model
+donut + a turns-per-minute timeline).
+**How to read it:** this is the "before" at a glance — a week of production traffic where one premium
+model served everything and a big slice of turns are trivial. **Trivial-turn share** and the
+one-color donut are the waste hook; **cost per outcome** is the business-grade denominator.
+**Use it to** open the demo and to sanity-check that a change moved the top line.
+
+### 2. Optimizations — the action hub
+![Optimizations tab](../media/portal/portal-02-optimizations.png)
+
+**What it shows:** the analyst-ranked **Discovered optimizations** table (agent · dimension · fix
+seam→target · projected saving · effect · **Apply mode** · autonomy · clears-SLO · **State**), then a
+**scenario recommendation card** per optimization.
+**How to read it:** **Apply mode** tells you *who acts* — **Automatic** (a config policy the app flips)
+vs **Manual** (a prompt/code edit you deploy). **State** is the live lifecycle. Config cards carry
+**Apply / Revert**; the Manual "redundant tool calls" card carries **Review change** (a GitHub-style
+prompt diff) plus **Approve → Deploy → Roll back / Dismiss** governance buttons.
+**Use it to** apply the model-selection policy on stage, and to show the human-in-the-loop review of a
+proposed prompt change.
+
+### 3. Model Selection — quantify and project the tiering saving
+![Model Selection tab](../media/portal/portal-03-model-selection.png)
+
+**What it shows:** the model-distribution donut, a trivial-turn gauge, **cost by complexity tier**,
+**baseline-vs-actual** bars, and a **turns-per-day projection slider** → monthly/annual saving.
+**How to read it:** the "default" tier slice is premium spend on near-zero-work turns. The measured
+cards and bars are *facts*; the slider + line are a *projection* — drag the slider to your daily volume
+and only **Projected Monthly Saving** moves (everything else is static by design).
+**Use it to** turn a per-turn saving into a "what's this worth at our volume" number — say *projection*,
+not *measured*.
+
+### 4. Memory — the prune opportunity
+![Memory tab](../media/portal/portal-04-memory.png)
+
+**What it shows:** memory KPIs (total, scored, average salience, **supersession %**), a memories-by-type
+donut, a **memory-health** donut, and a salience-distribution histogram.
+**How to read it:** preferences change, so memory accumulates **superseded** entries; a high stale share
+means recall wades through (and pays for) memories that no longer apply.
+**Use it to** justify the memory-retention policy — the supersession % is the evidence behind the
+"prune stale memories" card on the Optimizations tab.
+
+### 5. Agents — per-agent × dimension health
+![Agents tab](../media/portal/portal-05-agents.png)
+
+**What it shows:** the **scorecard matrix** (each agent scored OK / Watch / Opportunity on cost
+efficiency, model selection, workflow efficiency), **cost by agent** (USD · share · tokens), a
+dimension-detail table, and an **agent-path cost concentration** table.
+**How to read it:** find the agent/dimension flagged **Opportunity**, then read the agent-path table to
+see which multi-agent paths (usually the itinerary path) dominate token cost.
+**Use it to** target the costliest agent/path — that's where tiering and tool-call fixes pay off most.
+
+### 6. Business — from cost to conversion
+![Business tab](../media/portal/portal-06-business.png)
+
+**What it shows:** **Conversion rate** and **Biggest leak** KPIs, the **conversion funnel**
+(engaged → searched → planned → confirmed), and **why sessions don't convert** (abandonment causes).
+**How to read it:** everything else cuts *cost*; this answers *are we converting?* The funnel shows
+where sessions drop and the abandonment bars name the cause (e.g. **City Friction** — the agent
+re-asking which city instead of using the active trip).
+**Use it to** re-justify a prompt fix by **revenue**, not just tokens — the same fix now points at a
+conversion leak.
+
+### 7. Governance — prove it's safe, measured, reversible
+![Governance tab](../media/portal/portal-07-governance.png)
+
+**What it shows:** applied **policies**, the **SLO gate**, a **measured-saving** table, baseline-vs-actual
+bars, and the **decision audit trail**.
+**How to read it:** every governed action is attributed and timestamped; a policy only counts if it
+**clears the SLO**, and the saving shown is **measured** (before/after), not projected.
+**Use it to** close the demo — "every change here is audited and reversible," which is exactly what makes
+these optimizations safe to automate.
+
+---
+
 ## Why the "before" looks the way it does
 
-In the seed, most turns have `model_tier = "default"` — i.e. one premium model (gpt-5.1)
+In the seed, most turns have `complexity_tier = "default"` — i.e. one premium model (gpt-5.1)
 served *everything*, trivial or complex. That's not a bug to hide; it's the hook: **this is a
 real agent app before anyone optimized it.** The optimization tiers trivial turns down to a
 nano model, routine to a mini model, and keeps the premium model for the hard work.
@@ -29,28 +132,29 @@ You don't need a temporal before/after. You have two better devices:
    ```powershell
    python analytics/ab_demo_seed.py
    ```
-   Writes `before_demo` (240 turns, all on gpt-5.1, `model_tier="default"`) and `after_demo`
+   Writes `before_demo` (240 turns, all on gpt-5.1, `complexity_tier="default"`) and `after_demo`
    (the *identical* 240-turn workload, tiered to nano/mini/gpt-5.1). Only the model routing
    differs, so the cost delta is the pure saving. Deterministic (seed 42) and re-runnable.
 
 2. **Build the conversion-funnel dataset** (the business-impact story):
    ```powershell
    python analytics/funnel_seed.py
-   # populate OptimizationInsights so the Business Impact report page has data:
-   python analytics/fabric/compute_insights.py --tenant funnel_demo
+   # populate OptimizationInsights so the portal's Business tab (Reverse-ETL source) has data:
+   python analytics/fabric/compute_insights.py --tenant analytics
    ```
-   `funnel_seed.py` writes `funnel_demo` (~120 sessions encoding real **abandonment causes**);
+   `funnel_seed.py` writes `analytics` (~120 sessions encoding real **abandonment causes**);
    `compute_insights.py` is the reverse-ETL reference that computes the funnel and writes flat
    rows to `OptimizationInsights` (in the workshop, Module 09's Fabric notebook does this). The
-   Business Impact page then lights up.
+   portal's **Business** tab (on **Source → Reverse-ETL (notebook)**) then lights up.
 
-3. **Report:** it's auto-deployed to your Fabric workspace (`Provision-Fabric.ps1` Phase 3) and
-   already pointed at your mirror — just open it in the workspace. *(Optional: add the translytical
-   Apply/Revert buttons in the Service — Power BI guide Step 5.)*
+3. **Portal:** serve it with `python -m http.server 8060 --directory analytics\dashboard` and open
+   <http://localhost:8060> (when deployed it's baked into the frontend at `/analytics/`). No API URL
+   to configure. *(A Power BI report over the same mirror is auto-deployed by `Provision-Fabric.ps1`
+   Phase 3 and remains available as an optional surface — but the portal is the recommended demo.)*
 
 4. **Confirm the app + policy:** make sure the app is reachable and the **model-selection
-   policy is NOT yet applied** (you'll apply it on stage). Have the API endpoint handy — the
-   web app URL + `/api` (find it via `azd env get-value FRONTEND_URI`, then append `/api`).
+   policy is NOT yet applied** (you'll apply it on stage). Locally the portal talks to the API on
+   `:8000`; when hosted it's proxied at `/api` automatically — nothing to enter.
 
 5. **Dry-run the live turns once** (so you trust them on stage) — see "Live turns" below.
 
@@ -58,47 +162,60 @@ You don't need a temporal before/after. You have two better devices:
 
 ## The talk track (~15–20 min of demo)
 
-**1. Baseline — "the before" (Page 1).**
-*Show:* Total Turns, Est Cost, Trivial %, model usage at ~100% one model.
+**1. Baseline — "the before" (Overview tab).**
+*Show:* Turns captured, Estimated cost, Trivial %, model usage at ~100% one model.
 > "This is a week of production traffic for our travel agent. Every turn — a 'hi', a
 > thank-you, or a full 5-day itinerary — runs on our best, most expensive model. And look:
 > a large share of turns are trivial, yet they cost exactly what the hard ones do."
 
-**2. Quantify the waste (Page 2, Cost by Tier).**
+**2. Quantify the waste (Model Selection tab, Cost by Tier).**
 > "That giant 'default' slice is spend on a premium model for near-zero-work turns. Nobody
 > had to guess this — the app instrumented every turn: tokens, model, handoffs."
 
 **3. The recommendation (the "aha").**
-*Show:* the SCEN-007 card in the Optimization Console — evidence from *their* data + projected saving.
+*Show:* the SCEN-007 **model-selection** card on the portal's **Optimizations** tab — evidence from *their* data + projected saving.
 > "The system didn't just log it; it *detected* the pattern and *recommends* a fix — route
 > trivial turns to a nano model, routine to mini, keep the premium model for the hard stuff.
 > Here's the projected saving."
 
 **4. Apply — the live moment (one click).**
-*Do:* click **Apply** on the model-selection policy in the Console.
+*Do:* click **Apply** on the **model-selection** card (Optimizations tab).
 > "Applying it is a reversible policy flip — not a code change, not a redeploy. That's what
 > makes this safe to automate."
 
 **5a. Prove it — the A/B (bullet-proof).**
-*Do:* flip the **tenant slicer** from `before_demo` to `after_demo`.
+*Do:* flip the **Dataset** dropdown from `before_demo` to `after_demo`.
 > "Same workload, same turns. Before: everything on the premium model. After: tiered. Est cost
 > drops ~28% and trivial turns now show up as their own tier — with zero change to the user
 > experience."
 
 **5b. Prove it's live — a few real turns (optional flourish).**
-*Do:* run the live-turns helper (or type them by hand — see below), then **Refresh** the report
-filtered to `demo_live`.
+*Do:* run the live-turns helper (or type them by hand — see below), then **Refresh** the portal
+with **Dataset → demo_live** and **Source → Live (recompute)**.
 > "And here it is happening for real: watch these new turns land — the greeting routed to nano,
 > the itinerary to the premium model."
 
+**5c. Project it forward (Model Selection tab).**
+*Do:* open the **Model Selection** tab and drag the **Turns per Day** projection slider.
+> "We measured the saving *per turn*. Now — what's that worth at *our* volume? Drag this to your
+> daily turn count and **Projected Monthly Saving** scales with it. The **line** is the whole
+> cost-vs-volume curve; it stays put on purpose — the slider just reads off a point on it."
+
+*How to read this page (so no one thinks it's broken):* the **slider is your assumed daily volume**,
+and the **`Projected Monthly Saving USD` card is the only thing that moves** when you drag it.
+Everything else is **static by design** — the measured cards (`MS Saving USD`, `Saving %`) and the
+baseline-vs-optimized bars are *measured facts*, and the line is the *full* projection curve, not a
+value that reacts to the slider. It projects the **price-only** model-selection saving onto volume —
+**never a conversion gain** (that's the funnel's job, next). Keep saying *projection*, not *measured*.
+
 **6. The business-impact turn — from cost to conversion (the part that lands).**
-*Do:* switch the tenant slicer / Console to `funnel_demo` and open the **Cost per outcome & conversion funnel** (SCEN-003) card.
+*Do:* switch **Dataset → analytics** and open the **Business** tab (Cost per outcome & conversion funnel).
 > "Everything so far cut *cost*. But the real question a business asks is: are we *converting*?
 > This funnel shows it — 120 sessions engaged, 106 searched, 71 got a plan, only 56 booked. And
 > it doesn't leave you hanging on 'why': the biggest addressable leak is **city friction** — 29
 > sessions where the agent kept re-asking which city instead of using the active trip. That's not
 > a model-cost problem; it's a *conversion* problem, and it points straight at the same
-> active-trip-city-context prompt fix — now justified by revenue, not just tokens."
+> prompt fix — now justified by revenue, not just tokens."
 
 This is the uplevel: mechanical cost optimizations are table stakes; the analytics also surface **where the business is losing customers and why**. A dashboard can't auto-fix conversion — but it can name the cause and hand you the lever.
 
@@ -112,7 +229,7 @@ This is the uplevel: mechanical cost optimizations are table stakes; the analyti
 ## Live turns — automated
 
 Fires one turn per tier through the **real** app, then derives them into `OptimizationTurns`
-so they appear in the report (on 02_completed the app writes `Debug` telemetry and
+so they appear in the portal (on 02_completed the app writes `Debug` telemetry and
 `OptimizationTurns` is derived from it — the helper does that derive for just its turns).
 
 ```powershell
@@ -130,7 +247,7 @@ trivial  -> gpt-5-nano   (out=119)
 routine  -> gpt-5-mini   (out=704)
 complex  -> gpt-5.1      (out=4227)
 ```
-Then **Refresh** the report with the tenant slicer on `demo_live`.
+Then **Refresh** the portal with **Dataset → demo_live** and **Source → Live (recompute)**.
 
 > The model-selection policy must be **active** first (step 4), or the turns record as
 > `default`. The helper warns you if that's the case.
@@ -149,7 +266,7 @@ start a new chat, and send these — one per tier, so the routing is obvious:
 | `what are some good hotels in Amsterdam near the centre?` | routine | gpt-5-mini |
 | `plan me a detailed 3-day itinerary for Tokyo with hotels, activities, and places to eat` | complex | gpt-5.1 |
 
-Then, to surface them in the report (02_completed derives `OptimizationTurns` from `Debug`):
+Then, to surface them in the portal (02_completed derives `OptimizationTurns` from `Debug`):
 
 ```powershell
 cd 02_completed/python
@@ -158,7 +275,7 @@ python data/export_conversations.py --no-write   # derive only, don't overwrite 
 
 > `--no-write` still upserts derived turns into `OptimizationTurns`; it just skips rewriting the
 > committed `data/*.json`. (For a live demo the automated helper is cleaner — it derives only the
-> turns it sent.) **Refresh** the report afterward.
+> turns it sent.) **Refresh** the portal afterward.
 
 ---
 
@@ -175,5 +292,5 @@ python data/export_conversations.py --no-write   # derive only, don't overwrite 
 - `before_demo` est cost ≈ **$6.90**, `after_demo` ≈ **$4.95** → **~28% lower**.
 - Split of the tiered side ≈ trivial 9% / routine 57% / complex 34% (matched trips both sides,
   so cost-per-outcome is comparable).
-- These are list-price *estimates* (from the Cosmos `Configuration` pricing rows); the report
+- These are list-price *estimates* (from the Cosmos `Configuration` pricing rows); the portal
   shows them live. Exact figures depend on the seed/size args.

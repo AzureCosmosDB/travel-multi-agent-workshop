@@ -31,14 +31,14 @@ Three defects fall out of this:
    unanswerable in the product. The vision explicitly lists **"Agent performance analysis"** as a
    Level-1 example (vision §Maturity/L1); we never built it.
 
-2. **Scenarios are hand-authored inputs, not discovered outputs.** `SCEN-001…008` were found by
+2. **Scenarios are hand-authored inputs, not discovered outputs.** `SCEN-002…008` were found by
    humans exploring (`optimization-scenarios/README.md` "Discovery methods"). The product then
    *hard-codes* those six as recommendation builders (`build_recommendations()` calls six fixed
    Python functions). A platform that claims to be a general analytics layer must **derive** issues
-   from telemetry — the `active-trip-city-context` case is the tell: a human had to report it.
+   from telemetry — the removed city-friction prompt card was the tell: a human had to report it.
 
 3. **"Complexity" is a keyword heuristic, and it isn't agent-aware.** Model selection pins a model to
-   a turn's tier, but the tier comes from `classify_turn_tier()` (`travel_agents.py:376`): a turn is
+   a turn's tier, but the tier comes from `classify_complexity_tier()` (`travel_agents.py:376`): a turn is
    `trivial` iff it is **≤6 words and matches a greeting regex**; explicit "plan/itinerary" → complex;
    else routine. It classifies the *user string*, decoupled from *which agent ran* or any *measured*
    difficulty (tokens, tool calls, handoffs, confidence). This is why "how do we determine task
@@ -81,7 +81,7 @@ Agent Scorecards · Portfolio · Discovered Opportunities → apply (policy) →
 ### Layer 1 — Instrumentation: capture at the **agent-execution** grain
 
 The current telemetry is **turn-grained** — one `OptimizationTurns` row per turn with `agent_path` as
-a *string* and a single `total_tokens` / `model_tier`. That was shaped for the model-selection story
+a *string* and a single `total_tokens` / `complexity_tier`. That was shaped for the model-selection story
 and **cannot attribute cost/quality to an individual agent** within a multi-agent turn (verified live:
 for `supervisor,find_places,create_or_update_itinerary` there is one token figure, not one per node).
 
@@ -119,7 +119,7 @@ Feed the ranked anomalies + a few representative traces to an LLM analyst that e
 card**: which agent, which dimension, the evidence, a proposed change, the fix seam, and the safe
 maturity ceiling (from the risk model). For prompt-seam issues, a **DSPy/GEPA-style optimizer** can go
 further and *generate* candidate prompt revisions scored against held-out turns. This is how
-`active-trip-city-context` becomes a **discovered** card ("orchestrator re-asks for a city derivable
+`prompt-fix` becomes a **discovered** card ("orchestrator re-asks for a city derivable
 from the active trip — N% of its turns, $X wasted") instead of a hand-written builder.
 
 > **Scenarios flip from inputs to outputs.** The `SCEN-NNN` catalog is demoted to **evaluation
@@ -189,7 +189,7 @@ cites the judge's reasoning. This is a first-class design decision, not just sig
     **measures** against realized complexity + outcome.
   Model-fit is a **per-agent** question: `supervisor` is *bimodal* (many light turns + some heavy) → the
   routing prize; `find_places` / `create_or_update_itinerary` are consistently heavy → premium justified.
-  The current `classify_turn_tier` is a weak a-priori predictor standing in for *both* notions.
+  The current `classify_complexity_tier` is a weak a-priori predictor standing in for *both* notions.
 - **What thresholds are correct?** None a-priori. Layer 2a derives them from baselines + cohorts +
   SLOs and explains deviations; owners tune SLOs, not magic constants.
 - **What analyzes it / makes recommendations?** Layer 2 — statistical detectors feed an LLM-as-analyst
@@ -205,7 +205,7 @@ one-time, human-governed change.
 | Seam | Example | "Apply" = | Maturity ceiling |
 |---|---|---|---|
 | **Config / policy** (a knob the app *already reads*) | tier→model map, thresholds, memory salience/retention | flip a policy doc in Cosmos (Console / translytical **Apply**) | **L4/L5 autonomous** |
-| **Prompt** (`.prompty` text) | add a supervisor rule (SCEN-001) | stage `{file, add}`; human reviews + deploys | **L3 assisted** |
+| **Prompt** (`.prompty` text) | add a supervisor rule (prompt fix) | stage `{file, add}`; human reviews + deploys | **L3 assisted** |
 | **Code / new mechanism** (no knob exists yet) | *introduce* per-turn routing on a single-model app | stage a diff/PR; human builds + merges + deploys | **L3 assisted (human-governed)** |
 
 **Corollary — model-selection is a *code* seam the first time.** On the single-model base app, "route
@@ -302,10 +302,10 @@ traces + fix-seam metadata, and emits ranked, structured **recommendation cards*
    **prompt / code → staged diff for human review (L3)**. The LLM doesn't choose its own autonomy.
 5. **Human approval** for anything above the auto ceiling.
 
-**Rediscovery as a regression suite (how we know it works).** The flipped `SCEN-001…008` catalog is the
+**Rediscovery as a regression suite (how we know it works).** The flipped `SCEN-002…008` catalog is the
 **answer key**: feed the engine the known-issue fixtures and **assert it rediscovers** them from data —
 SCEN-005 (double `find_places`, structural), SCEN-007 (model selection, counterfactual), SCEN-004 (stale
-memory), SCEN-001 (city-context re-ask). A miss = a real gap (missing detector / weak analyst prompt) =
+memory), city-friction prompt regressions. A miss = a real gap (missing detector / weak analyst prompt) =
 a **failing test**, not a vibe. The catalog thus becomes the engine's **test harness** — and "watch the
 engine find a known problem on its own" is a strong teaching moment.
 
@@ -350,7 +350,7 @@ goal is to *build* the Cosmos+Fabric loop), but their metric taxonomies are dire
 
 ## Evidence
 
-- **Complexity is a keyword heuristic:** `travel_agents.py:376` `classify_turn_tier` (≤6 words +
+- **Complexity is a keyword heuristic:** `travel_agents.py:376` `classify_complexity_tier` (≤6 words +
   greeting regex → trivial); tiers→models in `seed_configuration.py:72`
   (`trivial=gpt-5-nano, routine=gpt-5-mini, complex=gpt-5.1`).
 - **Scenarios are hard-coded builders:** `build_recommendations()` calls six fixed functions
@@ -360,10 +360,10 @@ goal is to *build* the Cosmos+Fabric loop), but their metric taxonomies are dire
   `create_or_update_itinerary`. `agent_path` is a *sequence* string on the turn (e.g.
   `supervisor,find_places,create_or_update_itinerary`); **480/1,330 (36%) have no `agent_path`** (the
   synthetic simulator traffic carries no agent structure); and the turn holds a single
-  `total_tokens` / `model_tier`, so **per-agent cost/quality is not derivable** at the turn grain.
+  `total_tokens` / `complexity_tier`, so **per-agent cost/quality is not derivable** at the turn grain.
   This corrects an earlier "no new instrumentation" assumption — P0 requires the node-grain re-capture.
 - **Provenance — the tiered router is analytics-track code, not a base-app feature:**
-  `classify_turn_tier` / `select_deployment_for_turn` were introduced by commit **`b717dba`**
+  `classify_complexity_tier` / `select_deployment_for_turn` were introduced by commit **`b717dba`**
   ("feat(analytics): SCEN-007 apply-loop", 2026-07-09) and are **absent** on `main`,
   `agent_memory_toolkit`, and `agent_memory_toolkit_v2`. The base app is **single-model** (all turns on
   the default). The catalog says so: *"model selection is an opportunity dimension here, not a current
@@ -403,7 +403,7 @@ reverse-ETL + apply-loop + measurement framework.
   anomaly rows; thresholds become derived. Recompute counterfactual model-fit per agent.
 - **P2 — Measured complexity signal** replacing the keyword tier; per-agent model-fit recommendation.
 - **P3 — LLM-as-analyst** producing the discovered-opportunities feed (catalog becomes fixtures);
-  rediscover `SCEN-001` from data as the canonical demo.
+  rediscover generic structural and prompt regressions from data as the canonical demo.
 - **P4 — Prompt optimizer (DSPy/GEPA)** for prompt-seam recommendations (aspirational L3+).
 
 ## Cost & data-generation strategy (attendee path ≈ $0 LLM)

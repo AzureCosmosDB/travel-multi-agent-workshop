@@ -13,9 +13,11 @@ FROM nginx:alpine
 # Copy the built Angular app (output path: dist/cosmos-voyager/browser)
 COPY --from=build /app/dist/cosmos-voyager/browser /usr/share/nginx/html
 
-# Also serve the Optimization Console (static) at /console/ — it calls /api, which nginx
-# proxies to the FastAPI backend, so no separate host is needed when deployed.
-COPY console/index.html /usr/share/nginx/html/console/index.html
+# Serve the web Analytics Portal (static) at /analytics/. Its source of truth lives at
+# repo-root analytics/dashboard/; the azd `prepackage` hook stages it into ./analytics-portal/
+# (inside this build context) before the image is built. It calls /api, which nginx proxies to
+# the backend, so no API URL needs to be injected.
+COPY analytics-portal/index.html /usr/share/nginx/html/analytics/index.html
 
 # Copy nginx config template and entrypoint
 COPY frontend/nginx.conf.template /etc/nginx/nginx.conf.template

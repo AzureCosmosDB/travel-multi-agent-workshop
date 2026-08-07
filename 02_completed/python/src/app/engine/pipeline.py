@@ -26,24 +26,24 @@ OPPORTUNITY_SEAMS: dict[str, tuple[str, str]] = {
     "opp-repeated-node": ("prompt", "supervisor.prompty"),
 }
 
-# Which catalogued optimization scenario each opportunity rediscovers (acceptance, B14).
-# The catalog lives in analytics/docs/optimization-scenarios/. A discovered opportunity
-# that maps to a SCEN id is the engine rediscovering a known case end-to-end from data.
+# Which workshop scenario slug each opportunity rediscovers (acceptance, B14).
+# A discovered opportunity that maps to a scenario slug is the engine rediscovering
+# a known case end-to-end from data.
 OPPORTUNITY_SCENARIOS: dict[str, str] = {
-    "opp-modelfit-supervisor": "SCEN-007",   # model selection on trivial turns
-    "opp-repeated-node": "SCEN-008",         # tool-utilization / redundant hop
+    "opp-modelfit-supervisor": "model-selection",   # model selection on trivial turns
+    "opp-repeated-node": "tool-call-dedup",         # tool-utilization / redundant hop
 }
 
 
 def rediscovered_scenarios(cards: list[dict]) -> list[str]:
-    """SCEN ids the engine rediscovered from data (for acceptance). Prefixed opportunity
+    """Scenario slugs the engine rediscovered from data (for acceptance). Prefixed opportunity
     ids (e.g. cost-regression-<agent>) fall back to their family via a prefix match."""
     out: list[str] = []
     for c in cards:
         oid = c.get("opportunity_id", "")
         scen = OPPORTUNITY_SCENARIOS.get(oid)
         if scen is None and oid.startswith("opp-cost-regression-"):
-            scen = "SCEN-005"                # cost concentration / regression family
+            scen = "agent-path-cost"         # cost concentration / regression family
         if scen and scen not in out:
             out.append(scen)
     return out

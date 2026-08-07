@@ -27,8 +27,7 @@ documented:
 - **ADR-0001** defines the loop seam (generate/recommend = analytical; apply/act = operational) and
   the maturity + risk models.
 
-So the scenarios (`model-selection`, `memory-retention`, `tool-call-dedup`,
-`active-trip-city-context`) are **not** meant to be a general framework — they are **worked examples,
+So the scenarios (`model-selection`, `memory-retention`, `tool-call-dedup`) are **not** meant to be a general framework — they are **worked examples,
 instances of dimensions**, discovered by exploration (data-first mining / behavioral probes / naive
 UI use). The owner's instinct — "these aren't something you can apply as a general framework" — is
 correct *and already the documented intent*. The problem is that **the report and Console don't
@@ -43,7 +42,7 @@ and inherited generic-sounding names that overclaim generality:
 |---|---|---|
 | Page: **Optimization Overview** | trivial-% (×2) + model-usage donut | It's a *model-selection baseline*, not a portfolio overview across the 8 dimensions. |
 | Page: **Optimization Opportunity** | the model-selection pitch (gauge + recommendation) | Reads as "all opportunities"; it's one dimension. |
-| Page: **Cost by Tier** | cost/cache-hit by tier | Fine — but the field `model_tier` is really the **task's** difficulty tier, not a property of the model. |
+| Page: **Cost by Tier** | cost/cache-hit by tier | Fine — but the field `complexity_tier` is really the **task's** difficulty tier, not a property of the model. |
 | Page: **Applied Optimizations** | read-only policy log + one Apply button | Should be the **apply/revert surface** (parity with the Console), not a static table. |
 | Page: **Measured Savings** | scenario-switchable before/after | ✅ Already framework-general (the one page that is). |
 | Console cards | 6 detected recommendations (4 applyable + 2 lenses) | No visible mapping to the 8 dimensions or the SCEN-NNN catalog. |
@@ -91,12 +90,12 @@ structural work is a deliberate follow-up.
 - Report is model-selection-centric: `PowerBI_Optimization_Build_Guide.md` Pages 1–3 are all the
   model-selection story; Page 5 (Measured Savings) is the only scenario-general page.
 - Console cards vs report (live, 2026-07-31, deployed 02): Console returns 6 cards
-  (`model-selection`, `memory-retention`, `active-trip-city-context`, `tool-call-dedup`,
+  (`model-selection`, `memory-retention`, `tool-call-dedup`,
   `cost-per-outcome`, `agent-path-cost`); `OptimizationPolicies` has 2 (`model-selection` active,
-  `active-trip-city-context` staged); `optimization_result` has the 4 applyable scenarios. Confirms
+  `tool-call-dedup` staged); `optimization_result` has the 4 applyable scenarios. Confirms
   the surfaces show different loop stages and that lenses never become policies.
 - Terminology drift: "six pillars" (ADR-0001) vs "eight dimensions" (scenarios README, Module-07).
-- Scenario mix is intentional per the catalog: SCEN-001 (specific, prompt, L3 ceiling) vs
+- Scenario mix is intentional per the catalog: prompt-fix (specific, prompt, L3 ceiling) vs
   SCEN-004/007 (policy, L4/L5) — the catalog deliberately spans both, tagged by dimension.
 
 ## Decision
@@ -116,7 +115,7 @@ wired scenarios as **dimension-tagged worked examples**. Phase the work:
   don't rewrite history) — new content uses "dimensions."
 
 **Phase 2 — the generalized framework in-product (follow-up design + PR):**
-- **`model_tier → task_tier`** (a.k.a. capability tier) — deferred here on purpose: it's a
+- **`complexity_tier → task_tier`** (a.k.a. capability tier) — deferred here on purpose: it's a
   cross-cutting **data** migration (~15 code files across both trees, ~745 records in `debug.json` /
   `optimization_turns.json`, the notebook, the `.pbix` field binding), it re-seeds Cosmos, and it
   breaks the deployed report until re-imported. It belongs with the other data-model work, not the
@@ -138,7 +137,7 @@ wired scenarios as **dimension-tagged worked examples**. Phase the work:
   workshop can teach "framework vs. instances" explicitly.
 - **Negative / costs:** Phase 2 touches capture → reverse-ETL → insight rows → report → Console →
   docs, in **both trees** (`01_exercises` + `02_completed`), plus a report rebuild and re-import.
-  The `model_tier → task_tier` rename is a cross-cutting field rename with migration considerations
+  The `complexity_tier → task_tier` rename is a cross-cutting field rename with migration considerations
   for existing seeded data.
 - **Risks:** scope creep into a re-architecture; the report is DirectQuery over the mirror, so field
   renames require coordinated changes across notebook, seed data, and the `.pbix`.
@@ -147,14 +146,14 @@ wired scenarios as **dimension-tagged worked examples**. Phase the work:
 
 - Canonical taxonomy decision (6 pillars vs 8 dimensions) — owner to choose; then reconcile all docs.
 - Whether Phase 1 renames ship inside PR #73 or a fast-follow.
-- `model_tier → task_tier` blast radius: `record_optimization_turn` / `derive_optimization_turn`,
+- `complexity_tier → task_tier` blast radius: `record_optimization_turn` / `derive_optimization_turn`,
   `compute_insights.py`, the notebook, `optimization_turns.json`, the report field, and docs.
 - Exact shape of the Portfolio page (measures + a `dimension` dimension table) — Phase 2 design.
 
 ## References
 
 - `analytics/docs/vision/agent-analytics-and-optimization-vision.md`
-- `analytics/docs/optimization-scenarios/README.md` (+ `scen-001…008`)
+- `analytics/docs/optimization-scenarios/README.md` (+ scenario catalog)
 - `analytics/docs/adr/adr-0001-optimization-loop-surface-architecture.md`
 - `analytics/docs/adr/adr-0008-optimization-apply-loop-model-selection.md`
 - `analytics/PowerBI_Optimization_Build_Guide.md`

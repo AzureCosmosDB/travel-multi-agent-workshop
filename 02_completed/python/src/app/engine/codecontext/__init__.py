@@ -3,7 +3,7 @@ Code-context provider (ADR-0010 §7/§8, spike B12) — read-only retrieval for 
 
     from src.app.engine import codecontext
     provider = codecontext.InMemoryProvider({"path.py": source_text})
-    ctx = provider.retrieve("introduce-model-selector", hints=["select_deployment_for_turn"])
+    ctx = provider.retrieve("introduce-model-selector", hints=["get_chat_model_for_turn"])
     draft = codecontext.scaffold_diff(ctx, "route trivial turns to a cheaper model")
 
 The provider is READ-ONLY (no write path). `FileBackedProvider` adds a strict allowlist

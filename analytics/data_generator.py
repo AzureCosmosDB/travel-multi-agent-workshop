@@ -43,7 +43,7 @@ log = logging.getLogger("datagen")
 # ============================================================================
 
 DEFAULT_BASE_URL = "http://localhost:8000"
-DEFAULT_TENANT = "analytics_demo"
+DEFAULT_TENANT = "analytics"
 DEFAULT_DELAY = 3  # seconds between messages (give agents time to process)
 DEFAULT_TIMEOUT = 300  # seconds per request (agents can be slow on itinerary creation)
 

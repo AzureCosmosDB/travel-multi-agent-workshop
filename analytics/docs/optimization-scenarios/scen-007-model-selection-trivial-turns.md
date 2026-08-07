@@ -24,25 +24,25 @@ and one-line clarifications cost the same model as a multi-tool itinerary build.
 - With no policy applied, turns use the `gpt-5.1` default — there is **no task-based model selection**
   until the policy is applied.
 - **~23% of turns (90/395)** are **trivial** by the canonical classifier signal:
-  `model_tier = "trivial"` (short greeting/acknowledgement, ≤6 words plus a greeting/ack pattern,
+  `complexity_tier = "trivial"` (short greeting/acknowledgement, ≤6 words plus a greeting/ack pattern,
   and no delegation).
 - Prompt caching is already doing its job (**~74% cache-hit** on input tokens), so the remaining
   lever is **not** more caching — it is **routing trivial turns to `gpt-5-nano`**.
 
 ## Detection (from data we already capture — ADR-0007 Debug)
 
-Signal is entirely in the `Debug` log: `model_tier`, `model_deployment`, `handoff_count`,
+Signal is entirely in the `Debug` log: `complexity_tier`, `model_deployment`, `handoff_count`,
 `output_tokens`, `total_tokens`. The canonical trivial signal is the classifier's
-`model_tier = 'trivial'`; the original baseline used `handoff_count = 0 AND output_tokens < 60`
+`complexity_tier = 'trivial'`; the original baseline used `handoff_count = 0 AND output_tokens < 60`
 as a pre-apply proxy on the old pre-modernization data.
 
 ```sql
 -- share of turns that are trivial yet run on the full model
 SELECT
   COUNT(*)                                                   AS total_turns,
-  SUM(CASE WHEN model_tier = 'trivial'
+  SUM(CASE WHEN complexity_tier = 'trivial'
            THEN 1 ELSE 0 END)                                AS trivial_turns,
-  SUM(CASE WHEN model_tier = 'trivial'
+  SUM(CASE WHEN complexity_tier = 'trivial'
            THEN total_tokens ELSE 0 END)                     AS trivial_tokens
 FROM Debug
 WHERE tenantId = 'analytics_demo';

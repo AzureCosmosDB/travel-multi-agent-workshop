@@ -1033,7 +1033,7 @@ def store_debug_log(
     debug_log_id: Optional[str] = None,
     agent_path: Optional[str] = None,
     handoff_count: Optional[int] = None,
-    model_tier: Optional[str] = None,
+    complexity_tier: Optional[str] = None,
     model_deployment: Optional[str] = None
 ) -> str:
     """
@@ -1090,9 +1090,9 @@ def store_debug_log(
     if handoff_count is not None:
         property_bag.append({"key": "handoff_count", "value": handoff_count, "timeStamp": timestamp})
 
-    # Model-selection analytics (SCEN-007): which tier/deployment served this turn.
-    if model_tier is not None:
-        property_bag.append({"key": "model_tier", "value": model_tier, "timeStamp": timestamp})
+    # Model-selection analytics: which complexity_tier/deployment served this turn.
+    if complexity_tier is not None:
+        property_bag.append({"key": "complexity_tier", "value": complexity_tier, "timeStamp": timestamp})
     if model_deployment is not None:
         property_bag.append({"key": "model_deployment", "value": model_deployment, "timeStamp": timestamp})
     

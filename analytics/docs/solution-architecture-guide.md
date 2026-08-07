@@ -48,7 +48,7 @@ Three processes run the application; a fourth plane is the analytics layer.
 | App | **Travel API** (FastAPI) | `python/src/app/travel_agents_api.py` | Chat endpoint runs the agent; keyed by `tenantId/userId/sessionId`. |
 | App | **Agent runtime** | `python/src/app/travel_agents.py` | The supervisor agent + its sub-agents (§2). |
 | App | **MCP server** (FastMCP) | `mcp_server/mcp_http_server.py` | Tools the agents call: memory, summarization, place discovery, trip CRUD. |
-| App | **Frontend** (Angular) | `frontend/` | Chat UI **and** the optimization **Console** (`/console/`). |
+| App | **Frontend** (Angular) | `frontend/` | Chat UI **and** the web **Analytics Portal** (`/analytics/`). |
 | Analytics | **Fabric mirror + notebooks** | `analytics/` | Mirror Cosmos → OneLake; compute insights; write results back. |
 | Analytics | **Power BI report** | `analytics/…Report.pbix` | The visibility surface (dashboards). |
 
@@ -170,7 +170,7 @@ conflate:
   complexity and outcome.
 
 The reference application ships a simple a-priori predictor — a keyword-based turn classifier
-(`classify_turn_tier`) that labels short greetings as *trivial* and explicit planning asks as *complex*.
+(`classify_complexity_tier`) that labels short greetings as *trivial* and explicit planning asks as *complex*.
 It is intentionally conservative and coarse; the analytics layer's **measured** realized complexity is
 the richer signal and typically reveals more model-selection opportunity than a keyword rule can.
 

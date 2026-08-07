@@ -40,11 +40,11 @@ _SCENARIO_DEFAULT_PROVIDERS: dict[str, Any] = {
 }
 _SCENARIO_META: dict[str, dict[str, str]] = {
     optimization.MODEL_SELECTION_SCENARIO: {
-        "scenario_id": "SCEN-007",
+        "scenario_id": "model-selection",
         "title": "Capability-tiered model selection",
     },
     optimization.MEMORY_RETENTION_SCENARIO: {
-        "scenario_id": "SCEN-004",
+        "scenario_id": "memory-retention",
         "title": "Memory retention (prune stale memories)",
     },
 }
@@ -191,40 +191,35 @@ def propose(scenario: str, body: Optional[ProposeBody] = None) -> dict[str, Any]
 @router.post("/{scenario}/apply")
 def apply(scenario: str, body: Optional[ActionBody] = None) -> dict[str, Any]:
     body = body or ActionBody()
-    # Human-governed (prompt/code) scenarios cannot be runtime-applied — they must be staged.
-    if scenario in (optimization.CITY_CONTEXT_SCENARIO, optimization.TOOL_DEDUP_SCENARIO):
+    # tool-call-dedup is a read-only INSIGHT (detected from telemetry). Proposing a
+    # fix is offline analytical work done by the optimization analytics notebook, not
+    # in-app, so there is nothing to apply here.
+    if scenario == optimization.TOOL_DEDUP_SCENARIO:
         raise HTTPException(
             status_code=400,
-            detail="This is a human-governed prompt change; use POST /optimizations/"
-                   f"{scenario}/stage to produce a reviewable proposal (it is not applied at runtime).",
+            detail="This is a read-only insight, not an applyable optimization; a proposed "
+                   "fix comes from the offline optimization analytics notebook, not from the app.",
         )
     if optimization.get_policy(scenario) is None:
         propose(scenario, ProposeBody(by=body.by))
     saved = optimization.apply_policy(scenario, by=body.by)
     if saved is None:
         raise HTTPException(status_code=404, detail=f"No policy to apply for '{scenario}'")
-    # SCEN-004 applies a side effect: soft-prune superseded memories (reversible).
+    # memory retention applies a side effect: soft-prune superseded memories (reversible).
     if scenario == optimization.MEMORY_RETENTION_SCENARIO:
         saved["pruned_memories"] = optimization.apply_memory_retention()
-    return saved
-
-
-@router.post("/{scenario}/stage")
-def stage(scenario: str, body: Optional[ActionBody] = None) -> dict[str, Any]:
-    """Stage a human-governed (prompt/code) change for review. Does NOT change runtime."""
-    body = body or ActionBody()
-    saved = optimization.stage_prompt_change(scenario, by=body.by)
-    if saved is None:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Scenario '{scenario}' is not a staged-change (human-governed) scenario.",
-        )
     return saved
 
 
 @router.post("/{scenario}/revert")
 def revert(scenario: str, body: Optional[ActionBody] = None) -> dict[str, Any]:
     body = body or ActionBody()
+    # tool-call-dedup is a read-only INSIGHT: nothing was applied, so nothing can be reverted.
+    if scenario == optimization.TOOL_DEDUP_SCENARIO:
+        raise HTTPException(
+            status_code=400,
+            detail="This is a read-only insight, not an applied optimization; there is nothing to revert.",
+        )
     saved = optimization.revert_policy(scenario, by=body.by)
     if saved is None:
         raise HTTPException(status_code=404, detail=f"No policy to revert for '{scenario}'")

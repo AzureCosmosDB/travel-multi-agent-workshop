@@ -1,6 +1,6 @@
 # Module 02 - Specialized Sub-Agent Tools
 
-[← Module 01: Creating Your First Agent](./Module-01.md) | [Home](./Home.md) | [Module 03: Adding Memory →](./Module-03.md)
+[← Module 01: Creating Your First Agent](./Module-01.md#module-01---creating-your-first-agent) | [Home](./Home.md#build-a-multi-agent-workshop) | [Module 03: Adding Memory →](./Module-03.md#module-03---adding-memory-with-the-cosmos-db-agent-memory-toolkit)
 
 ---
 
@@ -592,7 +592,7 @@ def _build_supervisor_tools() -> list[Any]:
 
 ### Step 4: Slim down `setup_agents`
 
-Find the `setup_agents()` function you wrote in Module 01. Replace its body so it orchestrates the helpers and accepts an optional `checkpointer` argument (you'll wire this up in Module 03):
+Search for `def setup_agents` — the function you wrote in Module 01. Replace its body so it orchestrates the helpers and accepts an optional `checkpointer` argument (you'll wire this up in Module 03):
 
 ```python
 async def setup_agents(checkpointer=None) -> None:
@@ -867,7 +867,16 @@ def create_new_trip(
     days: Optional[List[Dict[str, Any]]] = None,
     trip_duration: Optional[int] = None,
 ) -> Dict[str, Any]:
-    """Create a new trip itinerary."""
+    """Create a new trip itinerary and save it to the traveller's profile.
+
+    ``days`` is the day-by-day plan: a list of day objects. Each day is
+    ``{"dayNumber": 1, "date": "YYYY-MM-DD", "morning": {...}, "lunch": {...},
+    "afternoon": {...}, "dinner": {...}, "accommodation": {...}}``. Every slot
+    (morning / lunch / afternoon / dinner / accommodation) is a SINGLE object of the
+    form ``{"activity": str, "time": "HH:MM-HH:MM", "placeId": str, "notes": str}``
+    -- never a list, and use only those slot names (no ``"evening"``). ``activity``
+    is the display name; include ``placeId`` (from ``find_places``) when available.
+    """
     logger.info(f"🎒 Creating trip for user: {user_id} with {len(days or [])} days")
 
     trip_id = create_trip(
@@ -1885,7 +1894,16 @@ def create_new_trip(
     days: Optional[List[Dict[str, Any]]] = None,
     trip_duration: Optional[int] = None,
 ) -> Dict[str, Any]:
-    """Create a new trip itinerary."""
+    """Create a new trip itinerary and save it to the traveller's profile.
+
+    ``days`` is the day-by-day plan: a list of day objects. Each day is
+    ``{"dayNumber": 1, "date": "YYYY-MM-DD", "morning": {...}, "lunch": {...},
+    "afternoon": {...}, "dinner": {...}, "accommodation": {...}}``. Every slot
+    (morning / lunch / afternoon / dinner / accommodation) is a SINGLE object of the
+    form ``{"activity": str, "time": "HH:MM-HH:MM", "placeId": str, "notes": str}``
+    -- never a list, and use only those slot names (no ``"evening"``). ``activity``
+    is the display name; include ``placeId`` (from ``find_places``) when available.
+    """
     logger.info(f"🎒 Creating trip for user: {user_id} with {len(days or [])} days")
 
     trip_id = create_trip(
@@ -2075,4 +2093,4 @@ user:
 
 ---
 
-[← Module 01: Creating Your First Agent](./Module-01.md) | [Home](./Home.md) | [Module 03: Adding Memory →](./Module-03.md)
+[← Module 01: Creating Your First Agent](./Module-01.md#module-01---creating-your-first-agent) | [Home](./Home.md#build-a-multi-agent-workshop) | [Module 03: Adding Memory →](./Module-03.md#module-03---adding-memory-with-the-cosmos-db-agent-memory-toolkit)

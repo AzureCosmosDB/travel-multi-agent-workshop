@@ -5,7 +5,6 @@ import inspect
 import json
 import logging
 import os
-import re
 import sys
 import uuid
 from contextvars import ContextVar
@@ -30,13 +29,8 @@ from langgraph.prebuilt import create_react_agent
 from langgraph.checkpoint.memory import MemorySaver
 from pydantic import BaseModel, Field
 
-from src.app.services.azure_open_ai import (
-    model,
-    get_chat_model,
-    AZURE_OPENAI_DEPLOYMENT,
-    _is_reasoning_deployment,
-)
-from src.app.services import optimization_policy
+from src.app.services import optimization
+from src.app.services.azure_open_ai import model
 
 
 # Setup logging - reduce clutter by setting specific loggers to WARNING
@@ -333,124 +327,6 @@ _mcp_recall_memories_tool: Any | None = None
 _find_places_agent: Any | None = None
 _itinerary_agent: Any | None = None
 supervisor_agent: Any | None = None
-
-# ============================================================================
-# Policy-driven capability-tiered model selection (SCEN-007 apply-loop effector)
-# ============================================================================
-# When the "model-selection" optimization policy is active + enabled, each turn
-# is classified (trivial / routine / complex) from the latest user message and
-# routed to the tier's Azure deployment. One supervisor ReAct agent is built and
-# cached per deployment (they share the same tools + checkpointer). With no
-# active policy the default deployment is used, so behavior is unchanged.
-MODEL_SELECTION_SCENARIO = "model-selection"
-
-_supervisor_by_deployment: dict[str, Any] = {}
-_supervisor_build_ctx: dict[str, Any] | None = None
-
-_DEFAULT_TRIVIAL_PATTERNS = [
-    r"^(hi|hello|hey|yo|greetings|good (morning|afternoon|evening))\b",
-    r"^(thanks|thank you|thx|ty|cheers|much appreciated|appreciate it|appreciated)\b",
-    r"^(ok|okay|k|kk|sure|yes|yep|yeah|yup|no|nope|nah|alright|right|fine)\b",
-    r"^(great|cool|awesome|perfect|nice|good|wonderful|excellent|fantastic|lovely|brilliant)\b",
-    r"^(got it|sounds good|sounds great|looks good|that works|works for me|makes sense|will do|no worries|no problem)\b",
-    r"^(bye|goodbye|see you|see ya|later|take care)\b",
-]
-_DEFAULT_COMPLEX_PATTERNS = [
-    r"itinerary",
-    r"plan (my|the|a|our) (trip|day|days|vacation|holiday)",
-    r"build (me )?(an? )?itinerary",
-    r"day[- ]by[- ]day",
-    r"full (trip )?plan",
-]
-_DEFAULT_TRIVIAL_MAX_WORDS = 6
-
-
-def _latest_user_text(messages: Any) -> str:
-    """Return the most recent human/user message text from a messages list."""
-    for m in reversed(list(messages or [])):
-        if isinstance(m, dict):
-            role, content = m.get("role"), m.get("content")
-        else:
-            role, content = getattr(m, "type", None), getattr(m, "content", None)
-        if role in ("human", "user") and isinstance(content, str):
-            return content
-    return ""
-
-
-def classify_turn_tier(text: str, classifier: dict[str, Any] | None = None) -> str:
-    """Heuristically classify a turn as trivial / complex / routine.
-
-    Conservative by design: only short greeting/acknowledgement messages become
-    ``trivial`` (cheap tier), explicit itinerary/planning asks become ``complex``
-    (capable tier), and everything else stays ``routine`` (default) so place
-    queries never lose quality.
-    """
-    classifier = classifier or {}
-    trivial_max = int(classifier.get("trivial_max_words", _DEFAULT_TRIVIAL_MAX_WORDS))
-    trivial_patterns = classifier.get("trivial_patterns", _DEFAULT_TRIVIAL_PATTERNS)
-    complex_patterns = classifier.get("complex_patterns", _DEFAULT_COMPLEX_PATTERNS)
-
-    t = (text or "").strip().lower()
-    if not t:
-        return "routine"
-    for p in complex_patterns:
-        if re.search(p, t):
-            return "complex"
-    words = re.findall(r"[a-z0-9']+", t)
-    if len(words) <= trivial_max and any(re.search(p, t) for p in trivial_patterns):
-        return "trivial"
-    return "routine"
-
-
-def select_deployment_for_turn(messages: Any) -> tuple[str, str]:
-    """Return (deployment_name, tier) for this turn from the active policy."""
-    default = AZURE_OPENAI_DEPLOYMENT
-    try:
-        policy = optimization_policy.get_active_policy(MODEL_SELECTION_SCENARIO)
-    except Exception as exc:  # noqa: BLE001
-        logger.warning(f"Could not read model-selection policy; using default model: {exc}")
-        policy = None
-    if not policy:
-        return default, "default"
-    params = policy.get("params", {}) or {}
-    if not params.get("enabled", False):
-        return default, "default"
-    tiers = params.get("tiers", {}) or {}
-    tier = classify_turn_tier(_latest_user_text(messages), params.get("classifier"))
-    deployment = tiers.get(tier) or params.get("default_deployment") or default
-    return deployment, tier
-
-
-def _build_supervisor(deployment_name: str) -> Any:
-    """Build a supervisor ReAct agent bound to a specific deployment."""
-    if _supervisor_build_ctx is None:
-        raise RuntimeError("Supervisor build context missing; call setup_agents() first")
-    ctx = _supervisor_build_ctx
-    agent_model = get_chat_model(deployment_name)
-    # Reasoning (gpt-5/o-series) deployments don't reliably accept
-    # parallel_tool_calls, so only request it for standard chat models.
-    bound = agent_model if _is_reasoning_deployment(deployment_name) else _bind_parallel_tool_calls(agent_model)
-    return _create_agent(
-        bound,
-        tools=ctx["tools"],
-        prompt_text=ctx["prompt_text"],
-        checkpointer=ctx["checkpointer"],
-    )
-
-
-def get_supervisor_for_turn(messages: Any) -> tuple[Any, str, str]:
-    """Return (supervisor_agent, deployment, tier) for this turn (lazily built)."""
-    deployment, tier = select_deployment_for_turn(messages)
-    agent = _supervisor_by_deployment.get(deployment)
-    if agent is None:
-        try:
-            agent = _build_supervisor(deployment)
-            _supervisor_by_deployment[deployment] = agent
-        except Exception as exc:  # noqa: BLE001
-            logger.error(f"Failed to build supervisor for '{deployment}'; falling back to default: {exc}")
-            deployment, tier = AZURE_OPENAI_DEPLOYMENT, "default"
-            agent = _supervisor_by_deployment.get(deployment) or supervisor_agent
-    return agent, deployment, tier
 
 
 @tool("find_places", args_schema=FindPlacesInput)
@@ -813,18 +689,20 @@ async def setup_agents(checkpointer=None):
     ]
     supervisor_checkpointer = checkpointer or MemorySaver()
 
-    # Stash the build context so per-tier supervisors (SCEN-007 model selection)
-    # can be built lazily against other deployments, sharing tools + checkpointer.
-    global _supervisor_build_ctx, _supervisor_by_deployment
-    _supervisor_build_ctx = {
-        "tools": supervisor_tools,
-        "prompt_text": SUPERVISOR_BASE_PROMPT,
-        "checkpointer": supervisor_checkpointer,
-    }
-    _supervisor_by_deployment = {}
+    # Module 08 — choose the model per turn from the active model-selection policy.
+    # The policy decision and model factory live in services/optimization.py.
+    def _select_supervisor_model(state, runtime):
+        # LangGraph does NOT auto-bind `tools` for dynamic (callable) models —
+        # only for a statically-passed model. So the callable must bind the
+        # supervisor tools itself, or the model can never emit tool calls.
+        return optimization.get_chat_model_for_turn(state.get("messages")).bind_tools(supervisor_tools)
 
-    supervisor_agent = _build_supervisor(AZURE_OPENAI_DEPLOYMENT)
-    _supervisor_by_deployment[AZURE_OPENAI_DEPLOYMENT] = supervisor_agent
+    supervisor_agent = _create_agent(
+        _select_supervisor_model,
+        tools=supervisor_tools,
+        prompt_text=SUPERVISOR_BASE_PROMPT,
+        checkpointer=supervisor_checkpointer,
+    )
 
     logger.info("✅ Supervisor and sub-agents created successfully\n")
 

@@ -69,7 +69,7 @@ DEFAULT_PRICE = {"input": 1.25, "output": 10.00}
 _FALLBACK_MODEL_SELECTION_DEFAULTS = {
     "enabled": True,
     "default_deployment": "gpt-5.1",
-    "tiers": {"trivial": "gpt-5-nano", "routine": "gpt-5-mini", "complex": "gpt-5.1"},
+    "complexity_tiers": {"trivial": "gpt-5-nano", "routine": "gpt-5-mini", "complex": "gpt-5.1"},
     "classifier": {"trivial_max_words": 6},
 }
 
@@ -85,7 +85,7 @@ def load_model_selection_defaults() -> dict:
         params = getattr(mod, "PROPOSED_MODEL_SELECTION_PARAMS", None) or getattr(
             mod, "_CODE_MODEL_SELECTION_PARAMS", None
         )
-        if isinstance(params, dict) and params.get("tiers"):
+        if isinstance(params, dict) and params.get("complexity_tiers"):
             return dict(params)
     return dict(_FALLBACK_MODEL_SELECTION_DEFAULTS)
 

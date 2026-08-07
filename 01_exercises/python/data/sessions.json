@@ -98,7 +98,7 @@
   {
     "id": "session_de3a60a34817",
     "sessionId": "session_de3a60a34817",
-    "tenantId": "analytics_demo",
+    "tenantId": "analytics",
     "userId": "maya_chen",
     "title": "New Conversation",
     "activeAgent": "orchestrator",
@@ -110,7 +110,7 @@
   {
     "id": "session_2334554b757e",
     "sessionId": "session_2334554b757e",
-    "tenantId": "analytics_demo",
+    "tenantId": "analytics",
     "userId": "maya_chen",
     "title": "New Conversation",
     "activeAgent": "orchestrator",
@@ -122,7 +122,7 @@
   {
     "id": "session_42de59da9ba8",
     "sessionId": "session_42de59da9ba8",
-    "tenantId": "analytics_demo",
+    "tenantId": "analytics",
     "userId": "maya_chen",
     "title": "New Conversation",
     "activeAgent": "orchestrator",
@@ -134,7 +134,7 @@
   {
     "id": "session_44ea746b3403",
     "sessionId": "session_44ea746b3403",
-    "tenantId": "analytics_demo",
+    "tenantId": "analytics",
     "userId": "james_mitchell",
     "title": "New Conversation",
     "activeAgent": "orchestrator",
@@ -146,7 +146,7 @@
   {
     "id": "session_0a0ae8f0e324",
     "sessionId": "session_0a0ae8f0e324",
-    "tenantId": "analytics_demo",
+    "tenantId": "analytics",
     "userId": "james_mitchell",
     "title": "New Conversation",
     "activeAgent": "orchestrator",
@@ -158,7 +158,7 @@
   {
     "id": "session_b132a8b84271",
     "sessionId": "session_b132a8b84271",
-    "tenantId": "analytics_demo",
+    "tenantId": "analytics",
     "userId": "james_mitchell",
     "title": "New Conversation",
     "activeAgent": "orchestrator",
@@ -170,7 +170,7 @@
   {
     "id": "session_ab1e29b43e0c",
     "sessionId": "session_ab1e29b43e0c",
-    "tenantId": "analytics_demo",
+    "tenantId": "analytics",
     "userId": "sarah_johnson",
     "title": "New Conversation",
     "activeAgent": "orchestrator",
@@ -182,7 +182,7 @@
   {
     "id": "session_1cce206b6a75",
     "sessionId": "session_1cce206b6a75",
-    "tenantId": "analytics_demo",
+    "tenantId": "analytics",
     "userId": "sarah_johnson",
     "title": "New Conversation",
     "activeAgent": "orchestrator",
@@ -194,7 +194,7 @@
   {
     "id": "session_6b78a2e11c1f",
     "sessionId": "session_6b78a2e11c1f",
-    "tenantId": "analytics_demo",
+    "tenantId": "analytics",
     "userId": "david_okafor",
     "title": "New Conversation",
     "activeAgent": "orchestrator",
@@ -206,7 +206,7 @@
   {
     "id": "session_cf272a3e6dd2",
     "sessionId": "session_cf272a3e6dd2",
-    "tenantId": "analytics_demo",
+    "tenantId": "analytics",
     "userId": "david_okafor",
     "title": "New Conversation",
     "activeAgent": "orchestrator",
@@ -218,7 +218,7 @@
   {
     "id": "session_7e301f308026",
     "sessionId": "session_7e301f308026",
-    "tenantId": "analytics_demo",
+    "tenantId": "analytics",
     "userId": "david_okafor",
     "title": "New Conversation",
     "activeAgent": "orchestrator",
@@ -230,7 +230,7 @@
   {
     "id": "session_e1d81040ee4b",
     "sessionId": "session_e1d81040ee4b",
-    "tenantId": "analytics_demo",
+    "tenantId": "analytics",
     "userId": "elena_vasquez",
     "title": "New Conversation",
     "activeAgent": "orchestrator",
@@ -242,7 +242,7 @@
   {
     "id": "session_2db2626af887",
     "sessionId": "session_2db2626af887",
-    "tenantId": "analytics_demo",
+    "tenantId": "analytics",
     "userId": "elena_vasquez",
     "title": "New Conversation",
     "activeAgent": "orchestrator",
@@ -254,7 +254,7 @@
   {
     "id": "session_7c12aa5ce1c6",
     "sessionId": "session_7c12aa5ce1c6",
-    "tenantId": "analytics_demo",
+    "tenantId": "analytics",
     "userId": "robert_williams",
     "title": "New Conversation",
     "activeAgent": "orchestrator",
@@ -266,7 +266,7 @@
   {
     "id": "session_5963b1ef98c4",
     "sessionId": "session_5963b1ef98c4",
-    "tenantId": "analytics_demo",
+    "tenantId": "analytics",
     "userId": "robert_williams",
     "title": "New Conversation",
     "activeAgent": "orchestrator",
@@ -278,7 +278,7 @@
   {
     "id": "session_3eef85711b72",
     "sessionId": "session_3eef85711b72",
-    "tenantId": "analytics_demo",
+    "tenantId": "analytics",
     "userId": "robert_williams",
     "title": "New Conversation",
     "activeAgent": "orchestrator",
@@ -290,7 +290,7 @@
   {
     "id": "session_f2133f1d4abb",
     "sessionId": "session_f2133f1d4abb",
-    "tenantId": "analytics_demo",
+    "tenantId": "analytics",
     "userId": "jordan_taylor",
     "title": "New Conversation",
     "activeAgent": "orchestrator",
@@ -302,7 +302,7 @@
   {
     "id": "session_0758a6a26f41",
     "sessionId": "session_0758a6a26f41",
-    "tenantId": "analytics_demo",
+    "tenantId": "analytics",
     "userId": "jordan_taylor",
     "title": "New Conversation",
     "activeAgent": "orchestrator",
@@ -314,7 +314,7 @@
   {
     "id": "session_1f2d77d1f7f0",
     "sessionId": "session_1f2d77d1f7f0",
-    "tenantId": "analytics_demo",
+    "tenantId": "analytics",
     "userId": "priya_sharma",
     "title": "New Conversation",
     "activeAgent": "orchestrator",
@@ -326,7 +326,7 @@
   {
     "id": "session_d3850ee09697",
     "sessionId": "session_d3850ee09697",
-    "tenantId": "analytics_demo",
+    "tenantId": "analytics",
     "userId": "priya_sharma",
     "title": "New Conversation",
     "activeAgent": "orchestrator",
@@ -338,7 +338,7 @@
   {
     "id": "session_dd7301760901",
     "sessionId": "session_dd7301760901",
-    "tenantId": "analytics_demo",
+    "tenantId": "analytics",
     "userId": "priya_sharma",
     "title": "New Conversation",
     "activeAgent": "orchestrator",
@@ -350,7 +350,7 @@
   {
     "id": "session_0432563ac62f",
     "sessionId": "session_0432563ac62f",
-    "tenantId": "analytics_demo",
+    "tenantId": "analytics",
     "userId": "priya_sharma",
     "title": "New Conversation",
     "activeAgent": "orchestrator",
@@ -362,7 +362,7 @@
   {
     "id": "session_8a4ee0f1e663",
     "sessionId": "session_8a4ee0f1e663",
-    "tenantId": "analytics_demo",
+    "tenantId": "analytics",
     "userId": "alex_brennan",
     "title": "New Conversation",
     "activeAgent": "orchestrator",
@@ -374,7 +374,7 @@
   {
     "id": "session_8b3fcca526f8",
     "sessionId": "session_8b3fcca526f8",
-    "tenantId": "analytics_demo",
+    "tenantId": "analytics",
     "userId": "alex_brennan",
     "title": "New Conversation",
     "activeAgent": "orchestrator",
@@ -386,7 +386,7 @@
   {
     "id": "session_222d23c8f35e",
     "sessionId": "session_222d23c8f35e",
-    "tenantId": "analytics_demo",
+    "tenantId": "analytics",
     "userId": "alex_brennan",
     "title": "New Conversation",
     "activeAgent": "orchestrator",
@@ -398,7 +398,7 @@
   {
     "id": "session_3dcaaca8be0a",
     "sessionId": "session_3dcaaca8be0a",
-    "tenantId": "analytics_demo",
+    "tenantId": "analytics",
     "userId": "isabelle_dupont",
     "title": "New Conversation",
     "activeAgent": "orchestrator",
@@ -410,7 +410,7 @@
   {
     "id": "session_612baffd3df1",
     "sessionId": "session_612baffd3df1",
-    "tenantId": "analytics_demo",
+    "tenantId": "analytics",
     "userId": "isabelle_dupont",
     "title": "New Conversation",
     "activeAgent": "orchestrator",
@@ -422,7 +422,7 @@
   {
     "id": "session_b53b11cc25ef",
     "sessionId": "session_b53b11cc25ef",
-    "tenantId": "analytics_demo",
+    "tenantId": "analytics",
     "userId": "aisha_rahman",
     "title": "New Conversation",
     "activeAgent": "orchestrator",
@@ -434,7 +434,7 @@
   {
     "id": "session_95f9d3821560",
     "sessionId": "session_95f9d3821560",
-    "tenantId": "analytics_demo",
+    "tenantId": "analytics",
     "userId": "aisha_rahman",
     "title": "New Conversation",
     "activeAgent": "orchestrator",
@@ -446,7 +446,7 @@
   {
     "id": "session_b07b4ca5881b",
     "sessionId": "session_b07b4ca5881b",
-    "tenantId": "analytics_demo",
+    "tenantId": "analytics",
     "userId": "marco_rossi",
     "title": "New Conversation",
     "activeAgent": "orchestrator",
@@ -458,7 +458,7 @@
   {
     "id": "session_6878e1400682",
     "sessionId": "session_6878e1400682",
-    "tenantId": "analytics_demo",
+    "tenantId": "analytics",
     "userId": "marco_rossi",
     "title": "New Conversation",
     "activeAgent": "orchestrator",
@@ -470,7 +470,7 @@
   {
     "id": "session_539941584c65",
     "sessionId": "session_539941584c65",
-    "tenantId": "analytics_demo",
+    "tenantId": "analytics",
     "userId": "marco_rossi",
     "title": "New Conversation",
     "activeAgent": "orchestrator",

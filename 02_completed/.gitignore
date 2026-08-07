@@ -347,3 +347,5 @@ secrets.json
 secrets.yaml
 secrets.yml
 appsettings.local.json
+# Analytics portal staged into the frontend image at package time (source of truth: ../analytics/dashboard/)
+analytics-portal/

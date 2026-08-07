@@ -46,7 +46,7 @@ moves *business outcomes*. A healthy catalog has at least one scenario per dimen
 > *opportunity dimension* here, not a current behavior**: there is nothing to "tune" yet. Exploring it
 > means *introducing* per-turn/per-task model routing (see SCEN-007), not analyzing an existing
 > variation. It's included because it's a strong cost lever (~23% of turns are trivial by the
-> classifier / `model_tier`) and a vision-listed lower-risk autonomous domain — just be clear it's
+> classifier / `complexity_tier`) and a vision-listed lower-risk autonomous domain — just be clear it's
 > aspirational for this app until the router seam exists.
 
 ## What we can measure (signal inventory)

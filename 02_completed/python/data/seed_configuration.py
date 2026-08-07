@@ -15,7 +15,7 @@ Run by the ``azd`` post-provision hook (and safe to run by hand). It:
 3. **Upserts** one flat row per model into ``Configuration`` (``type="model_pricing"``).
    Upsert (never delete) means older models' rows remain, so the Power BI report
    can show before/after a model swap until the turn data ages out.
-4. Upserts a ``model_selection_defaults`` doc (the default tier/classifier policy
+4. Upserts a ``model_selection_defaults`` doc (the default complexity_tier/classifier policy
    the recommendation card proposes), making ``Configuration`` a genuine
    multi-entity config store rather than a single-purpose table.
 
@@ -63,13 +63,13 @@ if _PYTHON_DIR not in sys.path:
 # Last-resort price for a deployed model missing from the reference file.
 DEFAULT_PRICE = {"input": 1.25, "output": 10.00}
 
-# Default tier/classifier policy the recommendation card proposes. Derived from the
+# Default complexity_tier/classifier policy the recommendation card proposes. Derived from the
 # app's own PROPOSED_MODEL_SELECTION_PARAMS so the seeded doc matches the code
 # default exactly (reading it back is behavior-neutral); this is the fallback.
 _FALLBACK_MODEL_SELECTION_DEFAULTS = {
     "enabled": True,
     "default_deployment": "gpt-5.1",
-    "tiers": {"trivial": "gpt-5-nano", "routine": "gpt-5-mini", "complex": "gpt-5.1"},
+    "complexity_tiers": {"trivial": "gpt-5-nano", "routine": "gpt-5-mini", "complex": "gpt-5.1"},
     "classifier": {"trivial_max_words": 6},
 }
 
@@ -85,14 +85,14 @@ def load_model_selection_defaults() -> dict:
         params = getattr(mod, "PROPOSED_MODEL_SELECTION_PARAMS", None) or getattr(
             mod, "_CODE_MODEL_SELECTION_PARAMS", None
         )
-        if isinstance(params, dict) and params.get("tiers"):
+        if isinstance(params, dict) and params.get("complexity_tiers"):
             return dict(params)
     return dict(_FALLBACK_MODEL_SELECTION_DEFAULTS)
 
 
 def load_memory_config() -> dict:
         """Memory salience thresholds from the committed reference (fallback if absent).
-        Single source of truth shared by the Fabric notebook + compute_insights so the tier
+        Single source of truth shared by the Fabric notebook + compute_insights so the complexity_tier
         boundaries never drift between the two."""
         fallback = {"salience_high": 0.8, "salience_medium": 0.5}
         try:

@@ -200,7 +200,12 @@ export class ExploreComponent implements OnInit, OnDestroy, AfterViewChecked {
       error: (error) => {
         console.error('❌ Error sending message:', error);
         this.isLoading = false;
-        alert('Failed to send message. Please check your backend connection.');
+        const err = error as { status?: number; error?: { detail?: string } };
+        if (err?.status === 429) {
+          alert(err?.error?.detail || 'The AI model is rate-limited right now. Please wait about 30 seconds and try again.');
+        } else {
+          alert('Failed to send message. Please check your backend connection.');
+        }
       }
     });
   }

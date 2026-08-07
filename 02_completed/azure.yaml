@@ -27,6 +27,24 @@ services:
       context: .
       remoteBuild: true
 hooks:
+  prepackage:
+    posix:
+      shell: sh
+      continueOnError: false
+      run: |
+        # Stage the web analytics portal (repo-root analytics/dashboard) into the frontend
+        # build context so Dockerfile.frontend can bake it in and serve it at /analytics/.
+        # Source of truth stays in analytics/dashboard/; analytics-portal/ is gitignored.
+        mkdir -p analytics-portal
+        cp ../analytics/dashboard/index.html analytics-portal/index.html
+        echo "✅ Staged analytics portal for the frontend image."
+    windows:
+      shell: pwsh
+      continueOnError: false
+      run: |
+        New-Item -ItemType Directory -Force -Path analytics-portal | Out-Null
+        Copy-Item -Force ..\analytics\dashboard\index.html analytics-portal\index.html
+        Write-Host "✅ Staged analytics portal for the frontend image."
   preprovision:
     posix:
       shell: sh
@@ -194,12 +212,12 @@ hooks:
         # swap a model in infra/main.bicep, add its price there (see analytics/docs/model-pricing.md).
         python data/seed_configuration.py
 
-        # Seed the Module 09 conversion-funnel demo tenant (funnel_demo) so the Fabric
+        # Seed the Module 09 conversion-funnel demo tenant (analytics) so the Fabric
         # mirror + notebook have data. Only when analytics is deployed.
         DEPLOY_ANALYTICS=$(azd env get-value DEPLOY_ANALYTICS 2>/dev/null || echo "true")
         if [ "$DEPLOY_ANALYTICS" != "false" ]; then
           echo ""
-          echo "Seeding the Module 09 funnel_demo analytics dataset..."
+          echo "Seeding the Module 09 analytics dataset..."
           python ../../analytics/funnel_seed.py
         fi
 
@@ -309,12 +327,12 @@ hooks:
             # swap a model in infra/main.bicep, add its price there (see analytics/docs/model-pricing.md).
             python data\seed_configuration.py
 
-            # Seed the Module 09 conversion-funnel demo tenant (funnel_demo) so the Fabric
+            # Seed the Module 09 conversion-funnel demo tenant (analytics) so the Fabric
             # mirror + notebook have data. Only when analytics is deployed.
             $deployAnalytics = (azd env get-value DEPLOY_ANALYTICS 2>$null)
             if ($deployAnalytics -ne "false") {
                 Write-Host ""
-                Write-Host "Seeding the Module 09 funnel_demo analytics dataset..."
+                Write-Host "Seeding the Module 09 analytics dataset..."
                 python ..\..\analytics\funnel_seed.py
             }
 

@@ -21,6 +21,7 @@ except ImportError:  # pragma: no cover - supports alternate workshop package la
     from app.services.agent_memory import get_memory_client
 
 from src.app.services.azure_open_ai import generate_embedding
+from src.app.services.optimization_recommendations import prune_and_measure_recall
 from src.app.services.azure_cosmos_db import (
     create_session_record,
     get_session_by_id,
@@ -280,12 +281,10 @@ async def recall_memories(
         kwargs["hybrid_search"] = True
 
     hits = await _maybe_await(client.search_cosmos(**kwargs))
-    # Exclude memories soft-pruned by the SCEN-004 retention policy (best-effort:
-    # applies where the memory client surfaces the retention_status field).
-    return [
-        d for hit in hits
-        if (d := _memory_to_dict(hit)).get("retention_status") != "pruned"
-    ]
+    # Hand the recall hits to the optimization service's hook: it drops pruned memories
+    # AND records the input tokens each drop avoids (the memory-retention measurement).
+    records = [_memory_to_dict(hit) for hit in hits]
+    return prune_and_measure_recall(records, user_id, thread_id, query, top_k)
 
 
 @mcp.tool()
@@ -525,7 +524,13 @@ def create_new_trip(
         destination: Trip destination (e.g. "Barcelona, Spain")
         start_date: Trip start date in ISO format (e.g. "2026-03-10")
         end_date: Trip end date in ISO format (e.g. "2026-03-11")
-        days: Optional list of day-by-day itinerary (dayNumber, date, morning, lunch, afternoon, dinner, accommodation)
+        days: The day-by-day plan (list of day objects). Each slot
+            (morning/lunch/afternoon/dinner/accommodation) is a SINGLE object of the
+            form {"activity": str, "time": "HH:MM-HH:MM", "placeId": str, "notes": str}
+            -- never a list, and use only those slot names (no "evening"). Example day:
+            {"dayNumber": 1, "date": "2026-08-05",
+             "morning": {"activity": "Van Gogh Museum", "time": "09:00-12:00", "placeId": "activity_ams_0001"},
+             "accommodation": {"activity": "Hotel Krasnapolsky", "placeId": "hotel_ams_0001"}}
         trip_duration: Optional total number of days (calculated from days array if not provided)
         session_id: Session/correlation id (injected from request identity; ties the trip
             outcome back to the session that produced it — do not guess it)

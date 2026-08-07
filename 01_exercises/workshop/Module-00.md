@@ -1,6 +1,6 @@
 # Module 00 - Deployment and Setup
 
-**[< Home](./Home.md)** - **[Creating Your First Agent >](./Module-01.md)**
+**[< Home](./Home.md#build-a-multi-agent-workshop)** - **[Creating Your First Agent >](./Module-01.md#module-01---creating-your-first-agent)**
 
 ## Introduction
 
@@ -40,7 +40,7 @@ Before you begin, ensure you have:
 - [Azure Developer CLI (azd)](https://learn.microsoft.com/azure/developer/azure-developer-cli/install-azd) installed
 - [Python 3.11 or higher](https://www.python.org/downloads/) installed
 - [Node.js 18 or higher](https://nodejs.org/en/download/) installed
-- **Power BI Desktop** — **not required.** The analytics report is **auto-deployed to your Fabric workspace** by the Module 09 provisioning, and you open it in the browser. Desktop is only needed if you want to *rebuild or customize* the report (see [`analytics/PowerBI_Optimization_Build_Guide.md`](../../analytics/PowerBI_Optimization_Build_Guide.md)).
+- **Power BI Desktop** — **not required.** The web analytics portal is the recommended optimization surface. Module 09 also auto-deploys an optional Power BI report to your Fabric workspace; Desktop is only needed if you want to *rebuild or customize* that optional report (see [`analytics/PowerBI_Optimization_Build_Guide.md`](../../analytics/PowerBI_Optimization_Build_Guide.md)).
 
 ### Step 1: Get the repository and Navigate to the Workshop Directory
 
@@ -124,7 +124,7 @@ All deployment options have sensible defaults — you can skip this section and 
 azd env set DEPLOY_ANALYTICS false
 ```
 
-> **AI models & pricing:** `azd up` deploys `gpt-5.1`, `gpt-5-mini`, and `gpt-5-nano`, and seeds their token prices into the Cosmos `Configuration` container so the app, the Fabric notebook, and the Power BI report all cost turns off the same numbers. **If you change the deployed models, add the new model's price** to `python/data/model_pricing.json` — see **[analytics/docs/model-pricing.md](../../analytics/docs/model-pricing.md)** for the models used by default, the price format, and how to find a model's price.
+> **AI models & pricing:** `azd up` deploys `gpt-5.1`, `gpt-5-mini`, and `gpt-5-nano`, and seeds their token prices into the Cosmos `Configuration` container so the app, the web analytics portal, the Fabric notebook, and the optional Power BI report all cost turns off the same numbers. **If you change the deployed models, add the new model's price** to `python/data/model_pricing.json` — see **[analytics/docs/model-pricing.md](../../analytics/docs/model-pricing.md)** for the models used by default, the price format, and how to find a model's price.
 
 #### Run `azd up`
 
@@ -158,8 +158,8 @@ The `azd up` command will:
    - ~2,900 places (490 hotels, 977 restaurants, 1,470 activities across many cities)
    - 5 trips, 14 long-term memories, and 28 memory turns
    - Conversation history: 40 sessions and 642 messages
-   - Analytics/optimization baseline: 321 `Debug` turn logs, 321 `OptimizationTurns`, and 1 `OptimizationPolicy`, spanning the `marvel` (4 users) and `analytics_demo` (12 personas) tenants
-   - Module 09 conversion-funnel dataset: ~120 `funnel_demo` sessions with their own `OptimizationTurns`, `Messages`, and `Trips` (this is why your `OptimizationTurns` / `Messages` / `Trips` totals appear higher than the per-tenant figures above)
+   - Analytics/optimization baseline: 321 `Debug` turn logs (`marvel` 4 users + `analytics` 12 personas), ~292 `OptimizationTurns` **under `analytics` only**, and 1 `OptimizationPolicy`. `marvel` intentionally ships with **no** `OptimizationTurns` — you generate those yourself when you wire the capture hook in **Module 07**, so the portal starts from *your own* traffic.
+   - Module 09 conversion-funnel dataset: ~120 additional `analytics` sessions with `OptimizationTurns`, `Messages`, and `Trips` (this is why your `OptimizationTurns` / `Messages` / `Trips` totals appear higher than the per-tenant figures above)
    - Model pricing + selection defaults in the `Configuration` container
 
 ### Expected Output
@@ -701,4 +701,4 @@ Congratulations! You've successfully:
 
 With your environment set up and verified, you're ready to start building your first agent!
 
-**Next**: [Module 01 - Creating Your First Agent](./Module-01.md)
+**Next**: [Module 01 - Creating Your First Agent](./Module-01.md#module-01---creating-your-first-agent)

@@ -1,6 +1,6 @@
 # Module 10 - Lessons Learned & The Future of Agentic Systems
 
-**[< Fabric Analytics & Reverse-ETL](./Module-09.md)**
+**[< Fabric Analytics & Reverse-ETL](./Module-09.md#module-09---fabric-analytics-reverse-etl)**
 
 ## Introduction
 
@@ -55,12 +55,13 @@ Let's take a moment to appreciate the complexity of your travel assistant:
 ## Module Sections
 
 1. [Lessons Learned: Key Takeaways](#lessons-learned-key-takeaways)
-2. [Architectural Best Practices](#architectural-best-practices)
-3. [The Future of Agentic AI](#the-future-of-agentic-ai)
-4. [Memory Systems: What's Next?](#memory-systems-whats-next)
-5. [Common Challenges and Solutions](#common-challenges-and-solutions)
-6. [Production Deployment Considerations](#production-deployment-considerations)
-7. [Resources and Further Learning](#resources-and-further-learning)
+2. [Bonus: The Optional Analytics and Optimization Track](#bonus-the-optional-analytics-and-optimization-track)
+3. [Architectural Best Practices](#architectural-best-practices)
+4. [The Future of Agentic AI](#the-future-of-agentic-ai)
+5. [Memory Systems: What's Next?](#memory-systems-whats-next)
+6. [Common Challenges and Solutions](#common-challenges-and-solutions)
+7. [Production Deployment Considerations](#production-deployment-considerations)
+8. [Resources and Further Learning](#resources-and-further-learning)
 
 ---
 
@@ -160,6 +161,66 @@ Query: "romantic waterfront dining"
 - RRF: Returns results that score high in both
 
 **Key Insight**: Leverage **multiple retrieval strategies** for better results.
+
+## Bonus: The Optional Analytics and Optimization Track
+
+> **Skipped the analytics track?** Modules **07–09** are optional — they turn the assistant you just built into a **self-observing, self-optimizing** system. If you took the Module 06 exit ramp, here are the key ideas you missed (and a reason to come back); if you completed them, use this as a consolidated recap. The whole track is driven by one loop: **instrument → detect → recommend → apply → verify** (and, eventually, **self-correct**).
+
+### 6. Traces Debug a Request; Analytics Optimize a System
+
+**What We Learned:**
+Observability (Module 05) answers *"what happened in this one conversation?"* Analytics answer *"what's happening across thousands of turns?"* You instrument **every turn** — a single `record_optimization_turn` hook writes one row per turn to the `OptimizationTurns` container — then roll thousands of turns up into a handful of **decisions**.
+
+**Key Insight**: A trace debugs a request; analytics optimize a system.
+
+### 7. Optimize for Cost *per Outcome*, Not Cost per Turn
+
+**What We Learned:**
+The north-star metric is **cost per outcome** — total spend ÷ confirmed outcomes (booked trips) — not cost per turn. A cheap turn that never converts isn't efficient; it's waste. The **trivial-turn share** (greetings, acks, and one-line confirmations paying premium rates) is the size of the prize. These are two of the **8 optimization dimensions** the track surfaces (cost efficiency, model selection, memory, workflow efficiency, tool use, conversion, and more).
+
+**Key Insight**: Measure the business outcome, not just the token bill.
+
+### 8. Capability-Tiered Model Selection Is the Flagship Win
+
+**What We Learned:**
+The default waste pattern is **one premium model serving every turn** — trivial or complex. The fix routes **trivial → a nano model, routine → a mini model, and keeps the premium model for the hard work**. On an identical A/B workload this cut cost by ~**28%** with no change to the user experience.
+
+**Key Insight**: Match the model to the task's difficulty — most turns don't need your best model.
+
+### 9. Close the Loop: instrument → detect → recommend → apply → verify
+
+**What We Learned:**
+A **maturity model** (L0–L5) frames the journey. You **detect** opportunities *operationally* (computed live in-app from Cosmos — the fast "peek"), then **measure** them *analytically* (cross-session aggregation and the measured before/after in Microsoft Fabric). **Apply** is a one-click, reversible **policy flip** — not a code change or redeploy. **Verify** with a *measured* before/after, never an estimate — reasoning models bill hidden "reasoning tokens," so you always confirm the saving with real numbers.
+
+**Key Insight**: An insight you can't act on is just a chart — close the loop.
+
+### 10. Risk-Tiered Autonomy and Reversibility
+
+**What We Learned:**
+Not every change carries equal risk, so autonomy is tiered by the **change seam**:
+
+- **Config policies** (model-selection, memory-retention) are low-risk, reversible, and safe to **auto-apply** (L4).
+- **Prompt/code changes** (e.g., de-duplicating redundant tool calls) are higher-risk and stay **human-governed** (L3) — proposed, reviewed as a diff, approved, then deployed.
+
+Every governed action is **audited** and must **clear an SLO gate**. One-click **Revert** — a single audited state change on the `OptimizationPolicies` container — is exactly what makes a policy safe to automate.
+
+**Key Insight**: Let *risk*, not convenience, set the autonomy ceiling.
+
+### 11. Two Planes, Joined by Mirroring + Reverse-ETL
+
+**What We Learned:**
+The architecture separates a **Cosmos operational plane** (low-latency, on the request path) from a **Fabric analytical plane** (heavy aggregation, off the request path). **Mirroring** carries every turn to Fabric with *no ETL pipeline to build*; **reverse-ETL** writes the computed insights back into Cosmos (`OptimizationInsights`) so the live app and the web **Analytics Portal** can act on them in real time — with no analytics round-trip on the request path.
+
+**Key Insight**: Separate the operational and analytical planes, then *close the loop* between them.
+
+### 12. The LLM Analyst — "the LLM proposes; the engine disposes"
+
+**What We Learned:**
+The highest-maturity step turns raw telemetry into **ranked recommendations** written by an **LLM analyst** — but five deterministic **guardrails** make a hallucinating analyst harmless: the proposal must target a **declared change seam**, be **grounded and cited**, and the **engine computes the dollar saving** (the model's number is ignored); the **apply mode and autonomy ceiling come from the seam's risk**, not from the card. Even if the model invents a "$999,999 saving" or an off-surface target, the engine **overrides or rejects** it.
+
+**Key Insight**: You can trust an *analytical* LLM to feed an *operational* loop — as long as the guardrails and the measured number stay authoritative.
+
+> **Want the hands-on version?** The web **Analytics Portal** ships with the deployed app at `/analytics/` (or run it locally: `python -m http.server 8060 --directory analytics\dashboard`). Modules **07–09** walk you through building the entire loop — instrumentation, detection, the apply/verify governance, the Fabric reverse-ETL, and the guardrailed LLM analyst.
 
 ## The Future of Agentic AI
 
@@ -352,4 +413,4 @@ async def consolidate_memories(user_id: str):
     update_semantic_memory(user_id, patterns)
 ```
 
-### Return to **[Home](./Home.md)**
+### Return to **[Home](./Home.md#build-a-multi-agent-workshop)**

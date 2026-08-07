@@ -5,14 +5,14 @@ Writes the SAME synthetic workload to two tenants so a Power BI tenant slicer ca
 flip a true apples-to-apples before/after with zero live-traffic risk in a session:
 
   - ``before_demo``: every turn runs on the single premium model (gpt-5.1) with
-    ``model_tier="default"`` — the pre-optimization baseline (one model for all).
+    ``complexity_tier="default"`` — the pre-optimization baseline (one model for all).
   - ``after_demo``:  the identical workload, tiered — trivial->gpt-5-nano,
     routine->gpt-5-mini, complex->gpt-5.1 — i.e. capability-tiered selection applied.
 
 Because each workload item (its input/output tokens, handoffs, session, and
-timestamp) is written identically to both tenants and ONLY the model/tier differ,
+timestamp) is written identically to both tenants and ONLY the model/complexity-tier differ,
 the cost delta between the two tenants is exactly the optimization saving — nothing
-is hand-waved. Token ranges reuse the realistic per-tier profiles from
+is hand-waved. Token ranges reuse the realistic per-complexity-tier profiles from
 traffic_simulator.py (kept consistent with observed data).
 
 Deterministic (fixed seed) and idempotent (stable doc ids), so re-running replaces
@@ -60,44 +60,44 @@ AFTER_TENANT = "after_demo"
 DEFAULT_DEPLOYMENT = "gpt-5.1"
 DEFAULT_MODEL = "gpt-5.1-2025-11-13"
 
-# Per-tier workload profile (token ranges/handoffs match traffic_simulator.py, which
+# Per-complexity-tier workload profile (token ranges/handoffs match traffic_simulator.py, which
 # keeps them consistent with observed data). Weights: a realistic ~10% trivial share.
-TIERS = [
-    {"tier": "trivial", "weight": 0.10, "deployment": "gpt-5-nano",
+COMPLEXITY_PROFILES = [
+    {"complexity_tier": "trivial", "weight": 0.10, "deployment": "gpt-5-nano",
      "model": "gpt-5-nano-2025-08-07", "in": (2800, 3600), "out": (20, 55), "handoffs": 0},
-    {"tier": "routine", "weight": 0.55, "deployment": "gpt-5-mini",
+    {"complexity_tier": "routine", "weight": 0.55, "deployment": "gpt-5-mini",
      "model": "gpt-5-mini-2025-08-07", "in": (6000, 16000), "out": (200, 450), "handoffs": 1},
-    {"tier": "complex", "weight": 0.35, "deployment": "gpt-5.1",
+    {"complexity_tier": "complex", "weight": 0.35, "deployment": "gpt-5.1",
      "model": "gpt-5.1-2025-11-13", "in": (28000, 33000), "out": (1400, 1900), "handoffs": 2},
 ]
 CITIES = ["Amsterdam", "Paris", "Tokyo", "Rome", "Barcelona", "London", "New York"]
 
 
-def _pick_tier(rng: random.Random) -> dict:
+def _pick_complexity_profile(rng: random.Random) -> dict:
     r = rng.random()
     cum = 0.0
-    for t in TIERS:
-        cum += t["weight"]
+    for profile in COMPLEXITY_PROFILES:
+        cum += profile["weight"]
         if r <= cum:
-            return t
-    return TIERS[-1]
+            return profile
+    return COMPLEXITY_PROFILES[-1]
 
 
-def _turn_doc(tenant, user, session, tier, in_tok, out_tok, cached, ts, idx, applied) -> dict:
+def _turn_doc(tenant, user, session, profile, in_tok, out_tok, cached, ts, idx, applied) -> dict:
     """One OptimizationTurn. ``applied`` False -> baseline (default/gpt-5.1);
-    True -> tiered (this workload item's tier + its model)."""
+    True -> tiered (this workload item's complexity tier + its model)."""
     if applied:
-        model_tier, deployment, model = tier["tier"], tier["deployment"], tier["model"]
+        complexity_tier, deployment, model = profile["complexity_tier"], profile["deployment"], profile["model"]
     else:
-        model_tier, deployment, model = "default", DEFAULT_DEPLOYMENT, DEFAULT_MODEL
+        complexity_tier, deployment, model = "default", DEFAULT_DEPLOYMENT, DEFAULT_MODEL
     return {
         "id": f"ab::{tenant}::{idx}",
         "type": "optimization_turn",
         "tenantId": tenant, "userId": user, "sessionId": session,
-        "model_tier": model_tier, "model_deployment": deployment, "model_name": model,
+        "complexity_tier": complexity_tier, "model_deployment": deployment, "model_name": model,
         "input_tokens": in_tok, "output_tokens": out_tok, "total_tokens": in_tok + out_tok,
         "cached_tokens": cached,
-        "handoff_count": tier["handoffs"],
+        "handoff_count": profile["handoffs"],
         "timeStamp": ts.isoformat(),
         "turn_epoch": int(ts.timestamp()),
     }
@@ -140,20 +140,20 @@ def main() -> None:
         if rng.random() < 0.05:
             sessions[user] = f"sess-{uuid.uuid4().hex[:8]}"
         session = sessions[user]
-        tier = _pick_tier(rng)
-        in_tok = rng.randint(*tier["in"])
-        out_tok = rng.randint(*tier["out"])
+        profile = _pick_complexity_profile(rng)
+        in_tok = rng.randint(*profile["in"])
+        out_tok = rng.randint(*profile["out"])
         cached = int(in_tok * rng.uniform(0.6, 0.9))
         ts = now - timedelta(hours=args.hours) + step * i
 
-        # identical workload -> two tenants; only model/tier differ
-        turns.upsert_item(_turn_doc(BEFORE_TENANT, user, session, tier, in_tok, out_tok, cached, ts, i, applied=False))
-        turns.upsert_item(_turn_doc(AFTER_TENANT, user, session, tier, in_tok, out_tok, cached, ts, i, applied=True))
+        # identical workload -> two tenants; only model/complexity-tier differ
+        turns.upsert_item(_turn_doc(BEFORE_TENANT, user, session, profile, in_tok, out_tok, cached, ts, i, applied=False))
+        turns.upsert_item(_turn_doc(AFTER_TENANT, user, session, profile, in_tok, out_tok, cached, ts, i, applied=True))
         counts[BEFORE_TENANT]["default"] = counts[BEFORE_TENANT].get("default", 0) + 1
-        counts[AFTER_TENANT][tier["tier"]] = counts[AFTER_TENANT].get(tier["tier"], 0) + 1
+        counts[AFTER_TENANT][profile["complexity_tier"]] = counts[AFTER_TENANT].get(profile["complexity_tier"], 0) + 1
 
         # a complex turn sometimes converts -> identical confirmed trip in BOTH tenants
-        if tier["tier"] == "complex" and rng.random() < 0.35:
+        if profile["complexity_tier"] == "complex" and rng.random() < 0.35:
             trips.upsert_item(_trip_doc(BEFORE_TENANT, user, i, ts))
             trips.upsert_item(_trip_doc(AFTER_TENANT, user, i, ts))
             n_trips += 1

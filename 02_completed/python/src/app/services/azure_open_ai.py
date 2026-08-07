@@ -107,7 +107,7 @@ def get_model():
 # ============================================================================
 # Tiered model factory (for policy-driven, capability-tiered model selection)
 # ============================================================================
-# SCEN-007: an active optimization policy can route a turn to a cheaper model
+# Model selection: an active optimization policy can route a turn to a cheaper model
 # (trivial turns) or a more capable one (complex turns). Each distinct Azure
 # deployment gets one lazily-built, cached AzureChatOpenAI instance here.
 # Reasoning-model handling lives in ``_build_chat_model`` above.

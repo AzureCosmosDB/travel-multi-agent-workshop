@@ -70,19 +70,19 @@ Maturity L3–L5.* Target ~6–7 activities, ~500–600 lines.
 
 1. **The apply-loop & the safe surface** — reversible policies vs code changes; why model selection is
    the first autonomous target.
-2. **Build the decision** — implement `classify_turn_tier` (trivial/routine/complex). *(The core code
+2. **Build the decision** — implement `classify_complexity_tier` (trivial/routine/complex). *(The core code
    exercise.)*
 3. **Apply & watch it route (Scenario A, L4/L5 autonomous)** — wire `get_supervisor_for_turn`; apply
    the model-selection policy from the **Console** (or REST); observe live tiering.
 4. **Verify from data** — per-tier cost (`--verify`); the reasoning-token caveat; cost per outcome.
-5. **A different risk level (Scenario B, L3 human-governed)** — the city-context prompt issue
-   (SCEN-001): detect → recommend → **staged/PR apply** (not auto-applied). Teaches the risk model by
+5. **A different risk level (Scenario B, L3 human-governed)** — the tool-call-dedup repeated-node prompt example
+   (SCEN-008): detect → recommend → **staged/PR apply** (not auto-applied). Teaches the risk model by
    contrast.
 6. **(Stretch)** Tier the itinerary **sub-agent** (the worker) — the higher-value production pattern.
 7. **(Capstone, L4/L5) Autonomous quality gate** — wire the Module 06 evaluator so an applied
    optimization **auto-reverts** if quality drops. This is the line between assisted and autonomous.
 
-**Learner builds:** `classify_turn_tier`, the enforcement hooks, the capstone gate. **Learner uses:**
+**Learner builds:** `classify_complexity_tier`, the enforcement hooks, the capstone gate. **Learner uses:**
 Console apply/revert, verify tool.
 
 ## 5. Learner-builds vs provided (summary)
@@ -90,7 +90,7 @@ Console apply/revert, verify tool.
 | Item | Module | Learner builds? |
 |---|---|---|
 | `record_optimization_turn` hook + router mount | 07 | ✅ small hook |
-| `classify_turn_tier` decision | 08 | ✅ the exercise |
+| `classify_complexity_tier` decision | 08 | ✅ the exercise |
 | `get_supervisor_for_turn` enforcement hook + factory | 08 | ✅ small hooks |
 | capstone quality gate (uses Module 06 eval) | 08 | ✅ wiring |
 | `optimization.py` engine + `optimization_api.py` | — | ❌ provided |
@@ -103,7 +103,7 @@ Console apply/revert, verify tool.
 
 1. **DONE:** `optimization.py`, `optimization_api.py`, Bicep (containers + gpt-5-nano/gpt-5.1),
    `--verify` container support.
-2. **Scenario B (SCEN-001, L3):** detect + recommend card + a *staged-apply* path (writes a proposed
+2. **Scenario B (SCEN-008, L3):** detect + recommend card + a *staged-apply* path (writes a proposed
    prompt change / PR stub rather than a runtime policy). Needed for Module 08 Activity 5.
 3. **Optimization Console** (provided web app, own port): read insights/cards from Cosmos + apply via
    REST. Small, framework-light (does **not** need to be Angular; a minimal static+fetch app is fine).
@@ -118,7 +118,7 @@ Console apply/revert, verify tool.
 | Scenario | Dimension | Maturity | Module | Role |
 |---|---|---|---|---|
 | SCEN-007 model selection | model selection / cost | L4/L5 autonomous | 08 | Scenario A (core) |
-| SCEN-001 city context | agent quality / prompt | L3 human-governed | 08 | Scenario B (risk contrast) |
+| SCEN-008 tool-call-dedup | agent quality / prompt | L3 human-governed | 08 | Scenario B (risk contrast) |
 | SCEN-003 cost per outcome | cost / business outcome | KPI | 07 | the measure/scoreboard |
 | (breadth, discussed) SCEN-004 memory retention | memory effectiveness | L4/L5 | 07/08 | optional 2nd autonomous example |
 
@@ -136,7 +136,7 @@ Console apply/revert, verify tool.
    a bare-bones throwaway). Own port, reads Cosmos insights, applies via REST. *(Confirmed.)*
 2. **Build sequence** — author both module docs first (they work via REST today), then Console, then
    Fabric/reverse-ETL. *(Confirmed.)*
-3. **Breadth** — v1 focuses on model-selection (Scenario A) + the SCEN-001 risk contrast (Scenario B);
+3. **Breadth** — v1 focuses on model-selection (Scenario A) + the SCEN-008 risk contrast (Scenario B);
    SCEN-004 (memory retention) noted as an optional extension. *(Confirmed.)*
 4. **Fabric dependency** — Modules 07/08 are completable **without** a Fabric workspace (REST + Console
    reading Cosmos directly); Fabric/Power BI are the optional "scale it out" layer. *(Confirmed.)*

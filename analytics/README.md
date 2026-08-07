@@ -22,7 +22,7 @@ The report (`TravelAssistantAnalyticsReport.pbix`) is imported into your Fabric 
 
 ## Data
 
-A pre-baked **golden dataset** (conversations, memories, trips, and the `OptimizationTurns` signal for the `analytics_demo` + `marvel` tenants) ships under `python/data/` and is loaded into Cosmos **offline, with no LLM calls** by `seed_data.py`, which `azd up` runs in its post-provision hook. A fresh `azd up` therefore gives you a fully-populated app and a working local **Optimization Console** immediately.
+A pre-baked **golden dataset** (conversations, memories, trips, and the `OptimizationTurns` signal for the `analytics` + `marvel` tenants) ships under `python/data/` and is loaded into Cosmos **offline, with no LLM calls** by `seed_data.py`, which `azd up` runs in its post-provision hook. A fresh `azd up` therefore gives you a fully-populated app and a working local **Optimization Console** immediately.
 
 Fabric analytics still require you to **configure Cosmos mirroring** (Module 09 / `Provision-Fabric.ps1`) so the seeded rows replicate into Fabric.
 

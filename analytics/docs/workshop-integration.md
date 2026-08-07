@@ -50,11 +50,11 @@ full rationale and the live verification.
 | `services/optimization_recommendations.py` | **new, plumbing** | Turns `Debug` signal into candidate cards (SCEN-007). Prices are labeled **estimates**; the measured verify is authoritative. |
 | `optimization_api.py` | **new, plumbing** | `/optimizations` REST surface: recommend, propose, apply, revert. |
 | `services/azure_open_ai.py` | modified, plumbing | `get_chat_model(deployment)` — cached per-deployment model factory; reasoning models (`gpt-5*`/o-series) omit `temperature`, use api `2025-04-01-preview`. |
-| `services/azure_cosmos_db.py` | modified, plumbing | `store_debug_log` records `model_tier` + `model_deployment`, and **`agent_path` + `handoff_count`** (the per-turn delegation path — the signal SCEN-005 agent-path cost and SCEN-008 redundant-tool detection mine). |
+| `services/azure_cosmos_db.py` | modified, plumbing | `store_debug_log` records `complexity_tier` + `model_deployment`, and **`agent_path` + `handoff_count`** (the per-turn delegation path — the signal SCEN-005 agent-path cost and SCEN-008 redundant-tool detection mine). |
 | `travel_agents_api.py` | modified, plumbing | Selects the tiered supervisor per turn; records tier/deployment **and computes `agent_path`/`handoff_count` from the turn's `transfer_to_` delegations** on the `Debug` log. |
-| `travel_agents.py` | modified, **decision + plumbing** | `classify_turn_tier` (**decision layer**) + `get_supervisor_for_turn`/`_build_supervisor` (plumbing: per-tier prebuilt supervisor). |
+| `travel_agents.py` | modified, **decision + plumbing** | `classify_complexity_tier` (**decision layer**) + `get_supervisor_for_turn`/`_build_supervisor` (plumbing: per-tier prebuilt supervisor). |
 | `analytics/optimization_mining.py` | modified | `--verify` per-tier token + estimated-cost report from `Debug`. |
-| `services/optimization_recommendations.py` (02) / `services/optimization.py` (01) | modified | Recommendation set expanded beyond SCEN-007 to **SCEN-001** (city-context, staged prompt fix), **SCEN-008** (redundant tool calls, staged), and the **SCEN-003** (cost-per-outcome/wasted-spend) + **SCEN-005** (agent-path cost) **diagnostic** panels (`apply_mode="diagnostic"`, no apply button — honest lenses, not toggles). |
+| `services/optimization_recommendations.py` (02) / `services/optimization.py` (01) | modified | Recommendation set expanded beyond SCEN-007 to **SCEN-008** (tool-call-dedup staged prompt example), and the **SCEN-003** (cost-per-outcome/wasted-spend) + **SCEN-005** (agent-path cost) **diagnostic** panels (`apply_mode="diagnostic"`, no apply button — honest lenses, not toggles). |
 | `services/configuration_store.py` + `data/seed_configuration.py` | **new** | Cosmos `Configuration` container (model pricing + selection defaults), seeded from the azd-deployed models; the app, the Fabric notebook, and the Power BI report all read it (see `model-pricing.md`). |
 
 > **Base-app change applied to BOTH trees (not just `02_completed`):** capturing `agent_path`/`handoff_count`
@@ -91,7 +91,7 @@ What the learner does vs. what's provided:
   `OptimizationTurns` Cosmos containers; `gpt-5-nano` + `gpt-5.1` model deployments. Per the workshop
   convention, anything Bicep-deployed is already in place — no manual `az` steps, no runtime
   container creation.
-- **Learner writes:** `classify_turn_tier` (the decision) + four small wiring hooks (mount the router,
+- **Learner writes:** `classify_complexity_tier` (the decision) + four small wiring hooks (mount the router,
   register a supervisor factory, swap to `get_supervisor_for_turn`, call `record_optimization_turn`) +
   the stretch (worker tiering) + the capstone (eval quality gate).
 
@@ -110,7 +110,7 @@ Learning objectives:
   memory/routing/**model-selection**/tool policies are lower-risk and can be autonomous (L4/L5).
 - **Detect** an optimization from your own captured data (run `optimization_mining.py`; read the
   SCEN-007 card: ~23% of turns are trivial (short greetings/acks) yet use the full model).
-- **Build the decision layer**: implement `classify_turn_tier` (trivial/routine/complex) — the
+- **Build the decision layer**: implement `classify_complexity_tier` (trivial/routine/complex) — the
   learner's judgment about what each tier means.
 - **Apply** the policy (one click via the dashboard / REST) and observe live per-turn model routing.
 - **Verify** the effect from data (`--verify` per-tier cost), and reason about **cost per successful
@@ -144,7 +144,7 @@ reversible, capability-tiered model selection) — an explicit capability learne
   `optimization_api.py` (REST). Self-contained — import only 01's existing `azure_open_ai` vars and
   `azure_cosmos_db.database`; **no self-provisioning** (Bicep owns the containers); no edits to any
   provided file. Compile-checked; all imported symbols verified present in 01.
-- **Learner exercise:** `classify_turn_tier` ships as a documented **stub** in `optimization.py`
+- **Learner exercise:** `classify_complexity_tier` ships as a documented **stub** in `optimization.py`
   (learner implements in Module 07, Activity 6), plus four small wiring hooks (Activity 4).
 - **Module doc:** `workshop/Module-07.md` rewritten for the additive flow (confirm Bicep tiers → tour
   the layer → wire the hooks → detect → implement classifier → apply → verify → stretch → capstone).
@@ -181,7 +181,7 @@ capable one), driven by data the app already captures (ADR-0007 `Debug` logs).
 
 **What it asks of the workshop:**
 - One **new module** ("Analytics & Optimization") after Observability, and a small **learner TODO**
-  (`classify_turn_tier`); everything else is pre-built/provided.
+  (`classify_complexity_tier`); everything else is pre-built/provided.
 - Two extra **model deployments** in the target environment (`gpt-5-nano`, `gpt-5.1`).
 - The four **open decisions** in §6 need an author/maintainer call before `01_exercises` is finalized.
 

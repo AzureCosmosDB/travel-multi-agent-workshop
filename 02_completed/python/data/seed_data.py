@@ -256,8 +256,12 @@ def seed_conversations(database) -> None:
 
     ``Debug`` / ``OptimizationTurns`` only exist when the analytics infra is deployed
     (deployAnalytics=true); missing containers are skipped with a note.
+
+    Node-grain (``NodeExecutions``, feeding the agent scorecard) is reconstructed from the
+    seeded OptimizationTurns — see ``seed_node_executions`` — so the scorecard has data offline.
     """
     print("\n💬 Seeding CONVERSATIONS + ANALYTICS SIGNAL (offline, no LLM)...")
+    opt_turns: List[Dict[str, Any]] = []
     for filename, container_name, label in (
         ("sessions.json", "Sessions", "sessions"),
         ("messages.json", "Messages", "messages"),
@@ -270,6 +274,7 @@ def seed_conversations(database) -> None:
             continue
         if filename == "optimization_turns.json":
             _rebase_turn_times(items)  # keep the report's time charts recent on every seed
+            opt_turns = items
         try:
             container = database.get_container_client(container_name)
             container.read()
@@ -278,6 +283,102 @@ def seed_conversations(database) -> None:
                   "(deploy analytics infra to seed it).")
             continue
         upload_items_concurrent(container, items, label)
+
+    # Reconstruct + seed per-agent node-grain from the same turns (agent scorecard signal).
+    seed_node_executions(database, opt_turns)
+
+
+# ============================================================================
+# Node-grain reconstruction (agent scorecard signal)
+# ============================================================================
+# The live app captures TRUE per-node token usage (travel_agents_api.py -> NodeExecutions),
+# but the committed OptimizationTurns seed predates that capture and stores only per-TURN
+# totals. To give the agent scorecard realistic data offline, we reconstruct node-grain from
+# each turn's agent_path: the turn's REAL input/output/cached totals are split across its
+# nodes by a per-agent profile so the node sums reconcile EXACTLY to the captured turn. The
+# totals are measured; only the per-node split is modeled — real traffic supersedes this with
+# the true split the app records at runtime.
+
+NODE_EXECUTIONS_CONTAINER = "NodeExecutions"
+
+# (input_weight, output_weight) per agent. Output weights are the mean output tokens from the
+# sanctioned node-grain distribution in engine/simulation/traffic.py (TOKEN_PROFILE); input
+# weights model each node's share of the turn's context (the itinerary node carries the most).
+_NODE_PROFILE = {
+    "supervisor": (1.0, 179.0),
+    "find_places": (1.1, 463.0),
+    "create_or_update_itinerary": (1.4, 2100.0),
+}
+_DEFAULT_NODE_PROFILE = (1.0, 300.0)
+
+
+def _split_int(total: Any, weights: List[float]) -> List[int]:
+    """Split integer ``total`` across ``weights`` proportionally and EXACTLY (residual to last)."""
+    total = int(total or 0)
+    wsum = sum(weights) or 1.0
+    parts = [int(total * w / wsum) for w in weights]
+    if parts:
+        parts[-1] += total - sum(parts)  # reconcile rounding so sum(parts) == total
+    return parts
+
+
+def build_node_execution_docs(turns: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """One NodeExecutions doc per turn holding the reconstructed per-agent executions.
+
+    Reconciles exactly to each turn's captured input/output/cached tokens (see note above).
+    Shape matches services/node_executions.py::store_node_executions so the app/scorecard read it.
+    """
+    docs: List[Dict[str, Any]] = []
+    for t in turns:
+        agents = [a.strip() for a in str(t.get("agent_path") or "").split(",") if a.strip()]
+        if not agents:
+            agents = ["supervisor"]  # every turn runs through the supervisor at minimum
+        in_w = [_NODE_PROFILE.get(a, _DEFAULT_NODE_PROFILE)[0] for a in agents]
+        out_w = [_NODE_PROFILE.get(a, _DEFAULT_NODE_PROFILE)[1] for a in agents]
+        ins = _split_int(t.get("input_tokens"), in_w)
+        outs = _split_int(t.get("output_tokens"), out_w)
+        cached = _split_int(t.get("cached_tokens"), in_w)
+        dep = t.get("model_deployment") or t.get("model_name") or "gpt-5.1"
+        name = t.get("model_name") or dep
+        nodes = [{
+            "seq": i, "agent": a, "model_deployment": dep, "model_name": name,
+            "input_tokens": ins[i], "output_tokens": outs[i], "cached_tokens": cached[i],
+            "tool_calls": 0, "recall_used": False,
+        } for i, a in enumerate(agents)]
+        turn_id = t.get("id") or f"{t.get('sessionId')}:{t.get('turn_epoch')}"
+        docs.append({
+            "id": f"nodeexec::{turn_id}",
+            "tenantId": t.get("tenantId", ""), "userId": t.get("userId", ""),
+            "sessionId": t.get("sessionId", ""), "turnId": turn_id, "debugLogId": None,
+            "nodeExecutions": nodes, "nodeCount": len(nodes),
+            "timeStamp": t.get("timeStamp"), "turn_epoch": t.get("turn_epoch"),
+        })
+    return docs
+
+
+def seed_node_executions(database, turns: List[Dict[str, Any]]) -> None:
+    """Reconstruct + seed per-agent node-grain into the NodeExecutions container.
+
+    Self-provisions the container (like services/node_executions.py) so it works even where
+    the analytics Bicep hasn't (re)deployed it yet. No-op when there are no turns to seed.
+    """
+    print("\n🧩 Seeding NODE EXECUTIONS (agent scorecard signal, reconstructed offline)...")
+    docs = build_node_execution_docs(turns)
+    if not docs:
+        print("   ⚠️  No node executions to seed (OptimizationTurns empty/absent)")
+        return
+    from azure.cosmos import PartitionKey
+    try:
+        container = database.create_container_if_not_exists(
+            id=NODE_EXECUTIONS_CONTAINER,
+            partition_key=PartitionKey(path=["/tenantId", "/userId", "/sessionId"], kind="MultiHash"),
+        )
+    except Exception as exc:  # noqa: BLE001
+        print(f"   ⚠️  Could not ensure NodeExecutions container: {exc}")
+        return
+    total_nodes = sum(d["nodeCount"] for d in docs)
+    print(f"   📊 {len(docs)} turns -> {total_nodes} node executions (reconciled to turn totals)")
+    upload_items_concurrent(container, docs, "node-execution turns")
 
 
 # ============================================================================

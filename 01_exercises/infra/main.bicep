@@ -79,6 +79,7 @@ module cosmos './shared/cosmosdb.bicep' = if (!deployGsi) {
     checkpointsContainerName: 'Checkpoints'
     optimizationPoliciesContainerName: 'OptimizationPolicies'
     optimizationTurnsContainerName: 'OptimizationTurns'
+    nodeExecutionsContainerName: 'NodeExecutions'
     optimizationInsightsContainerName: 'OptimizationInsights'
     deployAnalytics: deployAnalytics
   }
