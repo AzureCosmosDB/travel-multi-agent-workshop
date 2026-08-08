@@ -85,7 +85,12 @@ class ActionBody(BaseModel):
 
 @router.get("/policies")
 def list_policies() -> dict[str, Any]:
-    return {"policies": optimization_policy.list_policies()}
+    # `capabilities` lets the portal feature-detect optional server actions (e.g. the
+    # in-process insights recompute below, present on the completed solution) and hide
+    # controls the running API doesn't support — so the shared portal stays clean when
+    # served against the workshop scaffold.
+    return {"policies": optimization_policy.list_policies(),
+            "capabilities": {"recompute_insights": True, "reset_state": True}}
 
 
 # --- Fabric capacity control (pause/resume the analytics infra to stop the meter) ---
@@ -127,6 +132,35 @@ def refresh_demo_times(window_minutes: int = 120) -> dict[str, Any]:
         return demo_data.refresh_turn_times(window_minutes)
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=502, detail=f"Refresh demo times failed: {exc}")
+
+
+# --- In-process reverse-ETL: (re)build the OptimizationInsights snapshot, no Fabric ---
+@router.post("/insights")
+def recompute_insights(tenant: str = "analytics") -> dict[str, Any]:
+    """Recompute the ``OptimizationInsights`` snapshot for ``tenant`` in-process and upsert
+    it to Cosmos — the same reverse-ETL the Module-09 Fabric notebook performs, but computed
+    from Cosmos alone (no Fabric, mirror, or Spark). Populates the Business, Memory, and
+    Governance views, which read the snapshot. Mirrors analytics/fabric/compute_insights.py."""
+    try:
+        from src.app.services import optimization_insights
+        return optimization_insights.recompute_insights(tenant)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("insights recompute failed")
+        raise HTTPException(status_code=500, detail=f"Insights recompute failed: {exc}")
+
+
+# --- Reset the runtime optimization state (governance + insights) for a clean demo ---
+@router.post("/reset")
+def reset_optimization(tenant: Optional[str] = None) -> dict[str, Any]:
+    """Clear the runtime-accumulated optimization STATE — OptimizationGovernance (stale
+    approvals) + OptimizationInsights (stale reverse-ETL snapshot) — for a clean demo. Does
+    NOT touch raw turns or app data. Follow with POST /optimizations/insights to rebuild the
+    snapshot. Mirrors data/reset_optimization_state.py."""
+    try:
+        return demo_data.reset_optimization_state(tenant)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("optimization reset failed")
+        raise HTTPException(status_code=500, detail=f"Optimization reset failed: {exc}")
 
 
 @router.get("/{tenant_id}")

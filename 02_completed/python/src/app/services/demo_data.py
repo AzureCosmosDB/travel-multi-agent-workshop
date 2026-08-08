@@ -65,3 +65,56 @@ def refresh_turn_times(window_minutes: int = 120) -> dict[str, Any]:
 
     logger.info("refresh_turn_times: re-stamped %d turns into the last %d min", len(docs), window_minutes)
     return {"updated": len(docs), "window_minutes": window_minutes, "from": _iso(start), "to": _iso(now)}
+
+
+# --- Optimization-state reset (clear runtime-accumulated governance + insights) -------
+DEFAULT_RESET_TARGETS = ["OptimizationGovernance", "OptimizationInsights"]
+
+
+def _pk_paths(container) -> list[str]:
+    """The container's partition-key field names (e.g. ['tenantId'])."""
+    props = container.read()
+    pk = props.get("partitionKey", {}) or {}
+    return [p.lstrip("/") for p in pk.get("paths", [])]
+
+
+def _pk_value(doc: dict, paths: list[str]):
+    vals = [doc.get(p) for p in paths]
+    return vals[0] if len(vals) == 1 else vals
+
+
+def _clear_container(container, tenant: str | None) -> int:
+    paths = _pk_paths(container)
+    if tenant:
+        query = "SELECT * FROM c WHERE c.tenantId = @t"
+        params: Any = [{"name": "@t", "value": tenant}]
+    else:
+        query, params = "SELECT * FROM c", None
+    docs = list(container.query_items(query=query, parameters=params, enable_cross_partition_query=True))
+    deleted = 0
+    for d in docs:
+        container.delete_item(item=d["id"], partition_key=_pk_value(d, paths))
+        deleted += 1
+    return deleted
+
+
+def reset_optimization_state(tenant: str | None = None, containers: list[str] | None = None,
+                             db: Any = None) -> dict[str, Any]:
+    """Clear the runtime-accumulated optimization STATE containers (default:
+    ``OptimizationGovernance`` + ``OptimizationInsights``) for a clean demo — removing stale
+    approvals and a stale reverse-ETL snapshot so the portal shows a consistent picture again.
+    Does NOT touch raw turn telemetry (OptimizationTurns / NodeExecutions / Debug) or any app
+    data. Returns a per-container deleted-count summary."""
+    if db is None:
+        db = getattr(cosmos, "database", None)
+    if db is None:
+        raise RuntimeError("Cosmos database is not configured")
+    targets = containers or DEFAULT_RESET_TARGETS
+    cleared: dict[str, Any] = {}
+    for name in targets:
+        try:
+            cleared[name] = _clear_container(db.get_container_client(name), tenant)
+        except CosmosHttpResponseError as exc:
+            cleared[name] = f"error: {exc}"
+    logger.info("reset_optimization_state: cleared %s (tenant=%s)", cleared, tenant)
+    return {"tenant": tenant, "cleared": cleared}

@@ -35,6 +35,17 @@ button { background: var(--accent); color: #fff; border: 0; border-radius: 8px; 
   font-size: 13px; font-weight: 600; cursor: pointer; }
 button.ghost { background: transparent; border: 1px solid var(--line); color: var(--text); }
 button:hover { filter: brightness(1.08); }
+.tools { position: relative; display: inline-block; }
+.toolsmenu { position: absolute; right: 0; top: calc(100% + 6px); z-index: 40; width: 322px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 6px;
+  box-shadow: 0 12px 32px rgba(0,0,0,.5); }
+.toolshdr { color: var(--muted); font-size: 10.5px; text-transform: uppercase; letter-spacing: .5px; padding: 6px 10px 4px; }
+.toolitem { display: block; width: 100%; text-align: left; background: transparent; border: 0;
+  color: var(--text); padding: 8px 10px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; }
+.toolitem:hover { background: var(--panel2); filter: none; }
+.toolitem span { display: block; color: var(--muted); font-weight: 400; font-size: 11px; margin-top: 3px; line-height: 1.35; white-space: normal; }
+.toolitem.danger { color: #ff8f8f; }
+.toolitem.danger:hover { background: rgba(255,107,107,.12); }
 .status-pill { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; color: var(--muted);
   padding: 5px 11px; border-radius: 999px; border: 1px solid var(--line); background: var(--panel2); }
 .dot { width: 8px; height: 8px; border-radius: 999px; background: var(--muted); }
@@ -204,7 +215,21 @@ input[type=range] { width: 100%; accent-color: var(--accent); background: transp
     </select>
     <label><input type="checkbox" id="auto" /> auto</label>
     <button id="refresh">Refresh</button>
-    <button id="freshenTimes" title="Re-stamp captured turns into the last 2 hours so the Turns-by-minute timeline shows a current, dense trend. Timestamps only — KPIs/costs are unchanged. Uses the Live (recompute) source.">Freshen times</button>
+    <div class="tools">
+      <button id="toolsBtn" class="ghost" title="Demo maintenance">⚙</button>
+      <div id="toolsMenu" class="toolsmenu" hidden>
+        <div class="toolshdr">Demo tools</div>
+        <button id="recomputeInsights" class="toolitem" hidden>Recompute insights
+          <span>Rebuild the Business / Memory / Governance snapshot in-process — no Fabric needed.</span>
+        </button>
+        <button id="freshenTimes" class="toolitem">Freshen turn times
+          <span>Re-stamp captured turns into the last 2 hours so Turns-by-minute reads current. Timestamps only.</span>
+        </button>
+        <button id="resetState" class="toolitem danger" hidden>Reset optimization state
+          <span>Clear stale governance approvals + the insights snapshot. Raw turns &amp; app data are untouched.</span>
+        </button>
+      </div>
+    </div>
     <span class="status-pill"><span class="dot" id="statusDot"></span><span id="statusText">idle</span></span>
   </div>
 </header>
@@ -1024,6 +1049,7 @@ async function refresh() {
     fetchInto("agentPaths", `/optimizations/${t}/agent_paths`),
   ]);
   renderAll();
+  applyCapabilities();
   updateStatus();
   loading = false;
 }
@@ -1051,6 +1077,7 @@ $("diffCopy").addEventListener("click", async () => {
 document.addEventListener("keydown", (ev) => { if (ev.key === "Escape") closeDiff(); });
 async function freshenTimes() {
   const btn = $("freshenTimes");
+  toggleTools(false);
   btn.disabled = true;
   setStatus("load", "freshening turn times…");
   try {
@@ -1075,6 +1102,58 @@ $("refresh").addEventListener("click", refresh);
 $("freshenTimes").addEventListener("click", freshenTimes);
 $("tenant").addEventListener("change", refresh);
 $("source").addEventListener("change", refresh);
+
+/* ---------- demo tools (discreet gear menu) ---------- */
+function toggleTools(show) {
+  const m = $("toolsMenu"); if (!m) return;
+  m.hidden = (show === undefined) ? !m.hidden : !show;
+}
+// Feature-detect optional server actions from /policies so the menu items only appear
+// when the running API supports them (hidden against the 01_exercises workshop scaffold).
+function applyCapabilities() {
+  const caps = (state.policies && state.policies.data && state.policies.data.capabilities) || {};
+  if ($("recomputeInsights")) $("recomputeInsights").hidden = !caps.recompute_insights;
+  if ($("resetState")) $("resetState").hidden = !caps.reset_state;
+}
+async function recomputeInsights() {
+  const btn = $("recomputeInsights"); toggleTools(false); btn.disabled = true;
+  setStatus("load", "recomputing insights…");
+  try {
+    const res = await fetch(`${api()}/optimizations/insights?tenant=${encodeURIComponent(tenant())}`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+    });
+    const txt = await res.text();
+    if (!res.ok) throw new Error(`${res.status} — ${txt.slice(0, 200)}`);
+    let n = ""; try { const j = JSON.parse(txt); if (j.rows_written != null) n = ` · ${j.rows_written} rows`; } catch (e) {}
+    if ($("source")) $("source").value = "auto";  // the snapshot feeds the Reverse-ETL (notebook) source
+    toast(`Insights recomputed for ${tenant()}${n}. Business, Memory & Governance now read the snapshot.`);
+    await refresh();
+  } catch (e) {
+    toast(`Recompute failed: ${e.message}`, true); setStatus("err", "recompute failed");
+  } finally { btn.disabled = false; }
+}
+async function resetState() {
+  toggleTools(false);
+  if (!confirm("Reset optimization state?\n\nThis clears stale governance approvals and the insights snapshot (all tenants). Raw turns and app data are NOT touched. Recompute insights afterwards to repopulate.")) return;
+  const btn = $("resetState"); btn.disabled = true;
+  setStatus("load", "resetting optimization state…");
+  try {
+    const res = await fetch(`${api()}/optimizations/reset`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+    });
+    const txt = await res.text();
+    if (!res.ok) throw new Error(`${res.status} — ${txt.slice(0, 200)}`);
+    toast("Optimization state cleared. Recompute insights to repopulate Business / Memory / Governance.");
+    await refresh();
+  } catch (e) {
+    toast(`Reset failed: ${e.message}`, true); setStatus("err", "reset failed");
+  } finally { btn.disabled = false; }
+}
+$("toolsBtn") && $("toolsBtn").addEventListener("click", (e) => { e.stopPropagation(); toggleTools(); });
+$("toolsMenu") && $("toolsMenu").addEventListener("click", (e) => e.stopPropagation());
+document.addEventListener("click", () => toggleTools(false));
+$("recomputeInsights") && $("recomputeInsights").addEventListener("click", recomputeInsights);
+$("resetState") && $("resetState").addEventListener("click", resetState);
 let autoTimer = null;
 $("auto").addEventListener("change", (e) => {
   if (autoTimer) { clearInterval(autoTimer); autoTimer = null; }

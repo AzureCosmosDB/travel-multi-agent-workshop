@@ -14,8 +14,11 @@ consistent, current picture again:
 
 This does NOT touch the raw turn telemetry (``OptimizationTurns`` / ``NodeExecutions`` /
 ``Debug``) or any app data (Sessions / Messages / Trips / Users / Memories) — reseed those
-with ``data/seed_data.py`` + ``analytics/scripts/funnel_seed.py`` and freshen timestamps with the
-portal's *Freshen times* button (``POST /optimizations/demo/refresh-times``).
+with ``data/seed_data.py`` + ``analytics/scripts/funnel_seed.py``. The portal's **⚙ Demo tools**
+menu exposes the same operations as one-click actions: **Reset optimization state**
+(``POST /optimizations/reset`` — this script's in-app twin), **Recompute insights**
+(``POST /optimizations/insights`` — rebuild the snapshot with no Fabric), and **Freshen turn
+times** (``POST /optimizations/demo/refresh-times``).
 
 Usage (from the ``python`` dir, with the venv active and ``az login`` done):
 

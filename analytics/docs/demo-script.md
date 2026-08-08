@@ -141,6 +141,11 @@ You don't need a temporal before/after. You have two better devices:
    rows to `OptimizationInsights` (in the workshop, Module 09's Fabric notebook does this). The
    portal's **Business** tab (on **Source → Reverse-ETL (notebook)**) then lights up.
 
+   > **In-app alternative (no CLI, no Fabric).** The portal's **⚙ Demo tools** menu (top-right)
+   > does the same live: **Recompute insights** rebuilds the `OptimizationInsights` snapshot
+   > in-process, **Reset optimization state** clears stale governance/insights, and **Freshen
+   > turn times** re-stamps the turns so *Turns-by-minute* reads current.
+
 2. **Portal:** serve it with `python -m http.server 8060 --directory analytics\dashboard` and open
    <http://localhost:8060> (when deployed it's baked into the frontend at `/analytics/`). No API URL
    to configure. *(A Power BI report over the same mirror is auto-deployed by `Provision-Fabric.ps1`
