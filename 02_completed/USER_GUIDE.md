@@ -79,6 +79,28 @@ the completed `ConversionFunnelReverseETL` notebook, deploys the `optimization-a
 The **traffic simulator** (Acts 4/7) writes **straight to Cosmos** (`az login` + your deployment's
 `COSMOSDB_ENDPOINT`), so it drives the hosted demo from your machine with **no local servers running**.
 
+### Demo tools (the ⚙ menu) — drive the whole loop from the portal, no setup
+
+The Portal's **⚙** menu (top-right, next to **Refresh**) lets a reviewer run the entire
+optimization loop with **no CLI, no Fabric, no local servers** — everything computes in-process
+against Cosmos:
+
+| Action | What it does |
+|---|---|
+| **Generate traffic** | Writes a burst of synthetic turns. **Policy-aware:** a single premium model until you apply model-selection, then capability-tiered (nano/mini/premium) — this is how you *see the optimization take effect*. |
+| **Recompute insights** | Rebuilds the `OptimizationInsights` snapshot in-process, so **Business**, **Memory**, and **Governance** light up on **Source → Reverse-ETL (notebook)** without running the Fabric notebook. |
+| **Freshen turn times** | Re-stamps captured turns into the last 2 hours so **Turns-by-minute** reads current. Timestamps only — costs/KPIs unchanged. |
+| **Reset to baseline** | Clears governance + the insights snapshot **and** normalizes every turn back to the single-premium baseline (the clean "before-optimization" state). Tokens, the funnel, and app data are untouched. |
+
+**Reviewer quick loop (≈1 min, Dataset → `analytics`):**
+1. **⚙ → Reset to baseline** — Model Selection shows one model; the model-selection card reads *proposed*.
+2. **Optimizations** tab → **Apply** the *model-selection* card.
+3. **⚙ → Generate traffic** — the model-usage donut splits into nano / mini / premium.
+4. **⚙ → Recompute insights** — Business / Memory / Governance populate; **Governance** shows the measured saving.
+5. **Revert** on the card to show it return to baseline.
+
+*(The Acts below show the same loop via the CLI simulator + Fabric notebook — the "real" path. The ⚙ tools are the zero-setup equivalent for exploring the deployed site.)*
+
 ### Local (for development)
 
 Run the stack yourself — from `02_completed/`, in separate terminals:
@@ -142,6 +164,8 @@ Turns stream into Cosmos; in the Portal (Dataset → `analytics`, **Source → L
 **Refresh**) the **Overview** and **Model Selection** tabs update live. No optimization applied
 yet, so it runs the **single-model baseline**.
 
+*Zero-setup alternative: **⚙ → Generate traffic** in the Portal — same policy-aware burst, no CLI or `az login`.*
+
 ### Act 5 — Measure in Fabric *(the reverse-ETL loop)*
 Open the **`ConversionFunnelReverseETL`** notebook in your Fabric workspace (`TENANT =
 "analytics"`) and run the cells. It computes the **conversion funnel** and the **measured
@@ -149,6 +173,8 @@ saving** over the mirror and **reverse-ETLs** them to Cosmos `OptimizationInsigh
 the Portal, switch **Source → Reverse-ETL (notebook)** and **Refresh**: the **Business** and
 **Governance** tabs **light up** from the snapshot — you never touched a report. *Cosmos →
 Fabric → reverse-ETL → Cosmos → Travel API → Portal.*
+
+*Zero-setup alternative: **⚙ → Recompute insights** — the same snapshot, computed in-process with no Fabric run.*
 
 ### Act 6 — Apply an optimization
 - **From the Portal (recommended):** on the **Optimizations** tab, click **Apply** on the

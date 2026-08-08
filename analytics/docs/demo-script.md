@@ -142,9 +142,10 @@ You don't need a temporal before/after. You have two better devices:
    portal's **Business** tab (on **Source → Reverse-ETL (notebook)**) then lights up.
 
    > **In-app alternative (no CLI, no Fabric).** The portal's **⚙ Demo tools** menu (top-right)
-   > does the same live: **Recompute insights** rebuilds the `OptimizationInsights` snapshot
-   > in-process, **Reset optimization state** clears stale governance/insights, and **Freshen
-   > turn times** re-stamps the turns so *Turns-by-minute* reads current.
+   > runs the whole loop live: **Reset to baseline** (clear governance/insights + normalize turns
+   > to the single-premium before-state), **Generate traffic** (policy-aware — baseline until you
+   > apply model-selection, then tiered), **Recompute insights** (rebuild the snapshot in-process),
+   > and **Freshen turn times** (make *Turns-by-minute* current).
 
 2. **Portal:** serve it with `python -m http.server 8060 --directory analytics\dashboard` and open
    <http://localhost:8060> (when deployed it's baked into the frontend at `/analytics/`). No API URL
@@ -188,6 +189,7 @@ You don't need a temporal before/after. You have two better devices:
 ```powershell
 python analytics/scripts/traffic_simulator.py --tenant analytics --rate 120 --minutes 1
 ```
+*(Zero-setup alternative: **⚙ → Generate traffic** in the portal — same policy-aware burst, no CLI.)*
 > "Same workload profile as the baseline — but now that the policy is on, the simulator serves it
 > tiered. Watch the model-usage donut split into nano/mini/premium, trivial turns show up as their
 > own tier, and est cost per turn drops — with zero change to the user experience. The **Governance**

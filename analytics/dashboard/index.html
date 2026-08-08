@@ -219,14 +219,17 @@ input[type=range] { width: 100%; accent-color: var(--accent); background: transp
       <button id="toolsBtn" class="ghost" title="Demo maintenance">⚙</button>
       <div id="toolsMenu" class="toolsmenu" hidden>
         <div class="toolshdr">Demo tools</div>
+        <button id="generateTraffic" class="toolitem" hidden>Generate traffic
+          <span>Add a burst of synthetic turns — policy-aware: baseline until you apply model-selection, then tiered (nano/mini/premium).</span>
+        </button>
         <button id="recomputeInsights" class="toolitem" hidden>Recompute insights
           <span>Rebuild the Business / Memory / Governance snapshot in-process — no Fabric needed.</span>
         </button>
         <button id="freshenTimes" class="toolitem">Freshen turn times
           <span>Re-stamp captured turns into the last 2 hours so Turns-by-minute reads current. Timestamps only.</span>
         </button>
-        <button id="resetState" class="toolitem danger" hidden>Reset optimization state
-          <span>Clear stale governance approvals + the insights snapshot. Raw turns &amp; app data are untouched.</span>
+        <button id="resetState" class="toolitem danger" hidden>Reset to baseline
+          <span>Clear governance + insights AND normalize turns to the single-premium baseline. Tokens, funnel &amp; app data untouched.</span>
         </button>
       </div>
     </div>
@@ -1114,6 +1117,7 @@ function applyCapabilities() {
   const caps = (state.policies && state.policies.data && state.policies.data.capabilities) || {};
   if ($("recomputeInsights")) $("recomputeInsights").hidden = !caps.recompute_insights;
   if ($("resetState")) $("resetState").hidden = !caps.reset_state;
+  if ($("generateTraffic")) $("generateTraffic").hidden = !caps.generate_traffic;
 }
 async function recomputeInsights() {
   const btn = $("recomputeInsights"); toggleTools(false); btn.disabled = true;
@@ -1134,16 +1138,16 @@ async function recomputeInsights() {
 }
 async function resetState() {
   toggleTools(false);
-  if (!confirm("Reset optimization state?\n\nThis clears stale governance approvals and the insights snapshot (all tenants). Raw turns and app data are NOT touched. Recompute insights afterwards to repopulate.")) return;
+  if (!confirm("Reset to baseline?\n\nClears governance + the insights snapshot AND normalizes every turn back to the single-premium baseline (all tenants). Tokens, the funnel signal, and app data are NOT touched. Recompute insights afterwards to repopulate.")) return;
   const btn = $("resetState"); btn.disabled = true;
-  setStatus("load", "resetting optimization state…");
+  setStatus("load", "resetting to baseline…");
   try {
     const res = await fetch(`${api()}/optimizations/reset`, {
       method: "POST", headers: { "Content-Type": "application/json" },
     });
     const txt = await res.text();
     if (!res.ok) throw new Error(`${res.status} — ${txt.slice(0, 200)}`);
-    toast("Optimization state cleared. Recompute insights to repopulate Business / Memory / Governance.");
+    toast("Reset to baseline — governance/insights cleared and turns normalized to a single model. Recompute insights to repopulate Business / Memory / Governance.");
     await refresh();
   } catch (e) {
     toast(`Reset failed: ${e.message}`, true); setStatus("err", "reset failed");
@@ -1154,6 +1158,25 @@ $("toolsMenu") && $("toolsMenu").addEventListener("click", (e) => e.stopPropagat
 document.addEventListener("click", () => toggleTools(false));
 $("recomputeInsights") && $("recomputeInsights").addEventListener("click", recomputeInsights);
 $("resetState") && $("resetState").addEventListener("click", resetState);
+async function generateTraffic() {
+  const btn = $("generateTraffic"); toggleTools(false); btn.disabled = true;
+  setStatus("load", "generating traffic…");
+  try {
+    const res = await fetch(`${api()}/optimizations/traffic?tenant=${encodeURIComponent(tenant())}&count=150&minutes=5`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+    });
+    const txt = await res.text();
+    if (!res.ok) throw new Error(`${res.status} — ${txt.slice(0, 200)}`);
+    let mode = "", n = ""; try { const j = JSON.parse(txt); if (j.mode) mode = j.mode; if (j.generated != null) n = ` · ${j.generated} turns`; } catch (e) {}
+    if ($("source")) $("source").value = "live";
+    const hint = mode === "tiered" ? "Model mix is now tiered (nano/mini/premium)." : "Baseline single model — apply model-selection, then generate again to see tiering.";
+    toast(`Generated traffic${n} (${mode}). ${hint} Watch the Model Selection tab.`);
+    await refresh();
+  } catch (e) {
+    toast(`Generate failed: ${e.message}`, true); setStatus("err", "generate failed");
+  } finally { btn.disabled = false; }
+}
+$("generateTraffic") && $("generateTraffic").addEventListener("click", generateTraffic);
 let autoTimer = null;
 $("auto").addEventListener("change", (e) => {
   if (autoTimer) { clearInterval(autoTimer); autoTimer = null; }

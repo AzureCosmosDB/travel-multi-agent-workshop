@@ -90,7 +90,7 @@ def list_policies() -> dict[str, Any]:
     # controls the running API doesn't support — so the shared portal stays clean when
     # served against the workshop scaffold.
     return {"policies": optimization_policy.list_policies(),
-            "capabilities": {"recompute_insights": True, "reset_state": True}}
+            "capabilities": {"recompute_insights": True, "reset_state": True, "generate_traffic": True}}
 
 
 # --- Fabric capacity control (pause/resume the analytics infra to stop the meter) ---
@@ -152,15 +152,33 @@ def recompute_insights(tenant: str = "analytics") -> dict[str, Any]:
 # --- Reset the runtime optimization state (governance + insights) for a clean demo ---
 @router.post("/reset")
 def reset_optimization(tenant: Optional[str] = None) -> dict[str, Any]:
-    """Clear the runtime-accumulated optimization STATE — OptimizationGovernance (stale
-    approvals) + OptimizationInsights (stale reverse-ETL snapshot) — for a clean demo. Does
-    NOT touch raw turns or app data. Follow with POST /optimizations/insights to rebuild the
-    snapshot. Mirrors data/reset_optimization_state.py."""
+    """Reset the demo to a clean 'before-optimization' state: clear runtime state —
+    OptimizationGovernance (stale approvals) + OptimizationInsights (stale snapshot) — AND
+    normalize every captured turn back to the single-premium baseline (so the model donut shows
+    one model and 'apply model-selection -> tier' reads as a clean before/after). Does NOT touch
+    tokens, the funnel signal, or app data. Follow with POST /optimizations/insights to rebuild
+    the snapshot."""
     try:
-        return demo_data.reset_optimization_state(tenant)
+        cleared = demo_data.reset_optimization_state(tenant)
+        baseline = demo_data.restore_baseline_turns(tenant)
+        return {**cleared, "baseline": baseline}
     except Exception as exc:  # noqa: BLE001
         logger.exception("optimization reset failed")
         raise HTTPException(status_code=500, detail=f"Optimization reset failed: {exc}")
+
+
+# --- Generate synthetic traffic (policy-aware) to drive the apply -> re-measure loop ---
+@router.post("/traffic")
+def generate_demo_traffic(tenant: str = "analytics", count: int = 150, minutes: int = 5) -> dict[str, Any]:
+    """Write a burst of synthetic turns (policy-aware: baseline single-model until model-selection
+    is applied, capability-tiered once active) into the last ``minutes``, dual-writing Debug +
+    OptimizationTurns so every live view reflects it. In-process equivalent of
+    analytics/scripts/traffic_simulator.py --mode direct."""
+    try:
+        return demo_data.generate_traffic(tenant, count=count, minutes=minutes)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("traffic generation failed")
+        raise HTTPException(status_code=500, detail=f"Traffic generation failed: {exc}")
 
 
 @router.get("/{tenant_id}")

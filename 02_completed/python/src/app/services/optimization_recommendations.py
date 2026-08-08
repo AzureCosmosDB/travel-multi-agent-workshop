@@ -1064,6 +1064,17 @@ def _price_for(pricing: dict[str, dict[str, float]], deployment: str) -> tuple[f
     return float(default["input"]), float(default["output"])
 
 
+def _canonical_model(name: str) -> str:
+    """Collapse a versioned model name (e.g. ``gpt-5.1-2025-11-13``) to its deployment label
+    (``gpt-5.1``) so the same model isn't split across two donut slices — some turns carry the
+    deployment (``model_deployment``), others only the dated ``model_name``."""
+    n = name or "Unknown"
+    parts = n.rsplit("-", 3)  # a trailing -YYYY-MM-DD, if present
+    if len(parts) == 4 and all(p.isdigit() for p in parts[1:]):
+        return parts[0]
+    return n
+
+
 def build_turn_metrics(tenant_id: str) -> dict[str, Any]:
     """Aggregate the captured turns into the KPIs the Console displays."""
     dbg = _query_debug(tenant_id)
@@ -1088,7 +1099,7 @@ def build_turn_metrics(tenant_id: str) -> dict[str, Any]:
         tier = b.get("complexity_tier") or b.get("model_tier") or "default"
         if tier == "trivial":
             trivial += 1
-        dep = b.get("model_deployment") or b.get("model_name", "Unknown")
+        dep = _canonical_model(b.get("model_deployment") or b.get("model_name", "Unknown"))
         models[dep] = models.get(dep, 0) + 1
         pin, pout = _price_for(pricing, dep)
         cost = (i * pin + o * pout) / 1_000_000
