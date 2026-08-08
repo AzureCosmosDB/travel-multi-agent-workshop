@@ -63,7 +63,7 @@ Two things to internalize:
 
 You will create the Fabric workspace, the Cosmos mirror, and upload this module's notebook using a single PowerShell script. It reads your deployment settings from your `azd` environment automatically, so you only supply a workspace name and — for one unavoidable portal step — a connection id.
 
-> **⏱️ First, start a live traffic stream — so the portal has data by the time you switch sources.** Provisioning and the mirror's first sync take a few minutes; rather than run traffic *then* wait, start it **now** in a **separate terminal** and leave it running while you work through this module. It streams turns straight into Cosmos, so by **Activity 5** the mirror and notebook snapshot have plenty to show. From the **`analytics`** folder:
+> **⏱️ First, start a live traffic stream — so the portal has data by the time you switch sources.** Provisioning and the mirror's first sync take a few minutes; rather than run traffic *then* wait, start it **now** in a **separate terminal** and leave it running while you work through this module. It streams turns straight into Cosmos, so by **Activity 5** the mirror and notebook snapshot have plenty to show. From the **`analytics/scripts`** folder:
 >
 > ```powershell
 > .\Run-TrafficSimulator.ps1 -Tenant analytics -Forever
@@ -341,7 +341,7 @@ The optional **Applied Optimizations** report page lists every policy and its st
 > **Do this in the Power BI *Service* (edit in the browser), not Desktop.** The report is already in your workspace (auto-deployed in Activity 2), so just open it → **Edit**. The data-function button config UI appears reliably only in the Service, and the button only fires there anyway.
 
 1. In the Power BI **Service**, open the published report → **Edit**.
-2. On the report's **Applied Optimizations** page, add an **Apply** button: **Insert → Button**, then **Format → Action → Type = Data function** and fill all three dropdowns — your **workspace** → **function set** `optimization-apply-loop` → **data function** `apply_optimization`. There is no static-value option: create a measure `Apply Scenario = "model-selection"` and bind the `scenario` parameter to it via the **`fx`** button (leave `by` unmapped). (Full steps: `analytics/PowerBI_Optimization_Build_Guide.md`, Page 8.)
+2. On the report's **Applied Optimizations** page, add an **Apply** button: **Insert → Button**, then **Format → Action → Type = Data function** and fill all three dropdowns — your **workspace** → **function set** `optimization-apply-loop` → **data function** `apply_optimization`. There is no static-value option: create a measure `Apply Scenario = "model-selection"` and bind the `scenario` parameter to it via the **`fx`** button (leave `by` unmapped). (Full steps: `analytics/powerbi/PowerBI_Optimization_Build_Guide.md`, Page 8.)
 3. Duplicate it for **Revert** → the **`revert_optimization`** function.
 4. Because you left `model-selection` **active** at the end of [Module 08](./Module-08.md), start with **Revert** to see the flip: the UDF rolls the `OptimizationPolicies` doc back and the agent returns to the single `gpt-5.1` model on its **next turn**. Then click **Apply** — the doc flips to `status=active` and the running agent honors capability-tiered model selection again on its next turn. Both are safe, reversible policy flips, never a code change.
 

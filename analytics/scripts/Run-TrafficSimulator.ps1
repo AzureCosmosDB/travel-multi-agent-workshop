@@ -7,7 +7,7 @@
 .DESCRIPTION
     Auto-detects your deployed workshop folder + its virtual environment, reads the
     Cosmos endpoint from your `azd` environment, prompts for the tenant and rate, then
-    runs analytics/traffic_simulator.py under the venv. Ctrl+C to stop.
+    runs analytics/scripts/traffic_simulator.py under the venv. Ctrl+C to stop.
 
 .PARAMETER Tenant
     Tenant to write the live turns under. Prompted (default `analytics`) when omitted.
@@ -66,7 +66,7 @@ if (-not (Test-Path $simPy)) {
 
 # --- Resolve the deployed workshop tree (holds .azure + the venv) -------------
 if (-not $WorkshopRoot) {
-    $repoRoot = Resolve-Path (Join-Path $scriptDir '..')
+    $repoRoot = Resolve-Path (Join-Path $scriptDir '..\..')
     $candidates = @('02_completed', '01_exercises') |
         ForEach-Object { Join-Path $repoRoot $_ } |
         Where-Object { Test-Path (Join-Path $_ '.azure') }

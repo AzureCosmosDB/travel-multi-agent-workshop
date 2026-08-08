@@ -132,7 +132,7 @@ premium model still serving every turn. *(An optional Power BI report over the s
 shows the same baseline — see Module 09 — but the Portal is the recommended surface.)*
 
 ### Act 4 — Generate live traffic *(the simulator)*
-Make the numbers move. From `analytics/`:
+Make the numbers move. From `analytics/scripts/`:
 
 ```powershell
 .\Run-TrafficSimulator.ps1 -Tenant analytics -Rate 120 -Minutes 10

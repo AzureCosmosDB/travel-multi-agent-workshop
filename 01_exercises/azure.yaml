@@ -201,7 +201,7 @@ hooks:
         if [ "$DEPLOY_ANALYTICS" != "false" ]; then
           echo ""
           echo "Seeding the Module 09 analytics dataset..."
-          python ../../analytics/funnel_seed.py
+          python ../../analytics/scripts/funnel_seed.py
         fi
 
         # If GSI mode is enabled, seed 25K trips and manage throughput
@@ -317,7 +317,7 @@ hooks:
             if ($deployAnalytics -ne "false") {
                 Write-Host ""
                 Write-Host "Seeding the Module 09 analytics dataset..."
-                python ..\..\analytics\funnel_seed.py
+                python ..\..\analytics\scripts\funnel_seed.py
             }
 
             # If GSI mode is enabled, seed 25K trips and manage throughput

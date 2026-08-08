@@ -1,6 +1,6 @@
 # Power BI Report Build Guide
 
-> **You usually don't need this guide.** The finished report (`analytics/TravelAssistantAnalyticsReport.pbix`) is **auto-deployed to your Fabric workspace** by `Provision-Fabric.ps1` (Phase 3), already pointed at your mirror — attendees never open Power BI Desktop. This guide is for **maintainers** who want to **rebuild or customize** that report.
+> **You usually don't need this guide.** The finished report (`analytics/powerbi/TravelAssistantAnalyticsReport.pbix`) is **auto-deployed to your Fabric workspace** by `Provision-Fabric.ps1` (Phase 3), already pointed at your mirror — attendees never open Power BI Desktop. This guide is for **maintainers** who want to **rebuild or customize** that report.
 
 Build the full **Travel Assistant Analytics** report in Power BI Desktop against your **Fabric mirrored database**. The report is organized as the **optimization loop**, not a pile of charts: a **Portfolio Overview** and a **Discovered Optimizations** card gallery lead (*what happened → what to do next*), a **Model Selection Projected Impact** page sizes the payoff, four **dimension deep‑dives** (Model Selection, Memory Intelligence, Agent Collaboration, Business Impact) carry the detail, and a **Governance & Measured Saving** page closes the loop (*apply → re‑measure*). It produces the committed **`.pbix`** the provisioning imports (the script overrides its `MirrorSQLEndpoint` / `MirrorDatabase` parameters per deployment).
 
@@ -56,9 +56,9 @@ To find the SQL analytics endpoint:
 
 The report ships with a Power BI theme that matches the **Optimization Console** exactly — same dark navy canvas, panel cards, borders, text, and the accent-blue → mint → gold → green → red palette (badges, KPI sentiment). Applying it **first** means every visual you add adopts the look automatically.
 
-**File:** `analytics/PowerBI_Console_Theme.json`
+**File:** `analytics/powerbi/PowerBI_Console_Theme.json`
 
-- **Power BI Desktop:** **View** ribbon → **Themes** (gallery dropdown) → **Browse for themes** → select `analytics\PowerBI_Console_Theme.json`.
+- **Power BI Desktop:** **View** ribbon → **Themes** (gallery dropdown) → **Browse for themes** → select `analytics\powerbi\PowerBI_Console_Theme.json`.
 - **Power BI Service (browser Edit):** open the report → **Edit** → **View** → **Theme** → **Browse for themes** → same file. (Use this path if Desktop is unavailable.)
 
 After importing:
@@ -959,9 +959,9 @@ See `analytics/fabric/udf/README.md` for the UDF details. This is the translytic
 ## Step 5: Save and Export
 
 ### Save as .pbix (the shipped artifact)
-**File** → **Save As** → **`TravelAssistantAnalyticsReport.pbix`** into **`analytics/`** so it ships with the repo. This is the file `Provision-Fabric.ps1` imports; because it's **DirectQuery** it carries no data and stays small. Whatever `MirrorSQLEndpoint` / `MirrorDatabase` values are baked in don't matter — the provisioning **overrides them per deployment**.
+**File** → **Save As** → **`TravelAssistantAnalyticsReport.pbix`** into **`analytics/powerbi/`** so it ships with the repo. This is the file `Provision-Fabric.ps1` imports; because it's **DirectQuery** it carries no data and stays small. Whatever `MirrorSQLEndpoint` / `MirrorDatabase` values are baked in don't matter — the provisioning **overrides them per deployment**.
 
-> **Committing:** `*.pbix` is git-ignored except this one file (see the `.gitignore` exception). Run `git add analytics/TravelAssistantAnalyticsReport.pbix` and commit.
+> **Committing:** `*.pbix` is git-ignored except this one file (see the `.gitignore` exception). Run `git add analytics/powerbi/TravelAssistantAnalyticsReport.pbix` and commit.
 
 Need a `.pbit` template later (e.g. for someone to open in Desktop)? Export one on demand with **File → Export → Power BI template**, or headless via `pbi-tools compile -format PBIT` — the repo ships the `.pbix` only.
 

@@ -688,7 +688,7 @@ def import_report(tok: Tokens, ws_id: str, report_path: str, sql_endpoint: str, 
     the report needs no Power BI Desktop. Skips cleanly if the artifact isn't present yet."""
     if not report_path or not os.path.exists(report_path):
         log(f"report artifact not found at {report_path}; skipping import "
-            f"(save analytics/TravelAssistantAnalyticsReport.pbix first)")
+            f"(save analytics/powerbi/TravelAssistantAnalyticsReport.pbix first)")
         return
     hdr = {"Authorization": f"Bearer {tok.get(PBI_SCOPE)}"}
     name = os.path.splitext(os.path.basename(report_path))[0]
@@ -860,8 +860,8 @@ def main() -> None:
                         "(use for 02_completed / the demo)")
     p.add_argument("--report",
                    default=os.path.join(os.path.dirname(os.path.dirname(__file__)),
-                                        "TravelAssistantAnalyticsReport.pbix"),
-                   help="report artifact to import (default: analytics/"
+                                        "powerbi", "TravelAssistantAnalyticsReport.pbix"),
+                   help="report artifact to import (default: analytics/powerbi/"
                         "TravelAssistantAnalyticsReport.pbix)")
     p.add_argument("--pbit", help="(deprecated) alias for --report")
     p.add_argument("--phase", choices=["1", "2", "3", "report", "all"], default="all",

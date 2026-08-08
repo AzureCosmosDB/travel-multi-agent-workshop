@@ -320,7 +320,7 @@ You need a terminal with the **virtual environment active** (the script talks to
 cd ..
 
 # per-complexity-tier cost breakdown from the turns you captured
-python analytics/optimization_mining.py --tenant marvel --verify
+python analytics/scripts/optimization_mining.py --tenant marvel --verify
 ```
 
 Use `--tenant marvel` for *your* traffic (or `--tenant analytics` for the at-scale dataset). The `--verify` report groups your captured turns **by complexity tier** and prints turns, tokens, and **estimated cost** per tier, with a grand total:

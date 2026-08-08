@@ -199,7 +199,7 @@ Add `azure-identity` in Library Management for option (b).
 
 ## Verify end-to-end (the money shot)
 
-1. Start the app + a policy-aware simulator: `Run-TrafficSimulator.ps1 -Tenant analytics -Forever`
+1. Start the app + a policy-aware simulator: `analytics/scripts/Run-TrafficSimulator.ps1 -Tenant analytics -Forever`
    (baseline single-model until applied).
 2. Apply **model-selection** — from the **Optimization Console** (reliable), or the Power BI
    **Apply** button if translytical task flows are enabled → the policy flips in Cosmos.

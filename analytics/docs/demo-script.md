@@ -132,7 +132,7 @@ You don't need a temporal before/after. You have two better devices:
 
 1. **Build the analytics dataset** (the at-scale + business-impact story):
    ```powershell
-   python analytics/funnel_seed.py
+   python analytics/scripts/funnel_seed.py
    # populate OptimizationInsights so the portal's Business tab (Reverse-ETL source) has data:
    python analytics/fabric/compute_insights.py --tenant analytics
    ```
@@ -181,7 +181,7 @@ You don't need a temporal before/after. You have two better devices:
 *Do:* with the policy now applied, run a short burst of the traffic simulator on `analytics`, then
 **Refresh** the portal:
 ```powershell
-python analytics/traffic_simulator.py --tenant analytics --rate 120 --minutes 1
+python analytics/scripts/traffic_simulator.py --tenant analytics --rate 120 --minutes 1
 ```
 > "Same workload profile as the baseline — but now that the policy is on, the simulator serves it
 > tiered. Watch the model-usage donut split into nano/mini/premium, trivial turns show up as their
@@ -235,10 +235,10 @@ synthetic stream.
 
 ```powershell
 # hosted app (web URL + /api; the API container app is internal-only):
-python analytics/traffic_simulator.py --mode app --tenant analytics --rate 10 --minutes 1 --endpoint https://<web-app>.azurecontainerapps.io/api
+python analytics/scripts/traffic_simulator.py --mode app --tenant analytics --rate 10 --minutes 1 --endpoint https://<web-app>.azurecontainerapps.io/api
 
 # local dev app:
-python analytics/traffic_simulator.py --mode app --tenant analytics --rate 10 --minutes 1
+python analytics/scripts/traffic_simulator.py --mode app --tenant analytics --rate 10 --minutes 1
 ```
 
 `--mode app` posts a realistic tier mix to the completion endpoint (real model calls). On

@@ -26,8 +26,8 @@ The policy is re-checked every ~10s, so applying/reverting it mid-run visibly
 changes the stream. Override with --assume {auto,baseline,tiered}.
 
 Usage (repo root, Cosmos access via DefaultAzureCredential):
-  python analytics/traffic_simulator.py --tenant analytics --rate 60 --minutes 10
-  python analytics/traffic_simulator.py --tenant analytics --forever --rate 120
+  python analytics/scripts/traffic_simulator.py --tenant analytics --rate 60 --minutes 10
+  python analytics/scripts/traffic_simulator.py --tenant analytics --forever --rate 120
 """
 from __future__ import annotations
 
@@ -48,7 +48,7 @@ load_dotenv  # noqa: B018  (imported above; env resolution happens below)
 # Resolve the deployed Cosmos endpoint. Priority: an already-set COSMOSDB_ENDPOINT
 # (e.g. exported by azd during a hook) > a .env in the current directory (the deployed
 # tree's python/ dir) > the known workshop trees.
-_repo_root = Path(__file__).resolve().parents[1]
+_repo_root = Path(__file__).resolve().parents[2]
 if not os.environ.get("COSMOSDB_ENDPOINT"):
     _env_candidates = [Path.cwd() / ".env"]
     _env_candidates += [_repo_root / _tree / "python" / ".env" for _tree in ("01_exercises", "02_completed")]

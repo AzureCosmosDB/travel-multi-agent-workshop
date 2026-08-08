@@ -14,7 +14,7 @@ consistent, current picture again:
 
 This does NOT touch the raw turn telemetry (``OptimizationTurns`` / ``NodeExecutions`` /
 ``Debug``) or any app data (Sessions / Messages / Trips / Users / Memories) — reseed those
-with ``data/seed_data.py`` + ``analytics/funnel_seed.py`` and freshen timestamps with the
+with ``data/seed_data.py`` + ``analytics/scripts/funnel_seed.py`` and freshen timestamps with the
 portal's *Freshen times* button (``POST /optimizations/demo/refresh-times``).
 
 Usage (from the ``python`` dir, with the venv active and ``az login`` done):

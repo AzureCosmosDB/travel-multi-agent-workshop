@@ -87,7 +87,7 @@ deployment. Idempotent.
 | Network trust | none needed for public accounts | ✅ |
 | Mirror | `POST /v1/workspaces/{id}/mirroredDatabases` (source CosmosDb → connection + database, `mountedTables`) + `/startMirroring` | ✅ `TravelAssistantV2Analytics` (`debe9a19-…`) replicating |
 | Reverse-ETL notebook | `POST /v1/workspaces/{id}/notebooks` + `updateDefinition` + `jobs/instances?jobType=RunNotebook` | ⏳ uploaded; read method being finalized (see below) |
-| Traffic simulator | `analytics/traffic_simulator.py` | ✅ proven: 83 turns → mirror in ~60s |
+| Traffic simulator | `analytics/scripts/traffic_simulator.py` | ✅ proven: 83 turns → mirror in ~60s |
 
 ### RBAC (az)
 
@@ -161,7 +161,7 @@ Cosmos workload" story live:
      with no dataset refresh.
 2. Start the traffic simulator:
    ```powershell
-   python analytics/traffic_simulator.py --tenant analytics --rate 120 --forever
+   python analytics/scripts/traffic_simulator.py --tenant analytics --rate 120 --forever
    ```
 3. Watch: simulator → Cosmos (transactional) → mirror (~seconds) → Power BI visuals move. **Verified:**
    83 simulated turns appeared in the mirror within ~60s.
@@ -176,9 +176,9 @@ Cosmos workload" story live:
   `POST /v1.0/myorg/groups/{id}/datasets/{ds}/executeQueries` (DAX) → **88 turns, 48.9% trivial,
   $0.49 est cost, 8 confirmed trips, $0.061 cost/outcome** (including simulated turns) — i.e. it reads
   the mirror in near-real-time with no dataset refresh.
-- **Report visuals + attendee-usability test** — the committed **`analytics/TravelAssistantAnalyticsReport.pbix`**
+- **Report visuals + attendee-usability test** — the committed **`analytics/powerbi/TravelAssistantAnalyticsReport.pbix`**
   is auto-imported by `Provision-Fabric.ps1`; to rebuild/customize it, use DirectQuery over the mirror per
-  [`../PowerBI_Optimization_Build_Guide.md`](../PowerBI_Optimization_Build_Guide.md) and **Save As** the `.pbix`.
+  [`../powerbi/PowerBI_Optimization_Build_Guide.md`](../powerbi/PowerBI_Optimization_Build_Guide.md) and **Save As** the `.pbix`.
 
 ## IDs (dev)
 

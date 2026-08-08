@@ -40,7 +40,7 @@ Before you begin, ensure you have:
 - [Azure Developer CLI (azd)](https://learn.microsoft.com/azure/developer/azure-developer-cli/install-azd) installed
 - [Python 3.11 or higher](https://www.python.org/downloads/) installed
 - [Node.js 18 or higher](https://nodejs.org/en/download/) installed
-- **Power BI Desktop** — **not required.** The web analytics portal is the recommended optimization surface. Module 09 also auto-deploys an optional Power BI report to your Fabric workspace; Desktop is only needed if you want to *rebuild or customize* that optional report (see [`analytics/PowerBI_Optimization_Build_Guide.md`](../../analytics/PowerBI_Optimization_Build_Guide.md)).
+- **Power BI Desktop** — **not required.** The web analytics portal is the recommended optimization surface. Module 09 also auto-deploys an optional Power BI report to your Fabric workspace; Desktop is only needed if you want to *rebuild or customize* that optional report (see [`analytics/powerbi/PowerBI_Optimization_Build_Guide.md`](../../analytics/powerbi/PowerBI_Optimization_Build_Guide.md)).
 
 ### Step 1: Get the repository and Navigate to the Workshop Directory
 

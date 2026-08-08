@@ -29,8 +29,8 @@ Deterministic (fixed seed) and idempotent (stable ids). Turns land in
 OptimizationTurns/Debug/Messages/Trips.
 
 Usage (repo root; Cosmos via DefaultAzureCredential):
-  python analytics/funnel_seed.py                 # ~120 sessions
-  python analytics/funnel_seed.py --sessions 200
+  python analytics/scripts/funnel_seed.py                 # ~120 sessions
+  python analytics/scripts/funnel_seed.py --sessions 200
 """
 from __future__ import annotations
 
@@ -57,7 +57,7 @@ load_dotenv  # noqa: B018  (imported above; env resolution happens below)
 # Resolve the deployed Cosmos endpoint. Priority: an already-set COSMOSDB_ENDPOINT
 # (e.g. exported by azd during a hook) > a .env in the current directory (the deployed
 # tree's python/ dir, where azd postprovision runs) > the known workshop trees.
-_repo_root = Path(__file__).resolve().parents[1]
+_repo_root = Path(__file__).resolve().parents[2]
 if not os.environ.get("COSMOSDB_ENDPOINT"):
     _env_candidates = [Path.cwd() / ".env"]
     _env_candidates += [_repo_root / _tree / "python" / ".env" for _tree in ("01_exercises", "02_completed")]

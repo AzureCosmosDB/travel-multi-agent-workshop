@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-07-31
 - **Deciders:** Mark Brown (@markjbrown), with agent analysis
-- **Related:** `../vision/agent-analytics-and-optimization-vision.md`, `../solution-architecture-guide.md`, `adr-0001-optimization-loop-surface-architecture.md`, `adr-0008-optimization-apply-loop-model-selection.md`, `../../PowerBI_Optimization_Build_Guide.md`
+- **Related:** `../vision/agent-analytics-and-optimization-vision.md`, `../solution-architecture-guide.md`, `adr-0001-optimization-loop-surface-architecture.md`, `adr-0008-optimization-apply-loop-model-selection.md`, `../../powerbi/PowerBI_Optimization_Build_Guide.md`
 
 ## Context
 
@@ -156,5 +156,5 @@ wired scenarios as **dimension-tagged worked examples**. Phase the work:
 - `analytics/docs/solution-architecture-guide.md` (+ scenario catalog)
 - `analytics/docs/adr/adr-0001-optimization-loop-surface-architecture.md`
 - `analytics/docs/adr/adr-0008-optimization-apply-loop-model-selection.md`
-- `analytics/PowerBI_Optimization_Build_Guide.md`
+- `analytics/powerbi/PowerBI_Optimization_Build_Guide.md`
 - `01_exercises/workshop/Module-07.md` (the 8 dimensions / maturity / risk models)

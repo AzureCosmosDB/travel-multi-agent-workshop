@@ -11,9 +11,9 @@ Prereqs: the MCP server (:8080) and Travel API (:8000) must be running against
 the target Cosmos database.
 
 Usage:
-    python analytics/marvel_seed.py                      # default http://localhost:8000
-    python analytics/marvel_seed.py --base-url http://...:8000
-    python analytics/marvel_seed.py --dry-run            # print plan only
+    python analytics/scripts/marvel_seed.py                      # default http://localhost:8000
+    python analytics/scripts/marvel_seed.py --base-url http://...:8000
+    python analytics/scripts/marvel_seed.py --dry-run            # print plan only
 """
 
 import argparse

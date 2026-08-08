@@ -83,7 +83,7 @@ Implement Option A + A. Specifically:
   `model_deployment` on the Debug turn log.
 - `services/optimization_recommendations.py` + `optimization_api.py` — `/optimizations` REST surface
   (recommend card, propose/apply/revert). Prices are labeled **estimates**.
-- `analytics/optimization_mining.py --verify` — per-tier token + estimated-cost report from Debug.
+- `analytics/scripts/optimization_mining.py --verify` — per-tier token + estimated-cost report from Debug.
 
 ## Consequences
 
@@ -112,5 +112,5 @@ Implement Option A + A. Specifically:
   `services/optimization_recommendations.py`, `optimization_api.py`,
   `services/azure_open_ai.py` (`get_chat_model`), `travel_agents.py`
   (`classify_complexity_tier`, `get_supervisor_for_turn`), `travel_agents_api.py`
-  (tier selection + Debug recording), `analytics/optimization_mining.py` (`--verify`).
+  (tier selection + Debug recording), `analytics/scripts/optimization_mining.py` (`--verify`).
 - SCEN-007 (`docs/solution-architecture-guide.md`), ADR-0001, ADR-0007.
