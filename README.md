@@ -4,6 +4,10 @@
 
 This workshop walks through how to build a multi-agent travel assistant system using Python, LangGraph, Azure AI Foundry, and Azure Cosmos DB. Here, you'll create specialized AI agents that work together to help users plan travel arrangements and learn about agent memory orchestration. The workshop concludes with **optional modules on agent analytics and optimization** — instrumenting your agents, surfacing cost and quality insights, and applying (and auto-reverting) reversible optimizations — plus a **Microsoft Fabric** analytics and reverse-ETL module.
 
+![Cosmos Voyager — the multi-agent travel assistant web app](media/app-frontend.png)
+
+*The Cosmos Voyager web app — explore places, plan trips, and chat with the multi-agent assistant.*
+
 ### What You'll Build
 
 By the end of this workshop, you'll have created a complete travel planning application featuring:
@@ -35,6 +39,10 @@ optimizations. You read and act on the results in a single-page **web Analytics 
 (`analytics/dashboard/`) — live KPIs, per-agent scorecards, a conversion funnel, and one-click
 **Apply / Revert** of reversible policies — backed by **Microsoft Fabric** reverse-ETL (Module 09)
 and an optional Power BI report.
+
+![Analytics Portal — Overview tab](analytics/media/portal/portal-01-overview.png)
+
+*The web Analytics Portal (Overview tab) — portfolio KPIs, model-usage mix, and live turn volume across the six optimization pillars.*
 
 Not planning to do the analytics track? You can **skip it**: build the assistant in Modules 00–06,
 then jump straight to **Module 10** to wrap up (Module 06 has an exit ramp for exactly this). You
