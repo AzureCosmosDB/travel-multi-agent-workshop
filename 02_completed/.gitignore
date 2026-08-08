@@ -347,5 +347,8 @@ secrets.json
 secrets.yaml
 secrets.yml
 appsettings.local.json
-# Analytics portal staged into the frontend image at package time (source of truth: ../analytics/dashboard/)
-analytics-portal/
+# Analytics portal staged into the frontend image at package time (source of truth: ../analytics/dashboard/).
+# Track index.html so azd's remote build includes it — the remote build excludes gitignored files,
+# which otherwise bakes a stale portal. The prepackage hook keeps it in sync with the source of truth.
+analytics-portal/*
+!analytics-portal/index.html
