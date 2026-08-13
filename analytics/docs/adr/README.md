@@ -25,3 +25,4 @@ This log records every architectural decision for the Agent Analytics and Optimi
 | [0010](adr-0010-agent-centric-data-driven-analysis-engine.md) | Agent-centric, data-driven analysis & optimization engine (supersedes the scenario-catalog organizing principle) | Proposed | 2026-07-31 |
 | [0011](adr-0011-migration-config-seam-and-validation-lessons.md) | Migration to the agent-centric design — the configuration seam as a taught step, and engine-validation lessons | Accepted | 2026-08-01 |
 | [0012](adr-0012-validation-driven-delivery-loop-and-ledger.md) | Validation-driven delivery — the de-risking loop and the validation ledger | Accepted | 2026-08-01 |
+| [0013](adr-0013-context-window-optimization-out-of-scope.md) | Context-window optimization is out of scope — observability owns the visibility, existing levers own the action | Accepted | 2026-08-13 |
