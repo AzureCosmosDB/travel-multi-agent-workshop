@@ -492,7 +492,7 @@ def read_optimization_result_from_insights(tenant_id: str) -> dict[str, Any] | N
 # ---------------------------------------------------------------------------
 # Memory retention: a lower-risk AUTONOMOUS (L4/L5) policy. Memory
 # accumulates superseded ("stale") entries as preferences change; applying the
-# policy soft-prunes them (a reversible mark), so recall stays cheaper/cleaner.
+# policy soft-prunes them (a reversible tag mark), so recall stays cheaper/cleaner.
 # "Superseded" = a memory whose own `superseded_by` pointer is set (it was
 # replaced by a newer memory). This is the SINGLE canonical definition, shared
 # with the memory_health "Superseded" bucket, the Supersession Rate KPI, and
@@ -503,10 +503,26 @@ def read_optimization_result_from_insights(tenant_id: str) -> dict[str, Any] | N
 MEMORY_RETENTION_SCENARIO = "memory-retention"
 _MEMORIES_CONTAINER = os.getenv("COSMOS_MEMORIES_CONTAINER", "memories")
 
+# Reversible lifecycle mark for soft-pruned memories. It lives in the memory's `tags`
+# array (not a bespoke top-level field), so recall can exclude pruned memories INSIDE
+# the vector query via the toolkit's existing `search_cosmos(exclude_tags=[...])` path
+# (`NOT ARRAY_CONTAINS(c.tags, @tag)`) — no over-fetch, no Python post-filter, and no
+# changes to the memory toolkit. The `sys:` namespace marks it as a system/lifecycle
+# tag; un-pruning simply removes it. (Approach suggested on AzureCosmosDB/AgentMemoryToolkit#36.)
+RETENTION_PRUNED_TAG = "sys:retention-pruned"
+
 PROPOSED_MEMORY_RETENTION_PARAMS: dict[str, Any] = {
     "enabled": True,
     "prune": "superseded",  # soft-prune memories superseded by a newer one
 }
+
+
+def _is_pruned(row: dict[str, Any]) -> bool:
+    """True if a memory carries the reserved retention tag (the canonical mark) or the
+    legacy top-level ``retention_status='pruned'`` field (pre-tag data / migration safety)."""
+    if RETENTION_PRUNED_TAG in (row.get("tags") or []):
+        return True
+    return row.get("retention_status") == "pruned"
 
 
 def _memories_container():
@@ -533,7 +549,7 @@ def _superseded_memory_rows() -> list[dict]:
         return []
     try:
         rows = list(container.query_items(
-            query="SELECT c.id, c.user_id, c.thread_id, c.superseded_by, c.retention_status FROM c",
+            query="SELECT c.id, c.user_id, c.thread_id, c.superseded_by, c.tags, c.retention_status FROM c",
             enable_cross_partition_query=True,
         ))
     except Exception:  # noqa: BLE001
@@ -542,10 +558,13 @@ def _superseded_memory_rows() -> list[dict]:
 
 
 # --- recall-time memory-retention measurement (the hook the recall tool calls) ----
-# Keeps the `recall_memories` MCP tool thin: the tool hands its recall hits to
-# `prune_and_measure_recall`, which drops pruned memories AND records the input tokens
-# each drop avoids. Housing this in the optimization service (not the tool) makes it the
-# single home for the logic — adopting it in another app is one hook call from the recall.
+# Keeps the `recall_memories` MCP tool thin. The tool now excludes pruned memories INSIDE
+# the vector query via `search_cosmos(exclude_tags=[RETENTION_PRUNED_TAG])`, so on toolkit
+# builds that support it, pruned memories never reach this hook. This hook stays as a
+# defensive fallback (older toolkit builds without `exclude_tags`, or recall paths that opt
+# into superseded): it drops any pruned memory that still surfaces AND records the input
+# tokens each drop avoids. Housing this in the optimization service (not the tool) makes it
+# the single home for the logic — adopting it in another app is one hook call from the recall.
 try:
     import tiktoken
     _MEM_ENCODER = tiktoken.get_encoding("cl100k_base")
@@ -568,17 +587,20 @@ def _count_tokens(text: str) -> int:
 def prune_and_measure_recall(records: list[dict[str, Any]], user_id: str,
                              thread_id: str | None = None, query: str = "",
                              top_k: int = 10) -> list[dict[str, Any]]:
-    """Recall hook: drop pruned memories and record the input tokens each drop avoids.
+    """Recall fallback hook: drop any pruned memory that still surfaced and record the input
+    tokens each drop avoids.
 
-    The ``recall_memories`` MCP tool calls this with its recall hits (as dicts). A pruned
-    memory that ranked into the top-k is dropped with no backfill, so its tokens are input
-    cost the model no longer pays — recorded as one best-effort ``recall_pruned_avoided``
-    ApiEvent (global ``_global_memory`` key). Returns the kept memories in original order.
+    Primary exclusion happens inside the vector query via ``exclude_tags`` (see
+    ``recall_memories``); this hook only fires for toolkit builds that lack ``exclude_tags``
+    or recall paths that opt into superseded memories. A pruned memory that ranked into the
+    top-k is dropped with no backfill, so its tokens are input cost the model no longer pays —
+    recorded as one best-effort ``recall_pruned_avoided`` ApiEvent (global ``_global_memory``
+    key). Returns the kept memories in original order.
     """
     kept: list[dict[str, Any]] = []
     excluded = avoided = 0
     for d in records:
-        if d.get("retention_status") == "pruned":
+        if _is_pruned(d):
             excluded += 1
             avoided += _count_tokens(str(d.get("content") or ""))
         else:
@@ -639,7 +661,7 @@ def build_memory_retention_recommendation(tenant_id: str) -> dict[str, Any]:
             total = 0
     superseded = _superseded_memory_rows()
     n_sup = len(superseded)
-    n_pruned = sum(1 for r in superseded if r.get("retention_status") == "pruned")
+    n_pruned = sum(1 for r in superseded if _is_pruned(r))
     savings = _memory_recall_savings()
 
     active = optimization_policy.get_active_policy(MEMORY_RETENTION_SCENARIO)
@@ -673,8 +695,10 @@ def build_memory_retention_recommendation(tenant_id: str) -> dict[str, Any]:
         ),
         "estimate_caveat": (
             "Global signal — memory is keyed by user, not tenant, so this card reads the "
-            "same for every tenant. Applying soft-prunes superseded memories (a reversible mark). Recall excludes pruned "
-            "memories where the memory client surfaces the flag; the mark is always reversible. "
+            "same for every tenant. Applying soft-prunes superseded memories by tagging them "
+            f"with a reversible '{RETENTION_PRUNED_TAG}' lifecycle tag. Recall excludes pruned "
+            "memories INSIDE the vector query via the toolkit's exclude_tags path (no over-fetch, "
+            "no post-filter); the mark is always reversible. "
             "The saving is MEASURED from recall telemetry (input tokens avoided when a pruned "
             "memory is dropped from a recall's top-k), not estimated — so it reads $0 until the "
             "policy is applied and recalls run."
@@ -688,23 +712,28 @@ def build_memory_retention_recommendation(tenant_id: str) -> dict[str, Any]:
 
 
 def apply_memory_retention() -> int:
-    """Soft-prune superseded memories (patch retention_status='pruned'). Reversible.
+    """Soft-prune superseded memories by adding the reversible ``RETENTION_PRUNED_TAG`` to
+    each memory's ``tags`` array. Recall then excludes them INSIDE the vector query via
+    ``search_cosmos(exclude_tags=[RETENTION_PRUNED_TAG])`` — no over-fetch, no post-filter,
+    and no changes to the memory toolkit.
 
-    Uses a partial PATCH (not a full upsert) so the large embedding vector is not
-    rewritten. Returns the number of memories newly pruned.
+    Uses a partial PATCH of just ``/tags`` (not a full upsert) so the large embedding
+    vector is not rewritten. Returns the number of memories newly pruned.
     """
     container = _memories_container()
     if container is None:
         return 0
     pruned = 0
     for r in _superseded_memory_rows():
-        if r.get("retention_status") == "pruned":
+        if _is_pruned(r):
             continue
+        tags = list(r.get("tags") or [])
+        tags.append(RETENTION_PRUNED_TAG)
         try:
             container.patch_item(
                 item=r["id"],
                 partition_key=[r.get("user_id"), r.get("thread_id")],
-                patch_operations=[{"op": "add", "path": "/retention_status", "value": "pruned"}],
+                patch_operations=[{"op": "set", "path": "/tags", "value": tags}],
             )
             pruned += 1
         except Exception as exc:  # noqa: BLE001
@@ -714,24 +743,37 @@ def apply_memory_retention() -> int:
 
 
 def revert_memory_retention() -> int:
-    """Un-prune: remove retention_status from previously pruned memories. Returns count."""
+    """Un-prune: remove ``RETENTION_PRUNED_TAG`` from previously pruned memories (and strip any
+    legacy top-level ``retention_status`` field). The mark is reversible, so this fully
+    restores recall visibility. Returns the number of memories restored."""
     container = _memories_container()
     if container is None:
         return 0
     try:
         rows = list(container.query_items(
-            query="SELECT c.id, c.user_id, c.thread_id FROM c WHERE c.retention_status = 'pruned'",
+            query=("SELECT c.id, c.user_id, c.thread_id, c.tags, c.retention_status FROM c "
+                   "WHERE ARRAY_CONTAINS(c.tags, @tag) OR c.retention_status = 'pruned'"),
+            parameters=[{"name": "@tag", "value": RETENTION_PRUNED_TAG}],
             enable_cross_partition_query=True,
         ))
     except Exception:  # noqa: BLE001
         return 0
     restored = 0
     for r in rows:
+        ops: list[dict[str, Any]] = []
+        tags = r.get("tags") or []
+        if RETENTION_PRUNED_TAG in tags:
+            ops.append({"op": "set", "path": "/tags",
+                        "value": [t for t in tags if t != RETENTION_PRUNED_TAG]})
+        if r.get("retention_status") is not None:
+            ops.append({"op": "remove", "path": "/retention_status"})
+        if not ops:
+            continue
         try:
             container.patch_item(
                 item=r["id"],
                 partition_key=[r.get("user_id"), r.get("thread_id")],
-                patch_operations=[{"op": "remove", "path": "/retention_status"}],
+                patch_operations=ops,
             )
             restored += 1
         except Exception as exc:  # noqa: BLE001

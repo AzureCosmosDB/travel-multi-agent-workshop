@@ -21,7 +21,10 @@ except ImportError:  # pragma: no cover - supports alternate workshop package la
     from app.services.agent_memory import get_memory_client
 
 from src.app.services.azure_open_ai import generate_embedding
-from src.app.services.optimization_recommendations import prune_and_measure_recall
+from src.app.services.optimization_recommendations import (
+    prune_and_measure_recall,
+    RETENTION_PRUNED_TAG,
+)
 from src.app.services.azure_cosmos_db import (
     create_session_record,
     get_session_by_id,
@@ -279,10 +282,16 @@ async def recall_memories(
     kwargs["query" if "query" in params else "search_terms"] = query
     if "hybrid_search" in params:
         kwargs["hybrid_search"] = True
+    # Exclude soft-pruned memories INSIDE the vector query (no over-fetch, no post-filter).
+    # Newer toolkit builds accept `exclude_tags` -> `NOT ARRAY_CONTAINS(c.tags, @tag)`; older
+    # builds fall through to `prune_and_measure_recall`'s defensive post-filter below.
+    if "exclude_tags" in params:
+        kwargs["exclude_tags"] = [RETENTION_PRUNED_TAG]
 
     hits = await _maybe_await(client.search_cosmos(**kwargs))
-    # Hand the recall hits to the optimization service's hook: it drops pruned memories
-    # AND records the input tokens each drop avoids (the memory-retention measurement).
+    # Fallback + measurement hook: on builds without `exclude_tags` (or recall paths that opt
+    # into superseded), drop any pruned memory that still surfaced AND record the input tokens
+    # each drop avoids (the memory-retention measurement).
     records = [_memory_to_dict(hit) for hit in hits]
     return prune_and_measure_recall(records, user_id, thread_id, query, top_k)
 
