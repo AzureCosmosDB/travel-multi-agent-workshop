@@ -745,7 +745,7 @@ def read_optimization_result_from_insights(tenant_id: str) -> dict[str, Any] | N
 # ---------------------------------------------------------------------------
 # memory retention: a lower-risk AUTONOMOUS (L4/L5) policy. Memory
 # accumulates superseded ("stale") entries as preferences change; applying the
-# policy soft-prunes them (a reversible mark), so recall stays cheaper/cleaner.
+# policy soft-prunes them (a reversible tag mark), so recall stays cheaper/cleaner.
 # "Superseded" = a memory whose id appears in another memory's supersedes_ids.
 # ---------------------------------------------------------------------------
 
@@ -756,6 +756,23 @@ PROPOSED_MEMORY_RETENTION_PARAMS: dict[str, Any] = {
     "enabled": True,
     "prune": "superseded",
 }
+
+
+# Reversible lifecycle mark for soft-pruned memories. It lives in the memory's `tags`
+# array (not a bespoke top-level field), so recall can drop pruned memories via the hook
+# below AND — optionally — exclude them INSIDE the vector query via the toolkit's existing
+# `search_cosmos(exclude_tags=[...])` path (`NOT ARRAY_CONTAINS(c.tags, @tag)`), with no
+# toolkit change. The `sys:` namespace marks it as a system/lifecycle tag; un-pruning simply
+# removes it. (Approach suggested by the toolkit maintainer on AzureCosmosDB/AgentMemoryToolkit#36.)
+RETENTION_PRUNED_TAG = "sys:retention-pruned"
+
+
+def _is_pruned(row: dict[str, Any]) -> bool:
+    """True if a memory carries the reserved retention tag (the canonical mark) or the
+    legacy top-level ``retention_status='pruned'`` field (pre-tag data / migration safety)."""
+    if RETENTION_PRUNED_TAG in (row.get("tags") or []):
+        return True
+    return row.get("retention_status") == "pruned"
 
 
 def _memories_container():
@@ -774,7 +791,7 @@ def _superseded_memory_rows() -> list[dict]:
         return []
     try:
         rows = list(container.query_items(
-            query="SELECT c.id, c.user_id, c.thread_id, c.supersedes_ids, c.retention_status FROM c",
+            query="SELECT c.id, c.user_id, c.thread_id, c.supersedes_ids, c.tags, c.retention_status FROM c",
             enable_cross_partition_query=True,
         ))
     except Exception:  # noqa: BLE001
@@ -823,7 +840,7 @@ def prune_and_measure_recall(records: list[dict[str, Any]], user_id: str,
     kept: list[dict[str, Any]] = []
     excluded = avoided = 0
     for d in records:
-        if d.get("retention_status") == "pruned":
+        if _is_pruned(d):
             excluded += 1
             avoided += _count_tokens(str(d.get("content") or ""))
         else:
@@ -881,7 +898,7 @@ def build_memory_retention_recommendation(tenant_id: str) -> dict[str, Any]:
             total = 0
     superseded = _superseded_memory_rows()
     n_sup = len(superseded)
-    n_pruned = sum(1 for r in superseded if r.get("retention_status") == "pruned")
+    n_pruned = sum(1 for r in superseded if _is_pruned(r))
     savings = _memory_recall_savings()
     status = (get_policy(MEMORY_RETENTION_SCENARIO) or {}).get("status", "not_proposed")
     if get_active_policy(MEMORY_RETENTION_SCENARIO):
@@ -913,11 +930,11 @@ def build_memory_retention_recommendation(tenant_id: str) -> dict[str, Any]:
         ),
         "estimate_caveat": (
             "Global signal — memory is keyed by user, not tenant, so this card reads the "
-            "same for every tenant. Applying soft-prunes superseded memories (a reversible "
-            "mark). Recall excludes pruned memories where the memory client surfaces the "
-            "flag; the mark is always reversible. The saving is MEASURED from recall telemetry "
-            "(input tokens avoided when a pruned memory is dropped from a recall's top-k), not "
-            "estimated — so it reads $0 until the policy is applied and recalls run."
+            "same for every tenant. Applying soft-prunes superseded memories by tagging them "
+            f"with a reversible '{RETENTION_PRUNED_TAG}' lifecycle tag. Recall drops pruned "
+            "memories via the recall hook; the mark is always reversible. The saving is MEASURED "
+            "from recall telemetry (input tokens avoided when a pruned memory is dropped from a "
+            "recall's top-k), not estimated — so it reads $0 until the policy is applied and recalls run."
         ),
         "proposed_params": PROPOSED_MEMORY_RETENTION_PARAMS,
         "actions": {
@@ -928,20 +945,26 @@ def build_memory_retention_recommendation(tenant_id: str) -> dict[str, Any]:
 
 
 def apply_memory_retention() -> int:
-    """Soft-prune superseded memories (patch retention_status='pruned'). Reversible.
-    Uses a partial PATCH so the embedding vector is not rewritten."""
+    """Soft-prune superseded memories by adding the reversible ``RETENTION_PRUNED_TAG`` to
+    each memory's ``tags`` array. Recall then drops them (and, optionally, can exclude them
+    INSIDE the vector query via ``search_cosmos(exclude_tags=[RETENTION_PRUNED_TAG])``).
+
+    Uses a partial PATCH of just ``/tags`` (not a full upsert) so the large embedding
+    vector is not rewritten. Returns the number of memories newly pruned."""
     container = _memories_container()
     if container is None:
         return 0
     pruned = 0
     for r in _superseded_memory_rows():
-        if r.get("retention_status") == "pruned":
+        if _is_pruned(r):
             continue
+        tags = list(r.get("tags") or [])
+        tags.append(RETENTION_PRUNED_TAG)
         try:
             container.patch_item(
                 item=r["id"],
                 partition_key=[r.get("user_id"), r.get("thread_id")],
-                patch_operations=[{"op": "add", "path": "/retention_status", "value": "pruned"}],
+                patch_operations=[{"op": "set", "path": "/tags", "value": tags}],
             )
             pruned += 1
         except Exception as exc:  # noqa: BLE001
@@ -951,24 +974,37 @@ def apply_memory_retention() -> int:
 
 
 def revert_memory_retention() -> int:
-    """Un-prune previously pruned memories. Returns count restored."""
+    """Un-prune: remove ``RETENTION_PRUNED_TAG`` from previously pruned memories (and strip any
+    legacy top-level ``retention_status`` field). The mark is reversible, so this fully
+    restores recall visibility. Returns the number of memories restored."""
     container = _memories_container()
     if container is None:
         return 0
     try:
         rows = list(container.query_items(
-            query="SELECT c.id, c.user_id, c.thread_id FROM c WHERE c.retention_status = 'pruned'",
+            query=("SELECT c.id, c.user_id, c.thread_id, c.tags, c.retention_status FROM c "
+                   "WHERE ARRAY_CONTAINS(c.tags, @tag) OR c.retention_status = 'pruned'"),
+            parameters=[{"name": "@tag", "value": RETENTION_PRUNED_TAG}],
             enable_cross_partition_query=True,
         ))
     except Exception:  # noqa: BLE001
         return 0
     restored = 0
     for r in rows:
+        ops: list[dict[str, Any]] = []
+        tags = r.get("tags") or []
+        if RETENTION_PRUNED_TAG in tags:
+            ops.append({"op": "set", "path": "/tags",
+                        "value": [t for t in tags if t != RETENTION_PRUNED_TAG]})
+        if r.get("retention_status") is not None:
+            ops.append({"op": "remove", "path": "/retention_status"})
+        if not ops:
+            continue
         try:
             container.patch_item(
                 item=r["id"],
                 partition_key=[r.get("user_id"), r.get("thread_id")],
-                patch_operations=[{"op": "remove", "path": "/retention_status"}],
+                patch_operations=ops,
             )
             restored += 1
         except Exception as exc:  # noqa: BLE001

@@ -271,7 +271,7 @@ Two honest lessons as you read the numbers:
 
 The second autonomous policy is on a *different dimension* — memory hygiene, not model cost. As users chat, the memory subsystem extracts preferences and **supersedes** older ones when they change (you built this in the memory modules). Over time the superseded entries pile up, and each recall would feed the agent stale preferences it then pays **context tokens** to read. The **memory-retention** card reads that signal: `total_memories`, how many are `superseded`, and the stale share (`superseded_pct`).
 
-Applying it **soft-prunes** those superseded memories — it stamps `retention_status = "pruned"` on each Cosmos memory doc. At runtime the **`recall_memories` MCP tool drops any `pruned` hit before it returns results to the agent** (`mcp_server/mcp_http_server.py`), so stale preferences never reach the agent's context — cleaner, higher-signal recall, and fewer context tokens per turn.
+Applying it **soft-prunes** those superseded memories — it adds a reversible **`sys:retention-pruned`** tag to each Cosmos memory doc's `tags` (a partial PATCH that never rewrites the embedding). At runtime the **`recall_memories` MCP tool drops any pruned hit before it returns results to the agent** (`mcp_server/mcp_http_server.py`), so stale preferences never reach the agent's context — cleaner, higher-signal recall, and fewer context tokens per turn.
 
 **First, make the saving measurable — call the optimization hook from `recall_memories`.** Dropping the pruned hits is invisible unless we *measure* it (the same "measure it, don't estimate it" rule you applied to model selection). Instead of growing the MCP tool, the provided **`optimization`** service exposes a thin **`prune_and_measure_recall`** hook — the same *"hook into `optimization.py`"* pattern you used for capability-tiered model selection in `travel_agents.py`. It does the prune **and** records the input tokens each drop avoids. It's already in `python/src/app/services/optimization.py` (shown here so you understand it — and can lift it into your own app):
 
@@ -281,7 +281,7 @@ def prune_and_measure_recall(records, user_id, thread_id=None, query="", top_k=1
     """Recall hook: drop pruned memories and record the input tokens each drop avoids."""
     kept, excluded, avoided = [], 0, 0
     for d in records:
-        if d.get("retention_status") == "pruned":
+        if _is_pruned(d):   # carries the reserved 'sys:retention-pruned' tag (or legacy field)
             excluded += 1
             avoided += _count_tokens(str(d.get("content") or ""))   # tiktoken cl100k_base
         else:
@@ -309,11 +309,12 @@ from src.app.services.optimization import prune_and_measure_recall
 
 ```python
     # hits = await _maybe_await(client.search_cosmos(**kwargs))
-    # # Exclude memories soft-pruned by the memory-retention policy (best-effort:
-    # # applies where the memory client surfaces the retention_status field).
+    # # Exclude memories soft-pruned by the memory-retention policy (best-effort: drops any hit
+    # # carrying the reserved 'sys:retention-pruned' tag or the legacy retention_status field).
     # return [
     #     d for hit in hits
     #     if (d := _memory_to_dict(hit)).get("retention_status") != "pruned"
+    #     and "sys:retention-pruned" not in (d.get("tags") or [])
     # ]
 ```
 
@@ -337,7 +338,19 @@ Now apply the policy and watch it pay off:
 
 > **Where the filter runs — be precise.** The prune is only a *mark* on the memory doc; in this exercise the exclusion happens in the **`recall_memories` MCP tool**, which filters `pruned` hits *after* the Cosmos memory toolkit's vector search returns them. Filtering *here* (rather than in the query) is deliberate: the `prune_and_measure_recall` hook can only **measure** the avoided tokens for hits it actually sees, so the post-filter is what keeps the saving observable — at the **agent's context** (stale memories aren't injected into the prompt → fewer tokens per turn), *not* at the vector-search layer, which still scans the pruned docs.
 
-> **Going further — push the filter into the query (what the reference solution does).** The Cosmos memory toolkit already lets you exclude memories *inside* the vector search via `search_cosmos(exclude_tags=[...])` (which emits `NOT ARRAY_CONTAINS(c.tags, @tag)`), so **no toolkit change is needed**. The reference solution (`02_completed`) takes this route: it soft-prunes by adding a reversible **`sys:retention-pruned`** tag to the memory's `tags` (a partial PATCH that never rewrites the embedding) and passes `exclude_tags=["sys:retention-pruned"]` at recall — so pruned memories are dropped **in the query**, cutting **retrieval** cost too, not just context tokens. This is the approach suggested on [AzureCosmosDB/AgentMemoryToolkit#36](https://github.com/AzureCosmosDB/AgentMemoryToolkit/issues/36). The trade-off is the mirror image of the note above: because the toolkit removes the pruned rows *before* they ever reach the recall hook, the in-app avoided-token *measurement* no longer fires — which is exactly why this exercise keeps the post-filter, so you can see the saving end-to-end.
+#### Optional — go further: push the filter *into* the vector query
+
+Because the policy now marks pruned memories with the **`sys:retention-pruned` tag** (not a bespoke field), you can drop them *inside* the vector search instead of after it — the Cosmos memory toolkit already supports this via `search_cosmos(exclude_tags=[...])`, which emits `NOT ARRAY_CONTAINS(c.tags, @tag)`, so **no toolkit change is needed**. In `recall_memories` (`mcp_server/mcp_http_server.py`), add this **just after** the `if "hybrid_search" in params:` block and **before** the `client.search_cosmos(**kwargs)` call:
+
+```python
+    # (optional) exclude pruned memories INSIDE the vector query — cuts retrieval (RU) cost too
+    if "exclude_tags" in params:
+        kwargs["exclude_tags"] = ["sys:retention-pruned"]
+```
+
+This is the approach the toolkit maintainer recommends on [AzureCosmosDB/AgentMemoryToolkit#36](https://github.com/AzureCosmosDB/AgentMemoryToolkit/issues/36), and it's what the reference solution (`02_completed`) ships.
+
+> **Trade-off — read before you flip this on.** Once the toolkit removes pruned rows *before* they reach `recall_memories`, they never reach the `prune_and_measure_recall` hook, so the in-app **avoided-token measurement stops firing** and the memory-retention card's *live* saving reads `$0`. That's exactly why the main exercise keeps the **post-filter** — so you can watch the saving accrue end-to-end. Reach for `exclude_tags` when cutting **retrieval** (RU) cost matters more than the in-app live measurement; the reference solution measures the saving in **Fabric** from mirrored telemetry instead (next note).
 
 > **Measured in Fabric from mirrored telemetry.** The avoided-token telemetry lives in `ApiEvents`, a **high-volume** container — so it's **mirrored to Fabric** and the memory-retention saving is aggregated at scale in the reverse-ETL **notebook** (Section 4b, the `memory-retention` `optimization_result` row, `method = "telemetry"`, [Module 09](./Module-09.md)), right alongside the memory **health** it computes from the mirrored `memories` table. The maintainer app-plane script `analytics/fabric/compute_insights.py` emits the **identical** row (idempotent by id) as its reference twin, so notebook == portal == optional report either way.
 

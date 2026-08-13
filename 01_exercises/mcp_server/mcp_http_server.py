@@ -280,11 +280,12 @@ async def recall_memories(
         kwargs["hybrid_search"] = True
 
     hits = await _maybe_await(client.search_cosmos(**kwargs))
-    # Exclude memories soft-pruned by the memory-retention policy (best-effort:
-    # applies where the memory client surfaces the retention_status field).
+    # Exclude memories soft-pruned by the memory-retention policy (best-effort: drops any hit
+    # carrying the reserved 'sys:retention-pruned' tag or the legacy retention_status field).
     return [
         d for hit in hits
         if (d := _memory_to_dict(hit)).get("retention_status") != "pruned"
+        and "sys:retention-pruned" not in (d.get("tags") or [])
     ]
 
 
