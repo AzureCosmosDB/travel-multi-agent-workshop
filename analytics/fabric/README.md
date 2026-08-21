@@ -23,8 +23,9 @@ region that has Fabric capacity available to you.
 >
 > **Heads-up:** if you choose a region where Fabric capacity isn't actually available to your
 > tenant, the ARM `Microsoft.Fabric/capacities` resource can still report **Succeeded/Active** yet
-> never appear in the Fabric control plane (`/v1/capacities`), so it can't be used. If that happens,
-> redeploy the capacity in a region you know has Fabric (it typically appears within ~30s).
+> never appear in the Fabric control plane (`/v1/capacities`), so it can't be used. The provisioner
+> now stops with this diagnosis. Set `FABRIC_CAPACITY_LOCATION` to a Fabric-supported region for the
+> tenant, reprovision the capacity, and retry.
 
 - **Capacity (current):** `fabf2tx5x7js4bwi` — **F2**, **West Central US**, Fabric id
   `a04c5461-c9d4-4eb8-b67e-bb76fc302f2d`, admin `mjbrown@microsoft.com`. Deployed by
@@ -59,7 +60,17 @@ the identity SP to propagate to AAD, and grants Cosmos **`readMetadata` + `readA
 mirror (OptimizationTurns / Trips / OptimizationPolicies / Configuration / Messages /
 OptimizationInsights), waits for it to initialize, starts it, and uploads the **Module 09 notebook**
 (`ConversionFunnelReverseETL`, learner TODOs by default) with its parameters pre-filled from the
-deployment. Idempotent.
+deployment. Idempotent. Use a tenant-unique workspace name in shared environments; if a hidden
+workspace already reserves the name, the provisioner returns an actionable collision error.
+
+The participant wrapper supports the same explicit resume path:
+
+```powershell
+.\analytics\fabric\Provision-Fabric.ps1 -Phase 2 -ConnectionId <id>
+```
+
+Report import is not considered successful until its dataset query validates. A failed query raises
+with the underlying dataset error and prevents the provisioner from printing overall success.
 
 > **Learner vs solution notebook:** the default upload is the **learner** notebook (TODOs). For
 > `02_completed` / the demo, add **`--solution`** to upload the completed `*_solution` notebook — both
@@ -86,7 +97,7 @@ deployment. Idempotent.
 | Cosmos RBAC | custom `FabricMirroringRole` (`readMetadata`+`readAnalytics`) assigned to the **OAuth2 connection identity (the user)** + the workspace identity | ✅ |
 | Network trust | none needed for public accounts | ✅ |
 | Mirror | `POST /v1/workspaces/{id}/mirroredDatabases` (source CosmosDb → connection + database, `mountedTables`) + `/startMirroring` | ✅ `TravelAssistantV2Analytics` (`debe9a19-…`) replicating |
-| Reverse-ETL notebook | `POST /v1/workspaces/{id}/notebooks` + `updateDefinition` + `jobs/instances?jobType=RunNotebook` | ⏳ uploaded; read method being finalized (see below) |
+| Reverse-ETL notebook | `POST /v1/workspaces/{id}/notebooks` + `updateDefinition` + `jobs/instances?jobType=RunNotebook` | ✅ uploaded; reads mirror through JDBC and persists stage checkpoints |
 | Traffic simulator | `analytics/scripts/traffic_simulator.py` | ✅ proven: 83 turns → mirror in ~60s |
 
 ### RBAC (az)
@@ -138,6 +149,11 @@ the **conversion funnel** + abandonment causes, and writes flat rows to Cosmos `
 via the **Cosmos Spark connector** with Fabric AAD (the workspace identity) — **no `%pip`, so it is
 safe in scheduled jobs**. It ships as a **learner** notebook (two TODOs) with a `*_solution` variant;
 `provision_fabric.py` uploads it during Phase 2 (add `--solution` for the completed one).
+
+Each reverse-ETL section persists a `notebook_run_status` row in `OptimizationInsights`. Its
+`last_completed_stage` advances through `core_reverse_etl`, `agent_path`, `turn_metrics`,
+`agent_scorecard`, `memory_intelligence`, and `complete`. Use that row to localize generic Spark job
+failures; only `complete` means every notebook-backed analytics surface was populated.
 
 **Read method (solved):** the Fabric Spark Delta reader (runtime 1.3) **cannot** read the mirrored
 tables' **deletion vectors** — `spark.read.format("delta").load(path)` *and* a Lakehouse-shortcut

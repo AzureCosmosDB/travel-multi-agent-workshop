@@ -4,7 +4,7 @@
 
 ## Introduction
 
-Congratulations! You've built a sophisticated multi-agent travel assistant with intelligent memory, automatic summarization, and full observability. Throughout this workshop, you've progressed from a simple single agent to a production-ready multi-agent system with distributed memory management.
+Congratulations! You've built a sophisticated multi-agent travel assistant with intelligent memory, automatic summarization, and layered observability. Throughout this workshop, you've progressed from a simple single agent to a production-oriented workshop foundation with distributed memory management. Production readiness still requires workload-specific security, reliability, quality, and operational validation.
 
 In this final module, we'll reflect on what you've learned, explore architectural patterns and best practices, discuss the future of agentic AI and memory systems, and address common questions about building production multi-agent applications.
 
@@ -48,7 +48,7 @@ Let's take a moment to appreciate the complexity of your travel assistant:
 2. **Context-Aware Recommendations**: Every recommendation aligns with stored preferences
 3. **Automatic Summarization**: Long conversations are compressed without losing context
 4. **Conflict-Free Memory**: Contradictory preferences are detected and resolved
-5. **Production-Ready Observability**: Full visibility into system behavior
+5. **Layered Observability**: Request traces plus aggregate optimization telemetry
 
 ---
 
@@ -112,7 +112,7 @@ Long conversations exceed LLM context windows and increase costs. Automatic summ
 
 - Keeps recent messages fresh (10-message retention window)
 - Compresses older messages into summaries
-- Reduces token usage by ~70% for long sessions
+- Reduces the repeated history sent during long sessions; measure the reduction on your workload
 - Preserves conversation continuity
 
 **Example from the Workshop:**
@@ -183,7 +183,7 @@ The north-star metric is **cost per outcome** — total spend ÷ confirmed outco
 ### 8. Capability-Tiered Model Selection Is the Flagship Win
 
 **What We Learned:**
-The default waste pattern is **one premium model serving every turn** — trivial or complex. The fix routes **trivial → a nano model, routine → a mini model, and keeps the premium model for the hard work**. On an identical A/B workload this cut cost by ~**28%** with no change to the user experience.
+The default waste pattern is **one premium model serving every turn** — trivial or complex. The fix routes **trivial → a nano model, routine → a mini model, and keeps the premium model for the hard work**. In one empirical workshop snapshot this reduced the modeled cost by **16.6%**; your result depends on the workload mix, model pricing, and quality gates, so verify both cost and user experience on your own traffic.
 
 **Key Insight**: Match the model to the task's difficulty — most turns don't need your best model.
 
@@ -236,10 +236,10 @@ Agents will **learn and adapt** their behavior:
 - **Dynamic tool creation**: Agents write new tools when existing ones are insufficient
 - **Meta-learning**: Agents learn from interactions across users
 
-### 2. From Single-Model to Multi-Model Systems
+### 2. From Fixed Routing to Evaluated Multi-Model Systems
 
 **Current State:**
-Your system uses one LLM (GPT-4.1) for all agents.
+Your system can route trivial, routine, and complex turns across `gpt-5-nano`, `gpt-5-mini`, and `gpt-5.1` when the model-selection policy is active, while retaining a premium-model baseline for comparison.
 
 **Future:**
 Different agents will use **specialized models**:

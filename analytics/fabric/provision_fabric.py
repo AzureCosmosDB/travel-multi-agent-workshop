@@ -205,7 +205,13 @@ def wait_for_capacity(tok: Tokens, capacity_name: str, timeout: int = 2400) -> s
                     return c["id"]
                 log(f"capacity found, state={c.get('state')} (waiting for Active)")
         time.sleep(20)
-    die(f"capacity '{capacity_name}' did not become Active within {timeout}s")
+    die(
+        f"capacity '{capacity_name}' did not become Active in the Fabric control plane "
+        f"within {timeout}s. If Azure Resource Manager reports it Active but Fabric does "
+        "not list it, the saved FABRIC_CAPACITY_LOCATION may not be available for this "
+        "tenant. Set that azd value to a supported Fabric region, reprovision the capacity, "
+        "and retry."
+    )
     return ""  # unreachable
 
 
@@ -218,12 +224,21 @@ def get_or_create_workspace(tok: Tokens, name: str, capacity_id: str) -> str:
             break
     else:
         log(f"creating workspace '{name}'...")
-        c = req(
-            "POST",
-            f"{FABRIC_API}/workspaces",
-            tok.headers(FABRIC_SCOPE),
-            json_body={"displayName": name, "description": "Travel Assistant optimization analytics"},
-        )
+        try:
+            c = req(
+                "POST",
+                f"{FABRIC_API}/workspaces",
+                tok.headers(FABRIC_SCOPE),
+                json_body={"displayName": name, "description": "Travel Assistant optimization analytics"},
+            )
+        except RuntimeError as exc:
+            if "WorkspaceNameAlreadyExists" in str(exc):
+                raise RuntimeError(
+                    f"Fabric workspace name '{name}' is already reserved in this tenant but "
+                    "is not visible to the signed-in user. Re-run with a unique --workspace "
+                    "value, for example 'Multi-Agent Travel Workshop <your initials>'."
+                ) from exc
+            raise
         ws_id = c.json()["id"]
         log(f"workspace created: {ws_id}")
 
@@ -682,14 +697,14 @@ def grant_cosmos_data_contributor(cosmos_account: str, rg: str, sub: str) -> Non
 
 
 # --------------------------------------------------------------------------- phase 3
-def import_report(tok: Tokens, ws_id: str, report_path: str, sql_endpoint: str, mirror_db: str) -> None:
+def import_report(tok: Tokens, ws_id: str, report_path: str, sql_endpoint: str, mirror_db: str) -> bool:
     """Import a .pbix/.pbit report, point its parameters at THIS deployment's mirror, take
     ownership, bind the DirectQuery source for SSO, and verify it can query — so deploying
     the report needs no Power BI Desktop. Skips cleanly if the artifact isn't present yet."""
     if not report_path or not os.path.exists(report_path):
         log(f"report artifact not found at {report_path}; skipping import "
             f"(save analytics/powerbi/TravelAssistantAnalyticsReport.pbix first)")
-        return
+        return False
     hdr = {"Authorization": f"Bearer {tok.get(PBI_SCOPE)}"}
     name = os.path.splitext(os.path.basename(report_path))[0]
     url = f"{PBI_API}/groups/{ws_id}/imports?datasetDisplayName={name}&nameConflict=CreateOrOverwrite"
@@ -744,6 +759,7 @@ def import_report(tok: Tokens, ws_id: str, report_path: str, sql_endpoint: str, 
 
     _bind_directquery_sso(tok, ws_id, ds_id)
     _verify_dataset(tok, ws_id, ds_id, _report_insights_entity(report_path))
+    return True
 
 
 def _bind_directquery_sso(tok: Tokens, ws_id: str, ds_id: str) -> None:
@@ -797,25 +813,23 @@ def _report_insights_entity(report_path: str) -> str:
 
 
 def _verify_dataset(tok: Tokens, ws_id: str, ds_id: str, entity: str = "") -> None:
-    """Best-effort: run a DAX query to confirm the imported report can read the mirror."""
+    """Run a DAX query and fail unless the imported report can read the mirror."""
     hdr = tok.headers(PBI_SCOPE)
     dax = f"EVALUATE ROW(\"rows\", COUNTROWS('{entity}'))" if entity else "EVALUATE {1}"
     q = {"queries": [{"query": dax}], "serializerSettings": {"includeNulls": True}}
+    r = requests.post(f"{PBI_API}/groups/{ws_id}/datasets/{ds_id}/executeQueries",
+                      headers=hdr, json=q, timeout=90)
+    if r.status_code != 200:
+        raise RuntimeError(
+            f"report imported but dataset validation failed {r.status_code}: {r.text[:1200]}"
+        )
+    rows = ""
     try:
-        r = requests.post(f"{PBI_API}/groups/{ws_id}/datasets/{ds_id}/executeQueries",
-                          headers=hdr, json=q, timeout=90)
-        if r.status_code == 200:
-            rows = ""
-            try:
-                rows = r.json()["results"][0]["tables"][0]["rows"][0]
-            except Exception:  # pragma: no cover
-                pass
-            log("dataset query check: OK - report reads the mirror"
-                + (f" ({entity}: {rows})" if entity else ""))
-        else:
-            log(f"dataset query check returned {r.status_code}: {r.text[:200]}")
-    except Exception as e:  # pragma: no cover
-        log(f"dataset query check skipped: {e}")
+        rows = r.json()["results"][0]["tables"][0]["rows"][0]
+    except Exception:  # pragma: no cover
+        pass
+    log("dataset query check: OK - report reads the mirror"
+        + (f" ({entity}: {rows})" if entity else ""))
 
 
 # --------------------------------------------------------------------------- main
@@ -892,8 +906,10 @@ def main() -> None:
                 "env (run phases 1-2 first)")
         sql_ep = get_mirror_sql_endpoint(tok, ws_id, mirror_id)
         report_path = args.pbit or args.report
-        import_report(tok, ws_id, report_path, sql_ep, f"{cfg['db_name']}Analytics")
-        log("REPORT IMPORT COMPLETE.")
+        imported = import_report(tok, ws_id, report_path, sql_ep, f"{cfg['db_name']}Analytics")
+        if not imported:
+            die("report phase did not import an artifact")
+        log("REPORT IMPORT AND VALIDATION COMPLETE.")
         print(json.dumps({"workspaceId": ws_id, "report": os.path.basename(report_path)}, indent=2))
         return
 
