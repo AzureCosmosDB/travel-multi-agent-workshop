@@ -206,12 +206,12 @@ input[type=range] { width: 100%; accent-color: var(--accent); background: transp
   <div class="cfg">
     <label>Dataset</label>
     <select id="tenant">
-      <option>analytics</option><option>marvel</option>
+      <option>marvel</option><option>analytics</option>
     </select>
     <label>Source</label>
     <select id="source" title="Reverse-ETL reads the OptimizationInsights snapshot produced by the analytics notebook (Module 09); Live recomputes from the raw captured turns">
-      <option value="auto">Reverse-ETL (notebook)</option>
       <option value="live">Live (recompute)</option>
+      <option value="auto">Reverse-ETL (notebook)</option>
     </select>
     <label><input type="checkbox" id="auto" /> auto</label>
     <button id="refresh">Refresh</button>
@@ -362,7 +362,7 @@ function resolveApi() {
   return LOCAL_HOSTS.has(location.hostname) ? "http://localhost:8000" : "/api";
 }
 const api = () => resolveApi();
-const tenant = () => ($("tenant").value || "analytics").trim();
+const tenant = () => ($("tenant").value || "marvel").trim();
 const src = () => ($("source") && $("source").value) || "auto";
 const PALETTE = ["#4f8cff", "#6ee7b7", "#f6c453", "#ff6b6b", "#57d9a3", "#b98cff", "#4dd0e1", "#ffa726"];
 

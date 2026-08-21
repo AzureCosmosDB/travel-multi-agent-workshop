@@ -40,6 +40,7 @@
 
 .PARAMETER Phase
     1   = workspace + identity + RBAC only (stop before the mirror)
+    2   = workspace + identity + RBAC, mirror, notebook, and UDF (stop before report import)
     all = Phase 1, the connection step, the mirror + notebook + UDF, then the report import  (default)
 
 .EXAMPLE
@@ -57,7 +58,7 @@ param(
     [string]$WorkspaceName,
     [string]$ConnectionId,
     [switch]$Solution,
-    [ValidateSet('1', 'all')]
+    [ValidateSet('1', '2', 'all')]
     [string]$Phase = 'all'
 )
 
@@ -185,16 +186,18 @@ function Invoke-Provision([string[]]$extraArgs) {
 }
 
 # --- Phase 1 -----------------------------------------------------------------
-Write-Section 'Phase 1 - workspace, identity, Cosmos RBAC'
-Invoke-Provision @('--phase', '1')
-if ($script:provisionExit -ne 0) { Fail "Phase 1 failed (exit $script:provisionExit). See the output above." }
-Write-Host 'Phase 1 complete.' -ForegroundColor Green
+if ($Phase -ne '2') {
+    Write-Section 'Phase 1 - workspace, identity, Cosmos RBAC'
+    Invoke-Provision @('--phase', '1')
+    if ($script:provisionExit -ne 0) { Fail "Phase 1 failed (exit $script:provisionExit). See the output above." }
+    Write-Host 'Phase 1 complete.' -ForegroundColor Green
 
-if ($Phase -eq '1') {
-    Write-Host ''
-    Write-Host 'Stopped after Phase 1 as requested. Re-run without -Phase 1 to create the mirror.'
-    Save-State
-    exit 0
+    if ($Phase -eq '1') {
+        Write-Host ''
+        Write-Host 'Stopped after Phase 1 as requested. Re-run with -Phase 2 and -ConnectionId <id> to create the mirror.'
+        Save-State
+        exit 0
+    }
 }
 
 # --- Manual portal connection step ------------------------------------------
@@ -255,6 +258,11 @@ Save-State
 Write-Section 'Phase 2 - mirrored database + Module 09 notebook'
 Invoke-Provision @('--phase', '2', '--connection-id', $ConnectionId)
 if ($script:provisionExit -ne 0) { Fail "Phase 2 failed (exit $script:provisionExit). See the output above." }
+
+if ($Phase -eq '2') {
+    Write-Host 'Stopped after Phase 2 as requested. Re-run with -Phase all to import and validate the report.'
+    exit 0
+}
 
 # --- Phase 3 - Power BI report import ---------------------------------------
 Write-Section 'Phase 3 - Power BI report import'

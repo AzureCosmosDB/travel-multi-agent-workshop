@@ -339,6 +339,22 @@ for df in (funnel_df, cause_df, kpi_df, result_df):
     df.write.format("cosmos.oltp").options(**cosmos_write).mode("append").save()
 print("Reverse-ETL complete -> the Power BI Business Impact page will light up.")'''
 
+CHECKPOINT_SETUP = '''# Persist the last completed stage because failed Fabric jobs do not retain cell output.
+def _checkpoint(stage):
+    status_df = spark.createDataFrame(
+        [(f"run-status::{TENANT}", "notebook_run_status", TENANT, stage,
+          datetime.now(timezone.utc).isoformat())],
+        ["id", "type", "tenantId", "last_completed_stage", "updated_at"],
+    )
+    status_df.write.format("cosmos.oltp").options(**cosmos_write).mode("append").save()
+    print(f"Notebook checkpoint: {stage}")
+
+_checkpoint("core_reverse_etl")'''
+
+
+def checkpoint(stage):
+    return f'_checkpoint("{stage}")'
+
 READ_MD = "## 1. Read the mirror\nThe analytical plane reads the **mirrored** tables through the SQL endpoint — the operational Cosmos account is never touched by analytics."
 FUNNEL_MD = "## 2. Build the funnel (provided)\nAggregate turns into per-session stages and attach the friction signal."
 TODO1_MD = "## 3. TODO 1 — classify the abandonment cause\nThis is the analytics decision you own (the notebook analog of `classify_complexity_tier`)."
@@ -794,11 +810,12 @@ def notebook(solution: bool):
             md(BUILD_MD), code(BUILD),
             md(SAVING_MD), code(SAVING),
             md(TODO2_MD), code(TODO2_SOLUTION if solution else TODO2_STUB),
-            md(AGENTPATH_MD), code(AGENTPATH_CODE),
-            md(METRICS_MD), code(METRICS_CODE),
-            md(SCORECARD_MD), code(SCORECARD_CODE),
-            md(MEMORY_MD), code(MEMORY_CODE),
-            md(ANALYST_MD), code(ANALYST_CODE),
+            code(CHECKPOINT_SETUP),
+            md(AGENTPATH_MD), code(AGENTPATH_CODE), code(checkpoint("agent_path")),
+            md(METRICS_MD), code(METRICS_CODE), code(checkpoint("turn_metrics")),
+            md(SCORECARD_MD), code(SCORECARD_CODE), code(checkpoint("agent_scorecard")),
+            md(MEMORY_MD), code(MEMORY_CODE), code(checkpoint("memory_intelligence")),
+            md(ANALYST_MD), code(ANALYST_CODE), code(checkpoint("complete")),
         ],
     }
 

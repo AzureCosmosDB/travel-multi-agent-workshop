@@ -21,6 +21,7 @@ except ImportError:  # pragma: no cover - supports alternate workshop package la
     from app.services.agent_memory import get_memory_client
 
 from src.app.services.azure_open_ai import generate_embedding
+from src.app.services.optimization import prune_and_measure_recall
 from src.app.services.azure_cosmos_db import (
     create_session_record,
     get_session_by_id,
@@ -278,15 +279,9 @@ async def recall_memories(
     kwargs["query" if "query" in params else "search_terms"] = query
     if "hybrid_search" in params:
         kwargs["hybrid_search"] = True
-
     hits = await _maybe_await(client.search_cosmos(**kwargs))
-    # Exclude memories soft-pruned by the memory-retention policy (best-effort: drops any hit
-    # carrying the reserved 'sys:retention-pruned' tag or the legacy retention_status field).
-    return [
-        d for hit in hits
-        if (d := _memory_to_dict(hit)).get("retention_status") != "pruned"
-        and "sys:retention-pruned" not in (d.get("tags") or [])
-    ]
+    records = [_memory_to_dict(hit) for hit in hits]
+    return prune_and_measure_recall(records, user_id, thread_id, query, top_k)
 
 
 @mcp.tool()
