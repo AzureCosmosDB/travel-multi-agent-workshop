@@ -82,7 +82,12 @@ cd analytics\fabric
 .\Provision-Fabric.ps1
 ```
 
-The script auto-detects the workshop folder you deployed (e.g. `02_completed` or `01_exercises`) and its virtual environment. When prompted, accept the default workspace name (**`Multi-Agent Travel Workshop`**) or enter your own. It then runs **Phase 1**: it creates the workspace, assigns it to your F2 capacity, provisions the workspace identity, and grants the required Cosmos RBAC — then pauses.
+The script auto-detects the workshop folder you deployed (e.g. `02_completed` or `01_exercises`) and its virtual environment. Enter a workspace name that is unique in your tenant, for example **`Multi-Agent Travel Workshop <your initials>`**. Fabric workspace names can remain tenant-reserved even when the signed-in user cannot see the existing workspace; the script reports that collision explicitly. It then runs **Phase 1**: it creates the workspace, assigns it to your F2 capacity, provisions the workspace identity, and grants the required Cosmos RBAC — then pauses.
+
+> If the capacity is `Active` in Azure Resource Manager but never appears in the Fabric control
+> plane, this is usually a tenant/region availability mismatch rather than normal propagation.
+> Set `FABRIC_CAPACITY_LOCATION` in the `azd` environment to a Fabric-supported region for your
+> tenant, reprovision the capacity, and retry. The provisioning error prints this recovery path.
 
 > Uploading the **completed** notebook (for the `02_completed` demo) instead of the learner version? Run `.\Provision-Fabric.ps1 -Solution`.
 
@@ -98,9 +103,13 @@ Creating the Cosmos **connection** is the one step Fabric does not let us automa
 
 > **Paste tip:** in the VS Code terminal, paste with **Ctrl+Shift+V** (`Ctrl+V` shows a literal `^V`). Alternatively, press Enter to exit and re-run non-interactively: `.\Provision-Fabric.ps1 -ConnectionId <id>`.
 
+> A tenant conditional-access policy may reject VS Code's embedded browser. In that case, create
+> the OAuth connection in a compliant external browser and paste only its connection ID into the
+> terminal. Never paste an OAuth token or account secret.
+
 ### Step 3 — Paste the connection id (Phase 2)
 
-Back in the PowerShell terminal, **paste the connection id** at the prompt and press Enter. The script runs **Phase 2**: it creates the mirrored database, starts replication, and uploads the **`ConversionFunnelReverseETL`** notebook with its parameters pre-filled from your deployment (Cosmos endpoint/database + the mirror's SQL endpoint). It saves `FABRIC_WORKSPACE_ID` and `FABRIC_MIRROR_ID` to your `azd` environment.
+Back in the PowerShell terminal, **paste the connection id** at the prompt and press Enter. The script runs **Phase 2**: it creates the mirrored database, starts replication, and uploads the **`ConversionFunnelReverseETL`** notebook with its parameters pre-filled from your deployment (Cosmos endpoint/database + the mirror's SQL endpoint). It saves `FABRIC_WORKSPACE_ID` and `FABRIC_MIRROR_ID` to your `azd` environment. To resume explicitly after stopping at Phase 1, run `.\Provision-Fabric.ps1 -Phase 2 -ConnectionId <id>`.
 
 > **You never copy the SQL endpoint or database.** The mirror's **SQL analytics endpoint** and database name are the two values people expect to have to hunt down — but the script **discovers them automatically** and **injects them into the notebook's Parameters cell** for you (`SQL_EP` / `SQL_DB`), along with your Cosmos endpoint, database, and tenant id. The **only** value Fabric makes you handle by hand is the **connection id** in Step 2 — the one step Fabric can't automate. When you open the notebook in Step 5, those connection parameters are already filled in; you just confirm them and set `TENANT`.
 
@@ -111,7 +120,7 @@ Refresh your workspace. Confirm you see both:
 - a **mirrored database** whose tables show a *Replicating* / *Running* status,
 - the **`ConversionFunnelReverseETL`** notebook,
 - the **`optimization-apply-loop`** User Data Function — the optional translytical Apply/Revert preview in Activity 7 (the provisioning deployed it with the `azure-cosmos` library and your Cosmos endpoint already configured), and
-- the **`TravelAssistantAnalyticsReport`** — an optional Power BI report, **auto-imported and already pointed at your mirror** (no Power BI Desktop required). The web analytics portal remains the recommended surface for this workshop.
+- the **`TravelAssistantAnalyticsReport`** — an optional Power BI report, imported, pointed at your mirror, and query-validated by the script (no Power BI Desktop required). If validation fails, provisioning stops with the dataset error instead of reporting a false success. The web analytics portal remains the recommended surface for this workshop.
 
 Your `azd up` deployment already **seeded the demo tenant, `analytics`**, into your Cosmos `OptimizationTurns` / `Messages` / `Trips` containers (~120 sessions with a realistic mix of converted and abandoned outcomes). The mirror replicates it within a minute — so there is **nothing extra for you to run**; the notebook has data waiting.
 
@@ -181,11 +190,18 @@ Both TODO edits are in place, so run the entire notebook top-to-bottom in **one 
 - **Section 0** runs first — its `%%configure` loads the `cosmos.oltp` connector and (re)starts Spark, so the **first run takes a few minutes**. That's expected, and it's exactly why you run everything at once rather than cell-by-cell.
 - Then, in order: read the mirror → build the funnel → **your `cause` classification** → shape the flat rows → measured saving → **your reverse-ETL write** → agent-path cost, turn metrics, agent scorecard, memory intelligence → the **LLM analyst**. Each cell prints what it wrote.
 
-When it finishes, your **complete** `OptimizationInsights` snapshot is in Cosmos — every portal tab is now backed by a notebook row. Next, you'll see it.
+After each reverse-ETL section, the notebook overwrites a small `notebook_run_status` row in
+`OptimizationInsights`. If Fabric reports only a generic Spark cancellation, query
+`id = "run-status::analytics"`; its `last_completed_stage` identifies the last successful boundary
+(`core_reverse_etl`, `agent_path`, `turn_metrics`, `agent_scorecard`, `memory_intelligence`, or
+`complete`). Do not treat a partially populated portal as a successful Run all.
+
+When it finishes and the checkpoint reads `complete`, your **complete** `OptimizationInsights`
+snapshot is in Cosmos — every portal tab is now backed by a notebook row. Next, you'll see it.
 
 ## Activity 5: View the Notebook Snapshot in the Web Analytics Portal
 
-Your **Run all** in Activity 4 already wrote the **complete** `OptimizationInsights` snapshot — the funnel, measured saving, agent-path cost, turn metrics, agent scorecard, memory intelligence, **and** the analyst's recommendation cards. Now you get to see it.
+Your successful **Run all** in Activity 4 wrote the **complete** `OptimizationInsights` snapshot — the funnel, measured saving, agent-path cost, turn metrics, agent scorecard, memory intelligence, **and** the analyst's recommendation cards. Confirm `last_completed_stage = "complete"` before treating every tab as notebook-backed.
 
 > **This is the shift from the old design.** Reverse-ETL isn't just the funnel anymore — the notebook now produces **every** metric the dashboard shows: turn KPIs and cost-by-tier, the agent scorecard and agent-path cost, memory intelligence, the measured saving, *and* the analyst's recommendation cards. So when you switch the portal to the notebook source, the **whole** surface lights up — not just the Business tab.
 

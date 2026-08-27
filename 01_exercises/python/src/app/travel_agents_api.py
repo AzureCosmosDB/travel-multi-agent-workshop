@@ -798,6 +798,40 @@ def store_debug_log_from_response(sessionId: str, tenantId: str, userId: str, re
             handoff_count=handoff_count,
         )
 
+        node_execs = []
+        node_deployment, _ = optimization.select_deployment_for_turn(
+            [{"role": "user", "content": user_message_text}]
+        )
+        for entry in response_data:
+            for node_agent, node_details in entry.items():
+                node_input = node_output = node_total = node_cached = 0
+                node_model = model_name
+                messages = node_details.get("messages", []) if isinstance(node_details, dict) else []
+                for msg in messages:
+                    usage = getattr(msg, "usage_metadata", None) or {}
+                    if not usage:
+                        continue
+                    node_input += usage.get("input_tokens", 0) or 0
+                    node_output += usage.get("output_tokens", 0) or 0
+                    node_total += usage.get("total_tokens", 0) or 0
+                    node_cached += (usage.get("input_token_details") or {}).get("cache_read", 0) or 0
+                    node_model = (getattr(msg, "response_metadata", {}) or {}).get("model_name", node_model)
+                if node_total or node_input or node_output:
+                    node_execs.append({
+                        "seq": len(node_execs),
+                        "agent": node_agent,
+                        "model_deployment": node_deployment,
+                        "model_name": node_model,
+                        "input_tokens": node_input,
+                        "output_tokens": node_output,
+                        "total_tokens": node_total,
+                        "cached_tokens": node_cached,
+                    })
+        optimization.record_node_executions(
+            tenant_id=tenantId, user_id=userId, session_id=sessionId,
+            turn_id=stored_id, node_execs=node_execs,
+        )
+
         logger.info(
             f"Debug log stored: {stored_id} for session {sessionId} (agent: {agent_selected}, tokens: {total_tokens})")
         return stored_id

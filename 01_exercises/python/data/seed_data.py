@@ -277,6 +277,14 @@ def seed_conversations(database) -> None:
             print(f"   ⚠️  Container '{container_name}' not found — skipping {label} "
                   "(deploy analytics infra to seed it).")
             continue
+        if filename == "optimization_policies.json":
+            existing = list(container.query_items(
+                query="SELECT TOP 1 c.id FROM c",
+                enable_cross_partition_query=True,
+            ))
+            if existing:
+                print("   ℹ️  Optimization policies already exist — preserving participant state")
+                continue
         upload_items_concurrent(container, items, label)
 
 

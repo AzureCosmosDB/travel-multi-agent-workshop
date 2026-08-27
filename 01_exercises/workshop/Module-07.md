@@ -146,6 +146,10 @@ You're reusing the `input_tokens`, `output_tokens`, `total_tokens`, `cached_toke
 
 ### Hook 3 — capture per-agent node-grain (optional; feeds the Module 09 agent scorecard)
 
+> **Add this only if it is absent.** Some workshop builds already include Hook 3. Search for
+> `record_node_executions` first; if the call is present, compare it with the block below and do
+> not paste a second recorder.
+
 Hook 2 records **one aggregate row per turn** — enough for spend and model selection, but it can't answer *which agent* drove the cost. Your graph already streams **per-node updates** (`response_data` is the `stream_mode="updates"` result — a list of `{node: {"messages": [...]}}`), so the per-agent signal is right there; the flattening loop at the top of this function just collapses it into one total. This hook keeps it.
 
 Still inside `store_debug_log_from_response`, **immediately after the Hook 2 block you just pasted** (same indentation — inside the `try`), paste:
@@ -156,6 +160,9 @@ Still inside `store_debug_log_from_response`, **immediately after the Hook 2 blo
         # already isolates one agent's model call(s). Sum each agent's usage into a node
         # record instead of collapsing them into a single turn total.
         node_execs = []
+        node_deployment, _ = optimization.select_deployment_for_turn(
+            [{"role": "user", "content": user_message_text}]
+        )
         for entry in response_data:
             for node_agent, node_details in entry.items():
                 n_in = n_out = n_total = n_cached = 0
@@ -172,7 +179,7 @@ Still inside `store_debug_log_from_response`, **immediately after the Hook 2 blo
                 if n_total or n_in or n_out:
                     node_execs.append({
                         "seq": len(node_execs), "agent": node_agent,
-                        "model_deployment": AZURE_OPENAI_DEPLOYMENT, "model_name": n_model,
+                        "model_deployment": node_deployment, "model_name": n_model,
                         "input_tokens": n_in, "output_tokens": n_out,
                         "total_tokens": n_total, "cached_tokens": n_cached,
                     })
@@ -182,7 +189,7 @@ Still inside `store_debug_log_from_response`, **immediately after the Hook 2 blo
         )
 ```
 
-`record_node_executions` is the provided recorder (it **self-provisions** the `NodeExecutions` container, so it works even before an `azd up`; the Bicep also declares the container for future deploys). Each turn now writes **one document holding a per-agent list** alongside the turn aggregate — the same shape the reference solution (`02_completed`) captures from its streaming loop.
+`record_node_executions` is the provided recorder (it **self-provisions** the `NodeExecutions` container, so it works even before an `azd up`; the Bicep also declares the container for future deploys). Each turn now writes **one document holding a per-agent list** alongside the turn aggregate. Use the active policy's selected deployment for `model_deployment` so tiered node rows join to the same pricing configuration as aggregate turns.
 
 > **Where's the payoff?** The per-turn portal cards don't read node-grain — the **agent scorecard** does, on the portal's **Agents** tab after the Module 09 notebook writes the `agent_scorecard` snapshot. There the Fabric notebook rolls your `NodeExecutions` into an *agent × dimension* health view (**cost efficiency**, **model selection**, **workflow efficiency**). The pre-seeded **`analytics`** tenant already carries node-grain so that view renders immediately; **this hook is what makes _your own_ traffic show up there too.** To spot-check capture right now, drive a few turns, then run `SELECT * FROM c` on the **`NodeExecutions`** container in the Data Explorer — you'll see one document per turn with a `nodeExecutions` array.
 
