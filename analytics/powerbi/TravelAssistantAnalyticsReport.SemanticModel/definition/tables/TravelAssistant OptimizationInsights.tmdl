@@ -1,0 +1,1088 @@
+table 'TravelAssistant OptimizationInsights'
+	lineageTag: ae32e1ca-54ef-43d4-9d45-09c5c2b6d4e6
+
+	measure 'Funnel Sessions' = CALCULATE(SUM('TravelAssistant OptimizationInsights'[sessions]), 'TravelAssistant OptimizationInsights'[type] = "funnel_stage")
+		formatString: 0
+		lineageTag: 3bfff781-1854-4511-997a-2e353e296be1
+
+	measure 'Cause Sessions' = CALCULATE(SUM('TravelAssistant OptimizationInsights'[sessions]), 'TravelAssistant OptimizationInsights'[type] = "abandonment_cause")
+		formatString: 0
+		lineageTag: 8849eb89-6235-407d-8785-621e5473e56e
+
+	measure 'Conversion Rate %' = CALCULATE(MAX('TravelAssistant OptimizationInsights'[conversion_rate]), 'TravelAssistant OptimizationInsights'[type] = "conversion_kpi")
+		formatString: 0.0\%
+		lineageTag: 2e1ea0a2-3870-44ae-a9e3-77fb8405ffd6
+
+	measure 'Biggest Leak' = CALCULATE(MAX('TravelAssistant OptimizationInsights'[biggest_leak]), 'TravelAssistant OptimizationInsights'[type] = "conversion_kpi")
+		lineageTag: 50241444-de46-4ee0-ab0a-6b3621550667
+
+	measure 'Biggest Leak Display' =
+			SWITCH(
+			    [Biggest Leak],
+			    "city_friction", "City Friction",
+			    "no_engagement", "No Engagement",
+			    "cart_abandon", "Cart Abandon",
+			    "search_stall", "Search Stall",
+			    "no_results", "No Results",
+			    [Biggest Leak]
+			)
+
+	measure 'Saving USD' = CALCULATE(MAX('TravelAssistant OptimizationInsights'[saving_usd]), 'TravelAssistant OptimizationInsights'[type] = "optimization_result")
+		formatString: \$#,0.00
+		lineageTag: 4bf80765-a68c-4a6d-9edb-a279f9595157
+
+	measure 'Saving %' = CALCULATE(MAX('TravelAssistant OptimizationInsights'[saving_pct]), 'TravelAssistant OptimizationInsights'[type] = "optimization_result")
+		formatString: 0.0\%
+		lineageTag: 386e8f33-ea65-4ed1-8b53-86557de5bcd1
+
+	measure 'Baseline Cost USD' = CALCULATE(MAX('TravelAssistant OptimizationInsights'[baseline_cost_usd]), 'TravelAssistant OptimizationInsights'[type] = "optimization_result")
+		formatString: \$#,0.00
+		lineageTag: 4f073f51-92b8-4836-8515-7b86c638b86e
+
+	measure 'Actual Cost USD' = CALCULATE(MAX('TravelAssistant OptimizationInsights'[actual_cost_usd]), 'TravelAssistant OptimizationInsights'[type] = "optimization_result")
+		formatString: \$#,0.00
+		lineageTag: 97f95d18-8963-4a28-8be8-8f12c18e347d
+
+	measure 'Scored Memories' = ```
+			
+			    CALCULATE(SUM('TravelAssistant OptimizationInsights'[scored_memories]),
+			              'TravelAssistant OptimizationInsights'[type] = "memory_kpi")
+			```
+		lineageTag: 9bb2b8e8-1a1a-4973-90d0-3a81b588a9c8
+
+		annotation PBI_FormatHint = {"isGeneralNumber":true}
+
+	measure 'Avg Memory Salience' = ```
+			
+			    CALCULATE(MAX('TravelAssistant OptimizationInsights'[avg_salience]),
+			              'TravelAssistant OptimizationInsights'[type] = "memory_kpi")
+			```
+		lineageTag: 96362d78-a7fe-4532-8f5a-c85e4df60416
+
+		annotation PBI_FormatHint = {"isGeneralNumber":true}
+
+	measure 'Supersession Rate %' = ```
+			
+			    CALCULATE(MAX('TravelAssistant OptimizationInsights'[supersession_rate]),
+			              'TravelAssistant OptimizationInsights'[type] = "memory_kpi")
+			```
+		formatString: 0.0\%
+		lineageTag: ee2573bb-5d14-4c9e-bb14-0f1d17e749b9
+
+		annotation PBI_FormatHint = {"isGeneralNumber":true}
+
+	measure 'Memory Bucket Count' = SUM('TravelAssistant OptimizationInsights'[count])
+		lineageTag: 81ac9de7-6ddb-431c-af8d-8bcceca0ca52
+
+		annotation PBI_FormatHint = {"isGeneralNumber":true}
+
+	measure 'Total Memories' = ```
+			
+			    CALCULATE(SUM('TravelAssistant OptimizationInsights'[total_memories]),
+			              'TravelAssistant OptimizationInsights'[type] = "memory_kpi")
+			```
+		lineageTag: e714de04-cb6e-46cb-8dcd-5ea1a9f92e9d
+
+		annotation PBI_FormatHint = {"isGeneralNumber":true}
+
+	measure 'Result Note' = ```
+			
+			    VAR _m =
+			        CALCULATE(MAX('TravelAssistant OptimizationInsights'[method]),
+			                  'TravelAssistant OptimizationInsights'[type] = "optimization_result")
+			    RETURN IF(_m = "pending",
+			        "Measured before/after pending - apply the policy, then measure over the experiment window.", "")
+			```
+		lineageTag: 9c98ee84-e3c5-4967-9625-89c35f704e0e
+
+	measure 'Open Opportunities' = CALCULATE(COUNTROWS('TravelAssistant OptimizationInsights'), 'TravelAssistant OptimizationInsights'[type] = "recommendation_card")
+		formatString: 0
+
+	measure 'Est Saving USD' = CALCULATE(SUM('TravelAssistant OptimizationInsights'[estimated_saving_usd]), 'TravelAssistant OptimizationInsights'[type] = "recommendation_card")
+		formatString: \$#,0.00;(\$#,0.00);\$#,0.00
+
+	measure 'Measured Saving USD' = CALCULATE(SUM('TravelAssistant OptimizationInsights'[saving_usd]), 'TravelAssistant OptimizationInsights'[type] = "optimization_result")
+		formatString: \$#,0.00;(\$#,0.00);\$#,0.00
+
+	measure 'Opportunity Total Spend' = CALCULATE(MAX('TravelAssistant OptimizationInsights'[baseline_cost_usd]), 'TravelAssistant OptimizationInsights'[type] = "agent_opportunity")
+		formatString: \$#,0.00;(\$#,0.00);\$#,0.00
+
+	measure 'Opportunity Spend Summary' =
+			"Total measured spend analyzed: " &
+			FORMAT([Opportunity Total Spend], "$#,0.00") &
+			". Savings are engine-projected (effect × attributable spend)."
+
+	measure 'Opportunity Saving USD' = CALCULATE(SUM('TravelAssistant OptimizationInsights'[saving_usd]), 'TravelAssistant OptimizationInsights'[type] = "agent_opportunity")
+		formatString: \$#,0.00;(\$#,0.00);\$#,0.00
+
+	measure 'Opportunity Saving Display' = "🟢 " & FORMAT(MAX('TravelAssistant OptimizationInsights'[saving_usd]), "$#,0.00")
+
+	measure 'Opportunity Apply Mode Display' =
+			VAR _mode = UPPER(MAX('TravelAssistant OptimizationInsights'[apply_mode]))
+			RETURN
+			    SWITCH(
+			        _mode,
+			        "AUTOMATIC", "🟢 AUTOMATIC",
+			        "MANUAL", "🟡 MANUAL",
+			        "DIAGNOSTIC", "🔵 DIAGNOSTIC",
+			        _mode
+			    )
+
+	measure 'Opportunity State Display' =
+			VAR _state = UPPER(MAX('TravelAssistant OptimizationInsights'[status]))
+			RETURN
+			    SWITCH(
+			        _state,
+			        "ACTIVE", "🟢 ACTIVE",
+			        "PROPOSED", "🔵 PROPOSED",
+			        "NOT APPLIED", "⚪ NOT APPLIED",
+			        "APPROVED", "🟢 APPROVED",
+			        "DEPLOYED", "🟢 DEPLOYED",
+			        _state
+			    )
+
+	measure 'Recommendation Panel' =
+			VAR _dimension = MAX('TravelAssistant OptimizationInsights'[dimension])
+			VAR _evidence = MAX('TravelAssistant OptimizationInsights'[evidence_line])
+			VAR _caveat = MAX('TravelAssistant OptimizationInsights'[caveat])
+			VAR _mode = MAX('TravelAssistant OptimizationInsights'[apply_mode])
+			VAR _state = MAX('TravelAssistant OptimizationInsights'[status])
+			VAR _saving = MAX('TravelAssistant OptimizationInsights'[estimated_saving_usd])
+			VAR _modeLabel =
+			    SWITCH(
+			        LOWER(_mode),
+			        "policy", "🟢 POLICY",
+			        "auto", "🟢 AUTOMATIC",
+			        "staged_change", "🟡 MANUAL",
+			        "manual", "🟡 MANUAL",
+			        "diagnostic", "🔵 DIAGNOSTIC",
+			        UPPER(SUBSTITUTE(_mode, "_", " "))
+			    )
+			VAR _stateLabel =
+			    SWITCH(
+			        LOWER(_state),
+			        "active", "🟢 ACTIVE",
+			        "new", "🔵 PROPOSED",
+			        "proposed", "🔵 PROPOSED",
+			        "not_proposed", "⚪ NOT APPLIED",
+			        "reverted", "⚪ NOT APPLIED",
+			        "insight", "🔵 INSIGHT",
+			        UPPER(SUBSTITUTE(_state, "_", " "))
+			    )
+			VAR _savingLabel = IF(_saving > 0, FORMAT(_saving, "$#,0.0000"), "—")
+			RETURN
+			    _dimension & UNICHAR(10) &
+			    _evidence & UNICHAR(10) &
+			    IF(NOT ISBLANK(_caveat), _caveat & UNICHAR(10), "") &
+			    _modeLabel & "  ·  " & _stateLabel & "     🟢 Est. saving  " & _savingLabel
+
+	measure 'Recommendation Dimension' = MAX('TravelAssistant OptimizationInsights'[dimension])
+
+	measure 'Recommendation Evidence' = MAX('TravelAssistant OptimizationInsights'[evidence_line])
+
+	measure 'Recommendation Caveat' = COALESCE(MAX('TravelAssistant OptimizationInsights'[caveat]), "")
+
+	measure 'Recommendation Caveat Brief' =
+			SWITCH(
+			    MAX('TravelAssistant OptimizationInsights'[scenario]),
+			    "model-selection", "Estimate only; the measured before/after result is authoritative.",
+			    "memory-retention", "Global and reversible. Savings appear only after measured recalls exclude pruned memories.",
+			    "tool-call-dedup", "Manual change: review and deploy through the governed workflow.",
+			    "cost-per-outcome", "Focus on cost per confirmed outcome—not merely cheaper individual turns.",
+			    "agent-path-cost", "Prioritize model tiering and deduplication on the most expensive paths.",
+			    [Recommendation Caveat]
+			)
+
+	measure 'Recommendation Footer' =
+			VAR _mode = LOWER(MAX('TravelAssistant OptimizationInsights'[apply_mode]))
+			VAR _state = LOWER(MAX('TravelAssistant OptimizationInsights'[status]))
+			VAR _saving = MAX('TravelAssistant OptimizationInsights'[estimated_saving_usd])
+			VAR _modeLabel =
+			    SWITCH(
+			        _mode,
+			        "policy", "🟢 POLICY",
+			        "auto", "🟢 AUTOMATIC",
+			        "staged_change", "🟡 MANUAL",
+			        "manual", "🟡 MANUAL",
+			        "diagnostic", "🔵 DIAGNOSTIC",
+			        UPPER(SUBSTITUTE(_mode, "_", " "))
+			    )
+			VAR _stateLabel =
+			    SWITCH(
+			        _state,
+			        "active", "🟢 ACTIVE",
+			        "new", "🔵 PROPOSED",
+			        "proposed", "🔵 PROPOSED",
+			        "not_proposed", "⚪ NOT APPLIED",
+			        "insight", "🔵 INSIGHT",
+			        UPPER(SUBSTITUTE(_state, "_", " "))
+			    )
+			VAR _savingLabel = IF(_saving > 0, FORMAT(_saving, "$#,0.0000"), "—")
+			RETURN _modeLabel & "    " & _stateLabel & "    Est. saving " & _savingLabel
+
+	measure 'Recommendation Mode Display' =
+			VAR _mode = LOWER(MAX('TravelAssistant OptimizationInsights'[apply_mode]))
+			RETURN
+			    SWITCH(
+			        _mode,
+			        "policy", "🟢 POLICY",
+			        "auto", "🟢 AUTOMATIC",
+			        "staged_change", "🟡 MANUAL",
+			        "manual", "🟡 MANUAL",
+			        "diagnostic", "🔵 DIAGNOSTIC",
+			        UPPER(SUBSTITUTE(_mode, "_", " "))
+			    )
+
+	measure 'Recommendation State Display' =
+			VAR _scenario = MAX('TravelAssistant OptimizationInsights'[scenario])
+			VAR _mode = LOWER(MAX('TravelAssistant OptimizationInsights'[apply_mode]))
+			VAR _policyState =
+			    CALCULATE(
+			        MAX('TravelAssistant OptimizationPolicies'[status]),
+			        REMOVEFILTERS('TravelAssistant OptimizationPolicies'),
+			        'TravelAssistant OptimizationPolicies'[scenario] = _scenario
+			    )
+			VAR _insightState = MAX('TravelAssistant OptimizationInsights'[status])
+			VAR _state =
+			    LOWER(
+			        IF(
+			            _mode IN {"policy", "auto"},
+			            COALESCE(_policyState, _insightState),
+			            _insightState
+			        )
+			    )
+			RETURN
+			    SWITCH(
+			        _state,
+			        "active", "🟢 ACTIVE",
+			        "new", "🔵 PROPOSED",
+			        "proposed", "🔵 PROPOSED",
+			        "not_proposed", "⚪ NOT APPLIED",
+			        "insight", "🔵 INSIGHT",
+			        UPPER(SUBSTITUTE(_state, "_", " "))
+			    )
+
+	measure 'Recommendation Saving Display' =
+			VAR _saving = MAX('TravelAssistant OptimizationInsights'[estimated_saving_usd])
+			RETURN IF(_saving > 0, FORMAT(_saving, "$#,0.0000"), "—")
+
+	measure 'Selected Recommendation Scenario' =
+			VAR _selected = SELECTEDVALUE('TravelAssistant OptimizationInsights'[scenario])
+			VAR _first =
+			    MAXX(
+			        TOPN(
+			            1,
+			            CALCULATETABLE(
+			                'TravelAssistant OptimizationInsights',
+			                REMOVEFILTERS('TravelAssistant OptimizationInsights'[scenario]),
+			                'TravelAssistant OptimizationInsights'[type] = "recommendation_card"
+			            ),
+			            'TravelAssistant OptimizationInsights'[order], ASC
+			        ),
+			        'TravelAssistant OptimizationInsights'[scenario]
+			    )
+			RETURN COALESCE(_selected, _first)
+
+	measure 'Selected Recommendation Title' =
+			VAR _scenario = [Selected Recommendation Scenario]
+			RETURN
+			    CALCULATE(
+			        MAX('TravelAssistant OptimizationInsights'[title]),
+			        REMOVEFILTERS('TravelAssistant OptimizationInsights'[scenario]),
+			        'TravelAssistant OptimizationInsights'[scenario] = _scenario,
+			        'TravelAssistant OptimizationInsights'[type] = "recommendation_card"
+			    )
+
+	measure 'Selected Recommendation Dimension' =
+			VAR _scenario = [Selected Recommendation Scenario]
+			RETURN
+			    CALCULATE(
+			        MAX('TravelAssistant OptimizationInsights'[dimension]),
+			        REMOVEFILTERS('TravelAssistant OptimizationInsights'[scenario]),
+			        'TravelAssistant OptimizationInsights'[scenario] = _scenario,
+			        'TravelAssistant OptimizationInsights'[type] = "recommendation_card"
+			    )
+
+	measure 'Selected Recommendation Evidence' =
+			VAR _scenario = [Selected Recommendation Scenario]
+			RETURN
+			    CALCULATE(
+			        MAX('TravelAssistant OptimizationInsights'[evidence_line]),
+			        REMOVEFILTERS('TravelAssistant OptimizationInsights'[scenario]),
+			        'TravelAssistant OptimizationInsights'[scenario] = _scenario,
+			        'TravelAssistant OptimizationInsights'[type] = "recommendation_card"
+			    )
+
+	measure 'Selected Recommendation Caveat' =
+			VAR _scenario = [Selected Recommendation Scenario]
+			RETURN
+			    CALCULATE(
+			        [Recommendation Caveat Brief],
+			        REMOVEFILTERS('TravelAssistant OptimizationInsights'[scenario]),
+			        'TravelAssistant OptimizationInsights'[scenario] = _scenario,
+			        'TravelAssistant OptimizationInsights'[type] = "recommendation_card"
+			    )
+
+	measure 'Selected Recommendation Footer' =
+			VAR _scenario = [Selected Recommendation Scenario]
+			RETURN
+			    CALCULATE(
+			        [Recommendation Footer],
+			        REMOVEFILTERS('TravelAssistant OptimizationInsights'[scenario]),
+			        'TravelAssistant OptimizationInsights'[scenario] = _scenario,
+			        'TravelAssistant OptimizationInsights'[type] = "recommendation_card"
+			    )
+
+	measure 'Selected Action Scenario' =
+			VAR _scenario = [Selected Recommendation Scenario]
+			VAR _mode =
+			    CALCULATE(
+			        MAX('TravelAssistant OptimizationInsights'[apply_mode]),
+			        REMOVEFILTERS('TravelAssistant OptimizationInsights'[scenario]),
+			        'TravelAssistant OptimizationInsights'[scenario] = _scenario,
+			        'TravelAssistant OptimizationInsights'[type] = "recommendation_card"
+			    )
+			RETURN
+			    IF(
+			        LOWER(_mode) IN {"policy", "auto"},
+			        _scenario,
+			        BLANK()
+			    )
+
+	measure 'Selected Recommendation Status' =
+			VAR _scenario = [Selected Recommendation Scenario]
+			VAR _mode =
+			    CALCULATE(
+			        MAX('TravelAssistant OptimizationInsights'[apply_mode]),
+			        REMOVEFILTERS('TravelAssistant OptimizationInsights'[scenario]),
+			        'TravelAssistant OptimizationInsights'[scenario] = _scenario,
+			        'TravelAssistant OptimizationInsights'[type] = "recommendation_card"
+			    )
+			VAR _policyState =
+			    CALCULATE(
+			        MAX('TravelAssistant OptimizationPolicies'[status]),
+			        REMOVEFILTERS('TravelAssistant OptimizationPolicies'),
+			        'TravelAssistant OptimizationPolicies'[scenario] = _scenario
+			    )
+			VAR _insightState =
+			    CALCULATE(
+			        MAX('TravelAssistant OptimizationInsights'[status]),
+			        REMOVEFILTERS('TravelAssistant OptimizationInsights'[scenario]),
+			        'TravelAssistant OptimizationInsights'[scenario] = _scenario,
+			        'TravelAssistant OptimizationInsights'[type] = "recommendation_card"
+			    )
+			RETURN
+			    LOWER(
+			        IF(
+			            LOWER(_mode) IN {"policy", "auto"},
+			            COALESCE(_policyState, _insightState),
+			            _insightState
+			        )
+			    )
+
+	measure 'Apply Enabled Scenario' =
+			IF(
+			    NOT ISBLANK([Selected Action Scenario]) &&
+			    [Selected Recommendation Status] <> "active",
+			    [Selected Action Scenario],
+			    BLANK()
+			)
+
+	measure 'Revert Enabled Scenario' =
+			IF(
+			    NOT ISBLANK([Selected Action Scenario]) &&
+			    [Selected Recommendation Status] = "active",
+			    [Selected Action Scenario],
+			    BLANK()
+			)
+
+	measure 'Apply Button Color' =
+			IF(ISBLANK([Apply Enabled Scenario]), "#2A3650", "#6EE7B7")
+
+	measure 'Revert Button Color' =
+			IF(ISBLANK([Revert Enabled Scenario]), "#2A3650", "#F6C453")
+
+	measure 'Selected Action Label' =
+			VAR _scenario = [Selected Action Scenario]
+			VAR _status = UPPER([Selected Recommendation Status])
+			RETURN
+			    IF(
+			        ISBLANK(_scenario),
+			        "Selected recommendation is read-only",
+			        "Selected: " & _scenario & " · " & _status
+			    )
+
+	measure 'Apply Action Label' =
+			IF(
+			    ISBLANK([Apply Enabled Scenario]),
+			    "Applied",
+			    "Apply"
+			)
+
+	measure 'Revert Action Label' =
+			IF(
+			    ISBLANK([Revert Enabled Scenario]),
+			    "Not active",
+			    "Revert"
+			)
+
+	measure 'MS Saving USD' = CALCULATE(MAX('TravelAssistant OptimizationInsights'[saving_usd]), 'TravelAssistant OptimizationInsights'[type] = "optimization_result", 'TravelAssistant OptimizationInsights'[scenario] = "model-selection")
+		formatString: \$#,0.00;(\$#,0.00);\$#,0.00
+
+	measure 'MS Turns' = CALCULATE(MAX('TravelAssistant OptimizationInsights'[turns]), 'TravelAssistant OptimizationInsights'[type] = "optimization_result", 'TravelAssistant OptimizationInsights'[scenario] = "model-selection")
+		formatString: #,0
+
+	measure 'Per-Turn Saving USD' = DIVIDE([MS Saving USD], [MS Turns])
+		formatString: \$0.000000
+
+	measure 'Projected Monthly Saving USD' = [Per-Turn Saving USD] * 'Turns per Day'[Turns per Day Value] * 30
+		formatString: \$#,0.00;(\$#,0.00);\$#,0.00
+
+	measure 'Projected Annual Saving USD' = [Per-Turn Saving USD] * 'Turns per Day'[Turns per Day Value] * 365
+		formatString: \$#,0.00;(\$#,0.00);\$#,0.00
+
+	measure 'Projection Curve Monthly USD' = [Per-Turn Saving USD] * SELECTEDVALUE('Projection Volume'[Turns per Day]) * 30
+		formatString: \$#,0.00;(\$#,0.00);\$#,0.00
+
+	measure 'Selected Projection Point USD' =
+			VAR _curveVolume = SELECTEDVALUE('Projection Volume'[Turns per Day])
+			VAR _selectedVolume = 'Turns per Day'[Turns per Day Value]
+			RETURN IF(_curveVolume = _selectedVolume, [Projection Curve Monthly USD], BLANK())
+		formatString: \$#,0.00;(\$#,0.00);\$#,0.00
+
+	measure 'Model Saving Detail' =
+			VAR _saving = [MS Saving USD]
+			VAR _pct = CALCULATE(MAX('TravelAssistant OptimizationInsights'[saving_pct]), 'TravelAssistant OptimizationInsights'[type] = "optimization_result", 'TravelAssistant OptimizationInsights'[scenario] = "model-selection")
+			VAR _turns = [MS Turns]
+			RETURN "Measured saving " & FORMAT(_saving, "$#,0.00") & " (" & FORMAT(_pct / 100, "0.0%") & ") across " & FORMAT(_turns, "#,0") & " turns."
+
+	measure 'Comparison Cost USD' =
+			SWITCH(
+			    SELECTEDVALUE('Cost Comparison'[Scenario]),
+			    "Baseline", [Baseline Cost USD],
+			    "Actual", [Actual Cost USD]
+			)
+		formatString: \$#,0.00;(\$#,0.00);\$#,0.00
+
+	measure 'Path Tokens' = CALCULATE(SUM('TravelAssistant OptimizationInsights'[total_tokens]), 'TravelAssistant OptimizationInsights'[type] = "agent_path_cost")
+		formatString: #,0
+
+	measure 'Path Turns' = CALCULATE(SUM('TravelAssistant OptimizationInsights'[turns]), 'TravelAssistant OptimizationInsights'[type] = "agent_path_cost")
+		formatString: #,0
+
+	measure 'All Path Tokens' =
+			CALCULATE(
+			    SUM('TravelAssistant OptimizationInsights'[total_tokens]),
+			    'TravelAssistant OptimizationInsights'[type] = "agent_path_cost",
+			    ALLEXCEPT('TravelAssistant OptimizationInsights', 'TravelAssistant OptimizationInsights'[type], 'TravelAssistant OptimizationInsights'[tenantId])
+			)
+		formatString: #,0
+
+	measure 'Path Token Share %' = DIVIDE([Path Tokens], [All Path Tokens])
+		formatString: 0.0%
+
+	measure 'Most Expensive Path Note' =
+			VAR _top =
+			    TOPN(
+			        1,
+			        CALCULATETABLE('TravelAssistant OptimizationInsights', 'TravelAssistant OptimizationInsights'[type] = "agent_path_cost"),
+			        'TravelAssistant OptimizationInsights'[total_tokens], DESC
+			    )
+			VAR _path = MAXX(_top, 'TravelAssistant OptimizationInsights'[agent_path])
+			VAR _tokens = MAXX(_top, 'TravelAssistant OptimizationInsights'[total_tokens])
+			VAR _all = CALCULATE([All Path Tokens], REMOVEFILTERS('TravelAssistant OptimizationInsights'[agent_path]))
+			RETURN "Most expensive path - " & _path & " - carries " & FORMAT(DIVIDE(_tokens, _all), "0.0%") & " of all agent tokens. That's where model-tiering and tool-dedup pay off first."
+
+	measure 'Agent Cost USD' = CALCULATE(MAX('TravelAssistant OptimizationInsights'[cost]), 'TravelAssistant OptimizationInsights'[type] = "agent_scorecard", 'TravelAssistant OptimizationInsights'[dimension] = "cost_efficiency")
+		formatString: \$0.0000
+
+	measure 'Agent Cost Share %' = CALCULATE(MAX('TravelAssistant OptimizationInsights'[cost_share]), 'TravelAssistant OptimizationInsights'[type] = "agent_scorecard", 'TravelAssistant OptimizationInsights'[dimension] = "cost_efficiency")
+		formatString: 0.0%
+
+	measure 'Agent Total Tokens' = CALCULATE(MAX('TravelAssistant OptimizationInsights'[total_tokens]), 'TravelAssistant OptimizationInsights'[type] = "agent_scorecard", 'TravelAssistant OptimizationInsights'[dimension] = "cost_efficiency")
+		formatString: #,0
+
+	measure 'Agent Executions' = CALCULATE(MAX('TravelAssistant OptimizationInsights'[executions]), 'TravelAssistant OptimizationInsights'[type] = "agent_scorecard", 'TravelAssistant OptimizationInsights'[dimension] = "cost_efficiency")
+		formatString: #,0
+
+	measure 'Agent Cost Detail' = FORMAT([Agent Cost USD], "$0.0000") & " · " & FORMAT([Agent Cost Share %], "0.0%") & " of spend · " & FORMAT([Agent Executions], "#,0") & " calls"
+
+	measure 'Cost Efficiency Status' =
+			VAR _status = LOWER(CALCULATE(MAX('TravelAssistant OptimizationInsights'[dim_status]), 'TravelAssistant OptimizationInsights'[type] = "agent_scorecard", 'TravelAssistant OptimizationInsights'[dimension] = "cost_efficiency"))
+			RETURN SWITCH(_status, "opportunity", "🔵 OPPORTUNITY", "watch", "🟡 WATCH", "ok", "🟢 OK", UPPER(_status))
+
+	measure 'Model Selection Status' =
+			VAR _status = LOWER(CALCULATE(MAX('TravelAssistant OptimizationInsights'[dim_status]), 'TravelAssistant OptimizationInsights'[type] = "agent_scorecard", 'TravelAssistant OptimizationInsights'[dimension] = "model_selection"))
+			RETURN SWITCH(_status, "opportunity", "🔵 OPPORTUNITY", "watch", "🟡 WATCH", "ok", "🟢 OK", UPPER(_status))
+
+	measure 'Workflow Efficiency Status' =
+			VAR _status = LOWER(CALCULATE(MAX('TravelAssistant OptimizationInsights'[dim_status]), 'TravelAssistant OptimizationInsights'[type] = "agent_scorecard", 'TravelAssistant OptimizationInsights'[dimension] = "workflow_efficiency"))
+			RETURN SWITCH(_status, "opportunity", "🔵 OPPORTUNITY", "watch", "🟡 WATCH", "ok", "🟢 OK", UPPER(_status))
+
+	measure 'Dimension Status Display' =
+			VAR _status = LOWER(MAX('TravelAssistant OptimizationInsights'[dim_status]))
+			RETURN
+			    SWITCH(
+			        _status,
+			        "watch", "🟡 WATCH",
+			        "opportunity", "🔵 OPPORTUNITY",
+			        "ok", "🟢 OK",
+			        "na", "⚪ N/A",
+			        "⚪ " & UPPER(SUBSTITUTE(_status, "_", " "))
+			    )
+
+	measure 'SLO Quality Gate' = CALCULATE(MAX('TravelAssistant OptimizationInsights'[baseline_cost_usd]), 'TravelAssistant OptimizationInsights'[type] = "slo_policy")
+		formatString: 0
+
+	measure 'SLO Min Confidence %' = CALCULATE(MAX('TravelAssistant OptimizationInsights'[actual_cost_usd]), 'TravelAssistant OptimizationInsights'[type] = "slo_policy")
+		formatString: 0.0%
+
+	measure 'SLO Min Effect %' = CALCULATE(MAX('TravelAssistant OptimizationInsights'[saving_usd]), 'TravelAssistant OptimizationInsights'[type] = "slo_policy")
+		formatString: 0.0%
+
+	measure 'SLO Source' = CALCULATE(MAX('TravelAssistant OptimizationInsights'[method]), 'TravelAssistant OptimizationInsights'[type] = "slo_policy")
+
+	measure 'SLO Panel Detail' =
+			"Quality gate (e2e_quality ≥)                                      " & FORMAT([SLO Quality Gate], "0") & UNICHAR(10) &
+			"Min confidence                                                    " & FORMAT([SLO Min Confidence %], "0.0%") & UNICHAR(10) &
+			"Min effect                                                        " & FORMAT([SLO Min Effect %], "0.0%") & UNICHAR(10) &
+			"Source                                                            " & [SLO Source] & UNICHAR(10) &
+			"Optimizations must clear this gate before autonomous apply."
+
+	measure 'Conversion Detail' =
+			VAR _confirmed = CALCULATE(MAX('TravelAssistant OptimizationInsights'[confirmed]), 'TravelAssistant OptimizationInsights'[type] = "conversion_kpi")
+			VAR _engaged = CALCULATE(MAX('TravelAssistant OptimizationInsights'[engaged]), 'TravelAssistant OptimizationInsights'[type] = "conversion_kpi")
+			RETURN FORMAT(_confirmed, "#,0") & " of " & FORMAT(_engaged, "#,0") & " sessions"
+
+	column _rid
+		dataType: string
+		sourceProviderType: varchar(8000)
+		lineageTag: b05603c8-1bf4-42ca-8684-8a0cee9a5e20
+		summarizeBy: none
+		sourceColumn: _rid
+
+		annotation SummarizationSetBy = Automatic
+
+	column _ts
+		dataType: int64
+		sourceProviderType: bigint
+		lineageTag: f4b0a6c4-2ba6-47ad-a098-56f5b7b4e87a
+		summarizeBy: none
+		sourceColumn: _ts
+
+		annotation SummarizationSetBy = Automatic
+
+	column id
+		dataType: string
+		sourceProviderType: varchar(8000)
+		lineageTag: 54789a9b-64a6-41ff-aba8-043a77c5071a
+		summarizeBy: none
+		sourceColumn: id
+
+		annotation SummarizationSetBy = Automatic
+
+	column type
+		dataType: string
+		sourceProviderType: varchar(8000)
+		lineageTag: 6ae33127-25fe-4f83-8823-5a611473601d
+		summarizeBy: none
+		sourceColumn: type
+
+		annotation SummarizationSetBy = Automatic
+
+	column tenantId
+		dataType: string
+		sourceProviderType: varchar(8000)
+		lineageTag: e7868eee-7838-40c1-a44b-feb1705c58e4
+		summarizeBy: none
+		sourceColumn: tenantId
+
+		annotation SummarizationSetBy = Automatic
+
+	column stage
+		dataType: string
+		sourceProviderType: varchar(8000)
+		lineageTag: e9abe322-47a7-4a58-bd7a-6b83e878e807
+		summarizeBy: none
+		sourceColumn: stage
+
+		annotation SummarizationSetBy = Automatic
+
+	column 'Stage Display' =
+			SWITCH(
+			    'TravelAssistant OptimizationInsights'[stage],
+			    "engaged", "Engaged",
+			    "searched", "Searched",
+			    "planned", "Planned",
+			    "confirmed", "Confirmed",
+			    'TravelAssistant OptimizationInsights'[stage]
+			)
+		dataType: string
+		sortByColumn: stage_order
+		summarizeBy: none
+
+		annotation SummarizationSetBy = User
+
+	column stage_order
+		dataType: double
+		sourceProviderType: float
+		lineageTag: 53a7c8a8-1465-4083-af79-9e80d061c200
+		summarizeBy: none
+		sourceColumn: stage_order
+
+		changedProperty = SortByColumn
+
+		annotation SummarizationSetBy = Automatic
+
+	column sessions
+		dataType: double
+		sourceProviderType: float
+		lineageTag: 19bbd747-4efd-4b23-a943-36cb6028a026
+		summarizeBy: none
+		sourceColumn: sessions
+
+		annotation SummarizationSetBy = Automatic
+
+	column computed_at
+		dataType: string
+		sourceProviderType: varchar(8000)
+		lineageTag: 3e2bc919-7d0e-42db-ae8d-438348fa1797
+		summarizeBy: none
+		sourceColumn: computed_at
+
+		annotation SummarizationSetBy = Automatic
+
+	column cause
+		dataType: string
+		sourceProviderType: varchar(8000)
+		lineageTag: 7e5e8800-c83e-4158-bae1-12da2fcf148c
+		summarizeBy: none
+		sourceColumn: cause
+
+		annotation SummarizationSetBy = Automatic
+
+	column 'Cause Display' =
+			SWITCH(
+			    'TravelAssistant OptimizationInsights'[cause],
+			    "city_friction", "City Friction",
+			    "no_engagement", "No Engagement",
+			    "cart_abandon", "Cart Abandon",
+			    "search_stall", "Search Stall",
+			    "no_results", "No Results",
+			    'TravelAssistant OptimizationInsights'[cause]
+			)
+		dataType: string
+		summarizeBy: none
+
+		annotation SummarizationSetBy = User
+
+	column engaged
+		dataType: double
+		sourceProviderType: float
+		lineageTag: 84af5b8d-d963-48df-ae12-762ff9979e4e
+		summarizeBy: none
+		sourceColumn: engaged
+
+		annotation SummarizationSetBy = Automatic
+
+	column confirmed
+		dataType: double
+		sourceProviderType: float
+		lineageTag: ad443ef1-fb92-480d-a423-73b160db077a
+		summarizeBy: none
+		sourceColumn: confirmed
+
+		annotation SummarizationSetBy = Automatic
+
+	column conversion_rate
+		dataType: double
+		sourceProviderType: float
+		lineageTag: 759ca7e3-8863-4e29-8bc3-b37b9a1989c8
+		summarizeBy: none
+		sourceColumn: conversion_rate
+
+		annotation SummarizationSetBy = Automatic
+
+	column biggest_leak
+		dataType: string
+		sourceProviderType: varchar(8000)
+		lineageTag: 978cc5a2-87ac-46ae-9fac-2fd2770e3356
+		summarizeBy: none
+		sourceColumn: biggest_leak
+
+		annotation SummarizationSetBy = Automatic
+
+	column wasted_pct
+		dataType: double
+		sourceProviderType: float
+		lineageTag: 5d14380b-7548-4c68-b7e6-2548c012c3a7
+		summarizeBy: none
+		sourceColumn: wasted_pct
+
+		annotation SummarizationSetBy = Automatic
+
+	column tokens_per_outcome
+		dataType: double
+		sourceProviderType: float
+		lineageTag: 1070a13c-100e-458f-9018-eb67b95edca0
+		summarizeBy: none
+		sourceColumn: tokens_per_outcome
+
+		annotation SummarizationSetBy = Automatic
+
+	column agent_path
+		dataType: string
+		sourceProviderType: varchar(8000)
+		lineageTag: d2163d48-81eb-48b5-ac17-676bae5c6f19
+		summarizeBy: none
+		sourceColumn: agent_path
+
+		annotation SummarizationSetBy = Automatic
+
+	column turns
+		dataType: double
+		sourceProviderType: float
+		lineageTag: 05072c8a-b618-4e00-a0bf-eb8a4d5aa1bb
+		summarizeBy: none
+		sourceColumn: turns
+
+		annotation SummarizationSetBy = Automatic
+
+	column total_tokens
+		dataType: double
+		sourceProviderType: float
+		lineageTag: df938051-03ef-4e8a-b02b-782670452c53
+		summarizeBy: none
+		sourceColumn: total_tokens
+
+		annotation SummarizationSetBy = Automatic
+
+	column avg_tokens
+		dataType: double
+		sourceProviderType: float
+		lineageTag: 2e07e8ab-7d63-4517-b9b8-5804a774ee9a
+		summarizeBy: none
+		sourceColumn: avg_tokens
+
+		annotation SummarizationSetBy = Automatic
+
+	column total_memories
+		dataType: double
+		sourceProviderType: float
+		lineageTag: 666ef92c-de03-4ac9-908a-0de79701c830
+		summarizeBy: none
+		sourceColumn: total_memories
+
+		annotation SummarizationSetBy = Automatic
+
+	column superseded_memories
+		dataType: double
+		sourceProviderType: float
+		lineageTag: d019fc7b-bd6a-475c-8811-abbc62dc95fb
+		summarizeBy: none
+		sourceColumn: superseded_memories
+
+		annotation SummarizationSetBy = Automatic
+
+	column superseded_pct
+		dataType: double
+		sourceProviderType: float
+		lineageTag: 5f21ff97-1f88-4ed5-918f-47243ee1fb3e
+		summarizeBy: none
+		sourceColumn: superseded_pct
+
+		annotation SummarizationSetBy = Automatic
+
+	column scenario
+		dataType: string
+		sourceProviderType: varchar(8000)
+		lineageTag: 82bfcf6f-8103-477e-8148-337a5c64ca96
+		summarizeBy: none
+		sourceColumn: scenario
+
+		annotation SummarizationSetBy = Automatic
+
+	column method
+		dataType: string
+		sourceProviderType: varchar(8000)
+		lineageTag: 97e621c0-eae6-43b8-985b-d208c5bbf747
+		summarizeBy: none
+		sourceColumn: method
+
+		annotation SummarizationSetBy = Automatic
+
+	column baseline_cost_usd
+		dataType: double
+		sourceProviderType: float
+		lineageTag: 4d73995b-af76-44fc-b81b-3bd4e97b1174
+		summarizeBy: none
+		sourceColumn: baseline_cost_usd
+
+		annotation SummarizationSetBy = Automatic
+
+	column actual_cost_usd
+		dataType: double
+		sourceProviderType: float
+		lineageTag: cdce2ff6-f165-4ad9-b2fa-149db2925d53
+		summarizeBy: none
+		sourceColumn: actual_cost_usd
+
+		annotation SummarizationSetBy = Automatic
+
+	column saving_usd
+		dataType: double
+		formatString: \$#,0.00
+		sourceProviderType: float
+		lineageTag: 720cd07f-5915-4ea3-91f4-42a6ca1bcee0
+		summarizeBy: none
+		sourceColumn: saving_usd
+
+		annotation SummarizationSetBy = Automatic
+
+	column saving_pct
+		dataType: double
+		formatString: 0.0\%
+		sourceProviderType: float
+		lineageTag: 839c00c3-005d-402c-b7f0-a4da217875fd
+		summarizeBy: none
+		sourceColumn: saving_pct
+
+		annotation SummarizationSetBy = Automatic
+
+	column title
+		dataType: string
+		sourceProviderType: varchar(max)
+		lineageTag: 1072aa10-e0b6-4c48-9231-355458a20d42
+		summarizeBy: none
+		sourceColumn: title
+
+		annotation SummarizationSetBy = Automatic
+
+	column avg_salience
+		dataType: double
+		sourceProviderType: float
+		lineageTag: 2643c1dd-a4c6-4283-85fd-15d9340fa6fd
+		summarizeBy: sum
+		sourceColumn: avg_salience
+
+		annotation SummarizationSetBy = Automatic
+
+		annotation PBI_FormatHint = {"isGeneralNumber":true}
+
+	column supersession_rate
+		dataType: double
+		sourceProviderType: float
+		lineageTag: 9d7aac2b-179e-4c90-bcbc-8689007cd4fb
+		summarizeBy: sum
+		sourceColumn: supersession_rate
+
+		annotation SummarizationSetBy = Automatic
+
+		annotation PBI_FormatHint = {"isGeneralNumber":true}
+
+	column low_salience_rate
+		dataType: double
+		sourceProviderType: float
+		lineageTag: e37f5062-6250-406a-ac7c-2d5549c07823
+		summarizeBy: sum
+		sourceColumn: low_salience_rate
+
+		annotation SummarizationSetBy = Automatic
+
+		annotation PBI_FormatHint = {"isGeneralNumber":true}
+
+	column label
+		dataType: string
+		sourceProviderType: varchar(max)
+		lineageTag: 97c85540-5006-424f-80e5-600e480e51c3
+		summarizeBy: none
+		sourceColumn: label
+
+		annotation SummarizationSetBy = Automatic
+
+	column count
+		dataType: double
+		sourceProviderType: float
+		lineageTag: f67e8898-1fe1-4a26-b5ae-94dba5542aa2
+		summarizeBy: sum
+		sourceColumn: count
+
+		annotation SummarizationSetBy = Automatic
+
+		annotation PBI_FormatHint = {"isGeneralNumber":true}
+
+	column scored_memories
+		dataType: double
+		sourceProviderType: float
+		lineageTag: ab5632c9-32ef-4c23-98f3-8269ccceaba5
+		summarizeBy: sum
+		sourceColumn: scored_memories
+
+		annotation SummarizationSetBy = Automatic
+
+		annotation PBI_FormatHint = {"isGeneralNumber":true}
+
+	column note
+		dataType: string
+		sourceProviderType: varchar(max)
+		lineageTag: 3da2916e-9bf1-41b9-8f31-676cd32c479b
+		summarizeBy: none
+		sourceColumn: note
+
+		annotation SummarizationSetBy = Automatic
+
+	column scenario_id
+		dataType: string
+		sourceProviderType: varchar(max)
+		summarizeBy: none
+		sourceColumn: scenario_id
+
+	column order
+		dataType: double
+		sourceProviderType: float
+		summarizeBy: sum
+		sourceColumn: order
+
+	column dimension
+		dataType: string
+		sourceProviderType: varchar(max)
+		summarizeBy: none
+		sourceColumn: dimension
+
+	column apply_mode
+		dataType: string
+		sourceProviderType: varchar(max)
+		summarizeBy: none
+		sourceColumn: apply_mode
+
+	column maturity
+		dataType: string
+		sourceProviderType: varchar(max)
+		summarizeBy: none
+		sourceColumn: maturity
+
+	column estimated_saving_usd
+		dataType: double
+		sourceProviderType: float
+		summarizeBy: sum
+		sourceColumn: estimated_saving_usd
+
+	column evidence_line
+		dataType: string
+		sourceProviderType: varchar(max)
+		summarizeBy: none
+		sourceColumn: evidence_line
+
+	column caveat
+		dataType: string
+		sourceProviderType: varchar(max)
+		summarizeBy: none
+		sourceColumn: caveat
+
+	column card
+		dataType: string
+		sourceProviderType: varchar(max)
+		summarizeBy: none
+		sourceColumn: card
+
+	column status
+		dataType: string
+		sourceProviderType: varchar(max)
+		summarizeBy: none
+		sourceColumn: status
+
+	column avoided_recall_tokens
+		dataType: double
+		sourceProviderType: float
+		summarizeBy: sum
+		sourceColumn: avoided_recall_tokens
+
+	column measured_saving_usd
+		dataType: double
+		sourceProviderType: float
+		summarizeBy: sum
+		sourceColumn: measured_saving_usd
+
+	column agent
+		dataType: string
+		sourceProviderType: varchar(max)
+		summarizeBy: none
+		sourceColumn: agent
+
+	column agent_status
+		dataType: string
+		sourceProviderType: varchar(max)
+		summarizeBy: none
+		sourceColumn: agent_status
+
+	column cost
+		dataType: double
+		sourceProviderType: float
+		summarizeBy: sum
+		sourceColumn: cost
+
+	column cost_share
+		dataType: double
+		sourceProviderType: float
+		summarizeBy: sum
+		sourceColumn: cost_share
+
+	column executions
+		dataType: double
+		sourceProviderType: float
+		summarizeBy: sum
+		sourceColumn: executions
+
+	column tokens_per_turn
+		dataType: double
+		sourceProviderType: float
+		summarizeBy: sum
+		sourceColumn: tokens_per_turn
+
+	column dim_status
+		dataType: string
+		sourceProviderType: varchar(max)
+		summarizeBy: none
+		sourceColumn: dim_status
+
+	column headline
+		dataType: string
+		sourceProviderType: varchar(max)
+		summarizeBy: none
+		sourceColumn: headline
+
+	column 'Dimension Display' =
+			SWITCH(
+			    'TravelAssistant OptimizationInsights'[dimension],
+			    "cost_efficiency", "Cost Efficiency",
+			    "model_selection", "Model Selection",
+			    "workflow_efficiency", "Workflow Efficiency",
+			    SUBSTITUTE('TravelAssistant OptimizationInsights'[dimension], "_", " ")
+			)
+		dataType: string
+		summarizeBy: none
+
+		annotation SummarizationSetBy = User
+
+	column value
+		dataType: double
+		sourceProviderType: float
+		summarizeBy: sum
+		sourceColumn: value
+
+	column unit
+		dataType: string
+		sourceProviderType: varchar(max)
+		summarizeBy: none
+		sourceColumn: unit
+
+	partition 'TravelAssistant OptimizationInsights' = m
+		mode: directQuery
+		source =
+				let
+				    Source = Sql.Database(MirrorSQLEndpoint, MirrorDatabase),
+				    TravelAssistant_OptimizationInsights = Source{[Schema="TravelAssistant",Item="OptimizationInsights"]}[Data]
+				in
+				    TravelAssistant_OptimizationInsights
+
+	annotation PBI_ResultType = Table

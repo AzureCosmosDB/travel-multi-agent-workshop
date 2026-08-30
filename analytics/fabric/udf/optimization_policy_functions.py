@@ -42,10 +42,6 @@ POLICIES_CONTAINER = "OptimizationPolicies"
 CONFIG_CONTAINER = "Configuration"
 
 
-def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
-
-
 def _lookup_params(database, scenario: str) -> dict[str, Any]:
     """Read the scenario's canonical params from the app's Configuration container so
     the tiers/models live in ONE place (seeded from the models azd actually deployed) —
@@ -73,18 +69,26 @@ def _set_status(database, scenario: str, status: str, by: str) -> dict[str, Any]
     document (id == scenario, partition key /scenario). If the policy was never
     proposed from the console, seed it from the app's canonical Configuration params."""
     container = database.get_container_client(POLICIES_CONTAINER)
+    now = datetime.now(timezone.utc)
+    now_iso = now.isoformat()
+    now_epoch = int(now.timestamp())
     try:
         doc = container.read_item(item=scenario, partition_key=scenario)
     except exceptions.CosmosResourceNotFoundError:
         doc = {
             "id": scenario, "scenario": scenario,
             "params": _lookup_params(database, scenario),
-            "version": 0, "audit": [], "created_at": _now_iso(),
+            "version": 0, "audit": [], "created_at": now_iso,
         }
     doc["status"] = status
-    doc["updated_at"] = _now_iso()
+    doc["updated_at"] = now_iso
+    # Keep the epoch fields in lockstep with the app's optimization_policy.upsert_policy so
+    # the Power BI report's updated_epoch-derived columns (e.g. 'Policy Updated') move when
+    # Apply/Revert fires from the report — not just the ISO updated_at string.
+    doc.setdefault("created_epoch", now_epoch)
+    doc["updated_epoch"] = now_epoch
     doc["version"] = int(doc.get("version", 0)) + 1
-    doc.setdefault("audit", []).append({"ts": _now_iso(), "action": status, "by": by})
+    doc.setdefault("audit", []).append({"ts": now_iso, "action": status, "by": by})
     container.upsert_item(doc)
     return {"scenario": scenario, "status": doc["status"],
             "version": doc["version"], "updated_at": doc["updated_at"]}

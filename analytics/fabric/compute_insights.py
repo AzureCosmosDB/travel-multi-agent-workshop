@@ -17,6 +17,9 @@ the report reads them with trivial DAX:
                              wasted_pct, tokens_per_outcome, biggest_leak}
   {type:"agent_path_cost",   tenantId, agent_path, turns, total_tokens, avg_tokens}
   {type:"agent_scorecard",   tenantId, agent, dimension, dim_status, agent_status, cost, cost_share, ...}
+  {type:"agent_opportunity", tenantId, order, note, saving_usd, saving_pct, apply_mode, ...}
+  {type:"recommendation_card", tenantId, scenario, order, title, status, evidence_line, ...}
+  {type:"slo_metric",        tenantId, order, title, evidence_line}
   {type:"memory_retention",  tenantId, total_memories, superseded_memories, superseded_pct}
 
 Usage (repo root; Cosmos via DefaultAzureCredential):

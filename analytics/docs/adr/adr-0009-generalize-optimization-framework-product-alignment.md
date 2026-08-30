@@ -117,8 +117,8 @@ wired scenarios as **dimension-tagged worked examples**. Phase the work:
 **Phase 2 — the generalized framework in-product (follow-up design + PR):**
 - **`complexity_tier → task_tier`** (a.k.a. capability tier) — deferred here on purpose: it's a
   cross-cutting **data** migration (~15 code files across both trees, ~745 records in `debug.json` /
-  `optimization_turns.json`, the notebook, the `.pbix` field binding), it re-seeds Cosmos, and it
-  breaks the deployed report until re-imported. It belongs with the other data-model work, not the
+  `optimization_turns.json`, the notebook, and the PBIR/TMDL field binding), it re-seeds Cosmos, and it
+  breaks the deployed report until redeployed. It belongs with the other data-model work, not the
   clarity pass.
 - **Tag every recommendation/scenario/result row with its dimension** (`dimension` field on
   `recommendation_card` / `optimization_result`), sourced from the SCEN-NNN catalog.
@@ -140,7 +140,7 @@ wired scenarios as **dimension-tagged worked examples**. Phase the work:
   The `complexity_tier → task_tier` rename is a cross-cutting field rename with migration considerations
   for existing seeded data.
 - **Risks:** scope creep into a re-architecture; the report is DirectQuery over the mirror, so field
-  renames require coordinated changes across notebook, seed data, and the `.pbix`.
+  renames require coordinated changes across notebook, seed data, and the PBIR/TMDL source.
 
 ## Open items to verify
 

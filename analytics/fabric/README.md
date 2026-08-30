@@ -51,14 +51,15 @@ region that has Fabric capacity available to you.
 > the Fabric gateway team ships audience/refresh support. Until then, **ship with the
 > manual connection step above.**
 
-## provision_fabric.py — Phases 1 & 2 (automated, validated end-to-end)
+## provision_fabric.py — Phases 1–3 (automated, validated end-to-end)
 
 `python analytics/fabric/provision_fabric.py --phase 1` (reads config from `azd env` or CLI flags):
 creates the workspace, assigns it to the F2 capacity, provisions the workspace identity, waits for
 the identity SP to propagate to AAD, and grants Cosmos **`readMetadata` + `readAnalytics`** (a custom
 `FabricMirroringRole`) to the connection identity. `--phase 2 --connection-id <id>` then creates the
-mirror (OptimizationTurns / Trips / OptimizationPolicies / Configuration / Messages /
-OptimizationInsights), waits for it to initialize, starts it, and uploads the **Module 09 notebook**
+mirror (`OptimizationTurns`, `NodeExecutions`, `Trips`, `OptimizationPolicies`,
+`OptimizationGovernance`, `Configuration`, `Messages`, `ApiEvents`, `OptimizationInsights`,
+and `memories`), waits for it to initialize, starts it, and uploads the **Module 09 notebook**
 (`ConversionFunnelReverseETL`, learner TODOs by default) with its parameters pre-filled from the
 deployment. Idempotent. Use a tenant-unique workspace name in shared environments; if a hidden
 workspace already reserves the name, the provisioner returns an actionable collision error.
@@ -69,8 +70,13 @@ The participant wrapper supports the same explicit resume path:
 .\analytics\fabric\Provision-Fabric.ps1 -Phase 2 -ConnectionId <id>
 ```
 
-Report import is not considered successful until its dataset query validates. A failed query raises
-with the underlying dataset error and prevents the provisioner from printing overall success.
+Phase 2 also deploys the **`optimization-apply-loop`** User Data Function, injects the current Cosmos
+endpoint/database, installs `azure-cosmos`, and grants the deploying user Cosmos data-plane write.
+Phase 3 deploys the source-controlled
+**`TravelAssistantAnalyticsReport.SemanticModel`** (TMDL) and
+**`TravelAssistantAnalyticsReport.Report`** (PBIR), hydrating the mirror endpoint/database,
+workspace/model IDs, and Apply/Revert UDF bindings. It then binds DirectQuery SSO and runs a
+dataset query. Deployment is not considered successful until that query validates.
 
 > **Learner vs solution notebook:** the default upload is the **learner** notebook (TODOs). For
 > `02_completed` / the demo, add **`--solution`** to upload the completed `*_solution` notebook — both
@@ -98,6 +104,8 @@ with the underlying dataset error and prevents the provisioner from printing ove
 | Network trust | none needed for public accounts | ✅ |
 | Mirror | `POST /v1/workspaces/{id}/mirroredDatabases` (source CosmosDb → connection + database, `mountedTables`) + `/startMirroring` | ✅ `TravelAssistantV2Analytics` (`debe9a19-…`) replicating |
 | Reverse-ETL notebook | `POST /v1/workspaces/{id}/notebooks` + `updateDefinition` + `jobs/instances?jobType=RunNotebook` | ✅ uploaded; reads mirror through JDBC and persists stage checkpoints |
+| Apply/Revert UDF | `POST /v1/workspaces/{id}/userDataFunctions` + hydrated `function_app.py` + `azure-cosmos` | ✅ deployed as `optimization-apply-loop` |
+| Power BI report | PBIR/TMDL source deployment + placeholder hydration + SSO binding + DAX validation | ✅ deployed as `TravelAssistantAnalyticsReport` |
 | Traffic simulator | `analytics/scripts/traffic_simulator.py` | ✅ proven: 83 turns → mirror in ~60s |
 
 ### RBAC (az)
@@ -165,36 +173,41 @@ deletion vectors at the SQL layer.
 **Power BI** reads the mirror via **DirectQuery over the SQL analytics endpoint** — the Business Impact
 page reads the reverse-ETL'd `OptimizationInsights` rows. No Direct Lake semantic model is created.
 
-## Real-time demo (works today, no notebook needed)
+## Two analytics surfaces, one snapshot
+
+The workshop intentionally ships two complementary surfaces:
+
+- The **web analytics portal** reads the Travel API and can switch between
+  **Live (recompute)** and **Reverse-ETL (notebook)** sources. Its gear menu also exposes
+  completed-demo maintenance actions when the API advertises those capabilities.
+- **`TravelAssistantAnalyticsReport`** reads the Fabric mirror through DirectQuery and the
+  mirrored `OptimizationInsights` snapshot. Its data-driven Recommendations table automatically
+  shows new `recommendation_card` rows. A selected policy recommendation can call
+  `apply_optimization` / `revert_optimization` through the Fabric UDF.
+
+Power BI data-function buttons are standalone report elements; native Table/Matrix cells cannot
+embed a UDF button per row. Selection supplies the `scenario` parameter through DAX.
+
+The report intentionally does **not** expose the web gear menu's broad demo-maintenance actions:
+
+- generate traffic with `Run-TrafficSimulator.ps1` (or the hosted completed-demo gear action);
+- recompute authoritative insights by rerunning the Fabric notebook;
+- keep reset/freshen-time operations in the web demo tooling, not in an analytical report.
+
+## Real-time demo
 
 The mirror is **continuous / near-real-time**, so this shows the "analytics on a transactional
 Cosmos workload" story live:
 
-1. Point a Power BI report at the **mirror SQL endpoint** (Direct Lake or DirectQuery):
-   - mirrored database: `TravelAssistantAnalytics` — provisioning names it `{CosmosDbName}Analytics` (Cosmos DB `TravelAssistant` → `TravelAssistantAnalytics`); the **schema** inside is your Cosmos DB name (`TravelAssistant`).
-   - connection string: copy the **current** one from the mirror's **SQL analytics endpoint** dropdown in the Fabric portal (`<id>.msit-datawarehouse.fabric.microsoft.com`) — it's regenerated per deployment, so don't hard-code an old one.
-   - **Direct Lake** is ideal — it reads OneLake directly, so visuals update as the mirror updates,
-     with no dataset refresh.
-2. Start the traffic simulator:
-   ```powershell
-   python analytics/scripts/traffic_simulator.py --tenant analytics --rate 120 --forever
-   ```
-3. Watch: simulator → Cosmos (transactional) → mirror (~seconds) → Power BI visuals move. **Verified:**
-   83 simulated turns appeared in the mirror within ~60s.
-
-## Remaining (Power BI is a Desktop-oriented task)
-
-- **Semantic model** over the mirror (Direct Lake) — **DONE, scripted + validated.**
-  `TravelAssistantV2AnalyticsModel` (`6d5e8b30-999a-49f0-927c-6382c80df913`) created via
-  `POST /v1/workspaces/{id}/semanticModels` with a TMDL definition (tables `OptimizationTurns` +
-  `Trips` in **Direct Lake** mode over the mirror SQL endpoint, plus measures: Total Turns, Total
-  Tokens, Trivial %, Est Cost USD, Confirmed Trips, Cost per Outcome). Validated live via
-  `POST /v1.0/myorg/groups/{id}/datasets/{ds}/executeQueries` (DAX) → **88 turns, 48.9% trivial,
-  $0.49 est cost, 8 confirmed trips, $0.061 cost/outcome** (including simulated turns) — i.e. it reads
-  the mirror in near-real-time with no dataset refresh.
-- **Report visuals + attendee-usability test** — the committed **`analytics/powerbi/TravelAssistantAnalyticsReport.pbix`**
-  is auto-imported by `Provision-Fabric.ps1`; to rebuild/customize it, use DirectQuery over the mirror per
-  [`../powerbi/PowerBI_Optimization_Build_Guide.md`](../powerbi/PowerBI_Optimization_Build_Guide.md) and **Save As** the `.pbix`.
+1. Provision the included report; Phase 3 points it at the mirror automatically.
+2. Start the policy-aware traffic simulator:
+     ```powershell
+     .\analytics\scripts\Run-TrafficSimulator.ps1 -Tenant analytics -Rate 120 -Forever -Assume auto
+     ```
+3. Apply or revert `model-selection` in Power BI or the web portal. The simulator detects the
+     policy and changes between premium-only and tiered traffic.
+4. Watch: simulator → Cosmos (transactional) → mirror (~seconds) → DirectQuery visuals move. **Verified:**
+     83 simulated turns appeared in the mirror within ~60s.
 
 ## IDs (dev)
 

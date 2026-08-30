@@ -8,18 +8,23 @@ Fabric mirror, no reverse-ETL lag. Open it in any browser.
 
 ## What it shows
 
-The dashboard mirrors the 8-page Power BI optimization report as **tabbed pages
-in the report's 1→8 order**, but live from the API. Each tab renders real charts
+The dashboard mirrors the seven-page Power BI optimization report as **tabbed pages
+in the report's 1→7 order**, but live from the API. Each tab renders real charts
 (SVG donuts, a gauge, a projection line, grouped baseline-vs-actual bars) — no
 charting CDN, all self-contained. Tabs:
 
 1. **Overview** — portfolio KPIs (turns, cost, trivial %, models, cache hit, confirmed trips, cost/outcome), optimization band, model-usage donut, **turns-over-time line chart**
 2. **Optimizations** — analyst-ranked optimizations table (Agent · Dimension · Fix seam → target · Proj. saving · Effect · Apply mode · Autonomy · Clears SLO · **State**) + scenario recommendation cards. Each card shows a live evidence line. **Automatic** (config) cards — model-selection, memory-retention — carry **Apply/Revert**; the **Manual** (prompt/code) card — redundant tool calls — carries a **Review change** button (GitHub-style prompt diff) plus the governance-lifecycle buttons (Approve/Deploy/Dismiss/Roll back). Pure read-only lenses (cost-per-outcome, agent-path) carry no action.
-3. **Model Selection** (pages 3+4) — model-distribution donut, trivial-turn gauge, cost-by-tier bars, and a turns/day projection slider with a live line chart
-4. **Memory** (page 5) — Total/Scored/Avg-salience/Supersession KPIs, **Memories-by-type donut**, **Memory-health donut**, **salience-distribution bars**
-5. **Agents** (pages 6/6b) — agent × dimension scorecard matrix, cost-by-agent bars (USD · share · **tokens**), **dimension-detail table** (status + headline), **agent-path cost concentration table**
-6. **Business** (page 7) — Conversion Rate / Biggest Leak KPIs, **conversion funnel**, **abandonment-cause bars**
-7. **Governance** (page 8) — applied policies, SLO gate, measured-saving table, baseline-vs-actual bar chart, and the decision audit trail
+3. **Model Selection** — model-distribution donut, trivial-turn gauge, cost-by-tier bars, and a turns/day projection slider with a live line chart
+4. **Memory** — Total/Scored/Avg-salience/Supersession KPIs, **Memories-by-type donut**, **Memory-health donut**, **salience-distribution bars**
+5. **Agents** — agent × dimension scorecard matrix, cost-by-agent bars (USD · share · **tokens**), **dimension-detail table** (status + headline), **agent-path cost concentration table**
+6. **Business** — Conversion Rate / Biggest Leak KPIs, **conversion funnel**, **abandonment-cause bars**
+7. **Governance** — applied policies, SLO gate, measured-saving table, baseline-vs-actual bar chart, and the decision audit trail
+
+The deployed **`TravelAssistantAnalyticsReport`** is the Fabric/Power BI companion surface. It
+reads the mirror with DirectQuery and the mirrored `OptimizationInsights` snapshot. Its
+Recommendations table is data-driven: every new `recommendation_card` row appears automatically,
+and selecting a row populates the detail/action panel.
 
 The Memory, Business, and agent-path sections read the same reverse-ETL rows Power BI
 reads (`memory_*`, `funnel_stage`, `abandonment_cause`, `conversion_kpi`, `agent_path_cost`
@@ -31,13 +36,12 @@ Endpoint mapping:
 | Power BI page | Dashboard section | Source endpoint(s) |
 | --- | --- | --- |
 | 1 · Portfolio Overview | KPI strip + optimization band (open opts, est/measured saving, active policies) | `metrics` + `{tenant}` + `result` + `policies` |
-| 2 · Discovered Optimizations | Analyst-ranked optimizations table (agent · dimension · fix seam · saving · autonomy · SLO) | `GET /optimizations/agent/{tenant}/opportunities` |
-| 3 · Model Selection Projected Impact | Turns/day projection slider → monthly/annual saving | `GET /optimizations/{tenant}/result` (model-selection) |
-| 4 · Model Selection Diagnosis | Model distribution + spend by complexity tier | `GET /optimizations/{tenant}/metrics?source=live` |
-| 5 · Memory Intelligence | Memory KPIs (total, superseded %, pruned, measured saving) | `GET /optimizations/{tenant}?source=live` (memory-retention evidence) |
-| 6 / 6b · Agent Performance | Agent × dimension scorecard matrix + cost-by-agent bars | `GET /optimizations/agent/{tenant}/scorecard` |
-| 7 · Business Impact | Conversion / outcome KPIs | `GET /optimizations/{tenant}/metrics?source=live` |
-| 8 · Governance & Measured Saving | Applied policies + SLO gate + decision audit + measured savings | `policies` + `/agent/{tenant}/slo` + `/agent/{tenant}/decisions` + `result` |
+| 2 · Optimizations | Ranked opportunities + data-driven recommendations and actions | `/optimizations/agent/{tenant}/opportunities` + `GET /optimizations/{tenant}` |
+| 3 · Model Selection | Model mix, cost by tier, and turns/day saving projection | `metrics` + `result` (model-selection) |
+| 4 · Memory | Memory KPIs, type/health distributions, and salience | memory reverse-ETL endpoints |
+| 5 · Agents | Agent × dimension scorecard + agent-path costs | `/optimizations/agent/{tenant}/scorecard` + agent-path rows |
+| 6 · Business | Conversion funnel, outcome KPIs, and abandonment causes | `metrics` + funnel reverse-ETL rows |
+| 7 · Governance | Policies, SLO gate, decision audit, and measured savings | `policies` + `/agent/{tenant}/slo` + `/agent/{tenant}/decisions` + `result` |
 
 Scenario recommendation cards (`GET /optimizations/{tenant}?source=live`) render below the optimizations table — one actionable card per optimization.
 
@@ -89,6 +93,11 @@ buttons.
   (**Approve / Deploy / Dismiss / Roll back**, per current state). These POST to
   `/optimizations/agent/{tenant}/decision` and append to the decision audit trail.
 - The remaining lenses (cost-per-outcome, agent-path) are read-only diagnostics, no action.
+
+Power BI exposes the same reversible policy actions through the Fabric
+`optimization-apply-loop` User Data Function. Native Power BI tables cannot embed buttons in each
+row, so the report uses a master-detail pattern: select the recommendation, then use the
+standalone state-aware Apply/Revert buttons.
 
 All actions are attributed to `by: "analytics-portal"` (there is no per-user actor box).
 
@@ -173,6 +182,9 @@ There is no API input — the base URL is resolved automatically:
 - **Source** — Reverse-ETL (Power BI parity) vs Live (recompute). See above.
 - **auto-refresh** — re-fetch every 15 s.
 - **Refresh** — fetch now. The status pill shows load/ok/error + last-updated time.
+- **Gear menu** — completed-demo operational maintenance. Generate traffic, recompute insights,
+  freshen timestamps, and reset are intentionally **not** Power BI buttons. Power BI owns scoped
+  policy Apply/Revert; the web/demo tooling owns broad maintenance operations.
 
 Each section fetches independently, so one failing endpoint won't blank the page —
 it shows a per-section message and the rest still renders.

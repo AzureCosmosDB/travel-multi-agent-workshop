@@ -1,0 +1,23 @@
+model Model
+	culture: en-US
+	defaultPowerBIDataSourceVersion: powerBI_V3
+	sourceQueryCulture: en-US
+	valueFilterBehavior: independent
+	dataAccessOptions
+		legacyRedirects
+		returnErrorValuesAsNull
+
+annotation __PBI_TimeIntelligenceEnabled = 1
+
+annotation PBI_QueryOrder = ["TravelAssistant OptimizationTurns","TravelAssistant Trips","TravelAssistant OptimizationPolicies","MirrorSQLEndpoint","MirrorDatabase","TravelAssistant OptimizationInsights","TravelAssistant Configuration"]
+
+ref table 'TravelAssistant OptimizationTurns'
+ref table 'TravelAssistant Trips'
+ref table 'TravelAssistant OptimizationPolicies'
+ref table 'TravelAssistant OptimizationInsights'
+ref table 'TravelAssistant Configuration'
+ref table 'Turns per Day'
+ref table 'Projection Volume'
+ref table 'Cost Comparison'
+
+ref cultureInfo en-US

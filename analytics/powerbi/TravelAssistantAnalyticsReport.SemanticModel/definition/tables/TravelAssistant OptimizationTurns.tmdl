@@ -1,0 +1,311 @@
+table 'TravelAssistant OptimizationTurns'
+	lineageTag: f3377b41-40ce-4cd0-a2d8-14033b79e362
+
+	measure 'Total Turns' = COUNTROWS('TravelAssistant OptimizationTurns')
+		formatString: 0
+		lineageTag: 674f844b-faf0-4b78-89df-e9c5c7626ef3
+
+	measure 'Total Tokens' = SUM('TravelAssistant OptimizationTurns'[total_tokens])
+		formatString: #,0
+		lineageTag: 3d9879b7-e17a-4ea5-bb00-1f3910022ce0
+
+	measure 'Trivial Turns' = COALESCE(CALCULATE(COUNTROWS('TravelAssistant OptimizationTurns'), 'TravelAssistant OptimizationTurns'[complexity_tier] = "trivial"), 0)
+		formatString: 0
+		lineageTag: f142d02c-0202-489d-af8d-60cca93c3b60
+
+	measure 'Trivial %' = DIVIDE(COALESCE([Trivial Turns], 0), [Total Turns], 0) * 100
+		formatString: 0.0\%
+		lineageTag: a39b6a87-dcb8-457e-90bf-1f71af97b4bc
+
+		annotation PBI_FormatHint = {"isGeneralNumber":true}
+
+	measure 'Est Cost USD' =
+			SUMX(
+			    'TravelAssistant OptimizationTurns',
+			    VAR d = 'TravelAssistant OptimizationTurns'[model_deployment]
+			    VAR pin = COALESCE(LOOKUPVALUE('TravelAssistant Configuration'[input_price], 'TravelAssistant Configuration'[model], d, 'TravelAssistant Configuration'[type], "model_pricing"), 0.40)
+			    VAR pout = COALESCE(LOOKUPVALUE('TravelAssistant Configuration'[output_price], 'TravelAssistant Configuration'[model], d, 'TravelAssistant Configuration'[type], "model_pricing"), 1.60)
+			    RETURN ('TravelAssistant OptimizationTurns'[input_tokens] * pin + 'TravelAssistant OptimizationTurns'[output_tokens] * pout) / 1000000
+			)
+		formatString: \$#,0.00;(\$#,0.00);\$#,0.00
+		lineageTag: 2910c8b5-c6e2-4ede-bf6e-4dc515ecc651
+
+		annotation PBI_FormatHint = {"currencyCulture":"en-US"}
+
+	measure 'Confirmed Trips' = CALCULATE(COUNTROWS('TravelAssistant Trips'), 'TravelAssistant Trips'[status] = "confirmed" || 'TravelAssistant Trips'[status] = "completed")
+		formatString: 0
+		lineageTag: 8ab98d68-0950-44af-a3af-5cb5c4539388
+
+	measure 'Cost per Outcome' = DIVIDE([Est Cost USD], [Confirmed Trips])
+		formatString: \$#,0.00;(\$#,0.00);\$#,0.00
+		lineageTag: 419878af-e6f9-4182-9149-fd5b89d5ccaf
+
+		annotation PBI_FormatHint = {"currencyCulture":"en-US"}
+
+	measure 'Cumulative Turns' =
+			
+			CALCULATE(
+			    [Total Turns],
+			    FILTER(
+			        ALL('TravelAssistant OptimizationTurns'[Turn Time]),
+			        'TravelAssistant OptimizationTurns'[Turn Time] <= MAX('TravelAssistant OptimizationTurns'[Turn Time])
+			    )
+			)
+		formatString: 0
+		lineageTag: da01b899-95f2-4ecc-b366-8c463f961794
+
+	measure 'Cached Tokens' = SUM('TravelAssistant OptimizationTurns'[cached_tokens])
+		lineageTag: 68e34112-bee4-4f4f-b283-bdbc1f86e853
+
+		annotation PBI_FormatHint = {"isGeneralNumber":true}
+
+	measure 'Cache Hit %' = DIVIDE([Cached Tokens], SUM('TravelAssistant OptimizationTurns'[input_tokens])) * 100
+		formatString: 0.0\%
+		lineageTag: edded031-f6a5-4589-8848-99c2bb141edc
+
+		annotation PBI_FormatHint = {"isGeneralNumber":true}
+
+	measure 'Models Used' = DISTINCTCOUNT('TravelAssistant OptimizationTurns'[model_deployment])
+		formatString: 0
+
+	measure 'Model Legend Detail' =
+			FORMAT([Total Turns], "#,0") & " · " &
+			FORMAT(
+			    DIVIDE(
+			        [Total Turns],
+			        CALCULATE([Total Turns], REMOVEFILTERS('TravelAssistant OptimizationTurns'[model_deployment]))
+			    ),
+			    "0.0%"
+			)
+
+	measure 'Percent Maximum' = 100
+		formatString: 0.0\%
+
+	measure 'Turns Card Detail' = FORMAT([Total Tokens], "#,0") & " tokens"
+
+	measure 'Trivial Turns Detail' = FORMAT([Trivial Turns], "#,0") & " of " & FORMAT([Total Turns], "#,0") & " turns"
+
+	column 'Tier Model Label' = 'TravelAssistant OptimizationTurns'[complexity_tier] & " · " & 'TravelAssistant OptimizationTurns'[model_deployment]
+		dataType: string
+		summarizeBy: none
+
+		annotation SummarizationSetBy = User
+
+	column _rid
+		dataType: string
+		isNullable: false
+		sourceProviderType: varchar(max)
+		lineageTag: b76149dd-6565-4437-8512-145f4e2e7056
+		summarizeBy: none
+		sourceColumn: _rid
+
+		annotation SummarizationSetBy = Automatic
+
+	column _ts
+		dataType: int64
+		formatString: 0
+		sourceProviderType: bigint
+		lineageTag: 9d6e5ec8-aab5-42d4-a3b8-cb269663ce87
+		summarizeBy: sum
+		sourceColumn: _ts
+
+		annotation SummarizationSetBy = Automatic
+
+	column id
+		dataType: string
+		sourceProviderType: varchar(max)
+		lineageTag: f084b560-6024-4ae7-886f-fa80e8855fec
+		summarizeBy: none
+		sourceColumn: id
+
+		annotation SummarizationSetBy = Automatic
+
+	column type
+		dataType: string
+		sourceProviderType: varchar(max)
+		lineageTag: 998dacd0-fd18-4699-8928-c59ee0cc30b6
+		summarizeBy: none
+		sourceColumn: type
+
+		annotation SummarizationSetBy = Automatic
+
+	column tenantId
+		dataType: string
+		sourceProviderType: varchar(max)
+		lineageTag: 84d3a6c9-621b-4ab0-b858-a197812ff578
+		summarizeBy: none
+		sourceColumn: tenantId
+
+		annotation SummarizationSetBy = Automatic
+
+	column userId
+		dataType: string
+		sourceProviderType: varchar(max)
+		lineageTag: dfb9a79b-742e-43f8-b295-0a672125fde4
+		summarizeBy: none
+		sourceColumn: userId
+
+		annotation SummarizationSetBy = Automatic
+
+	column sessionId
+		dataType: string
+		sourceProviderType: varchar(max)
+		lineageTag: bb192892-2168-4a2a-8af6-de21f25d8f51
+		summarizeBy: none
+		sourceColumn: sessionId
+
+		annotation SummarizationSetBy = Automatic
+
+	column complexity_tier
+		dataType: string
+		sourceProviderType: varchar(max)
+		lineageTag: 9dc28d31-2193-4261-8366-461d83120c52
+		summarizeBy: none
+		sourceColumn: complexity_tier
+
+		annotation SummarizationSetBy = Automatic
+
+	column model_deployment
+		dataType: string
+		sourceProviderType: varchar(max)
+		lineageTag: 8ed13a05-718b-4f14-90aa-cec476924403
+		summarizeBy: none
+		sourceColumn: model_deployment
+
+		annotation SummarizationSetBy = Automatic
+
+	column model_name
+		dataType: string
+		sourceProviderType: varchar(max)
+		lineageTag: 2049f2fd-40fe-432d-9166-556f2e92c9c5
+		summarizeBy: none
+		sourceColumn: model_name
+
+		annotation SummarizationSetBy = Automatic
+
+	column input_tokens
+		dataType: double
+		sourceProviderType: float
+		lineageTag: ebfad2ae-b7e3-41eb-bcb2-0fbfdb1c5cdf
+		summarizeBy: sum
+		sourceColumn: input_tokens
+
+		annotation SummarizationSetBy = Automatic
+
+		annotation PBI_FormatHint = {"isGeneralNumber":true}
+
+	column output_tokens
+		dataType: double
+		sourceProviderType: float
+		lineageTag: 3a20db6b-49fb-4271-9594-778a23efb371
+		summarizeBy: sum
+		sourceColumn: output_tokens
+
+		annotation SummarizationSetBy = Automatic
+
+		annotation PBI_FormatHint = {"isGeneralNumber":true}
+
+	column total_tokens
+		dataType: double
+		sourceProviderType: float
+		lineageTag: ce7980e5-dafe-4fd6-9d5d-8cd2fe32a8c1
+		summarizeBy: sum
+		sourceColumn: total_tokens
+
+		annotation SummarizationSetBy = Automatic
+
+		annotation PBI_FormatHint = {"isGeneralNumber":true}
+
+	column cached_tokens
+		dataType: double
+		sourceProviderType: float
+		lineageTag: 7b4a7888-9b16-4ac9-818c-2c099b9042ca
+		summarizeBy: sum
+		sourceColumn: cached_tokens
+
+		annotation SummarizationSetBy = Automatic
+
+		annotation PBI_FormatHint = {"isGeneralNumber":true}
+
+	column timeStamp
+		dataType: string
+		sourceProviderType: varchar(max)
+		lineageTag: 4fbd2923-086c-4396-82f6-0bc5ee5824b7
+		summarizeBy: none
+		sourceColumn: timeStamp
+
+		annotation SummarizationSetBy = Automatic
+
+	column 'Turn Time' = ```
+			
+			VAR e    = 'TravelAssistant OptimizationTurns'[turn_epoch]
+			VAR days = INT ( e / 86400 )
+			VAR sod  = e - days * 86400
+			RETURN ( DATE(1970,1,1) + days ) + TIME ( INT ( sod / 3600 ), INT ( MOD ( sod, 3600 ) / 60 ), MOD ( sod, 60 ) )
+			```
+		formatString: General Date
+		lineageTag: e45c375d-6880-4ee6-bb5a-d5288d8b9048
+		summarizeBy: none
+
+		changedProperty = DataType
+
+		annotation SummarizationSetBy = Automatic
+
+		annotation UnderlyingDateTimeDataType = Time
+
+	column 'Turn Minute' = ```
+			
+			VAR e    = 'TravelAssistant OptimizationTurns'[turn_epoch]
+			VAR days = INT ( e / 86400 )
+			VAR sod  = e - days * 86400
+			RETURN ( DATE(1970,1,1) + days ) + TIME ( INT ( sod / 3600 ), INT ( MOD ( sod, 3600 ) / 60 ), 0 )
+			```
+		formatString: General Date
+		lineageTag: 79cfccbb-77f4-470a-9d29-62d4a8c013d5
+		summarizeBy: none
+
+		annotation SummarizationSetBy = Automatic
+
+	column agent_path
+		dataType: string
+		sourceProviderType: varchar(max)
+		lineageTag: d422aa85-f261-43c6-a325-dd053532baf6
+		summarizeBy: none
+		sourceColumn: agent_path
+
+		annotation SummarizationSetBy = Automatic
+
+	column handoff_count
+		dataType: double
+		sourceProviderType: float
+		lineageTag: 23ae3855-6559-49e3-89e6-e7b527535bff
+		summarizeBy: sum
+		sourceColumn: handoff_count
+
+		annotation SummarizationSetBy = Automatic
+
+		annotation PBI_FormatHint = {"isGeneralNumber":true}
+
+	column turn_epoch
+		dataType: double
+		sourceProviderType: float
+		lineageTag: a644b3cf-2988-4599-ba2f-409c37a772e0
+		summarizeBy: sum
+		sourceColumn: turn_epoch
+
+		annotation SummarizationSetBy = Automatic
+
+		annotation PBI_FormatHint = {"isGeneralNumber":true}
+
+	partition 'TravelAssistant OptimizationTurns' = m
+		mode: directQuery
+		source =
+				let
+				    Source = Sql.Database(MirrorSQLEndpoint, MirrorDatabase),
+				    TravelAssistantV2_OptimizationTurns = Source{[Schema="TravelAssistant",Item="OptimizationTurns"]}[Data]
+				in
+				    TravelAssistantV2_OptimizationTurns
+
+	annotation PBI_ResultType = Table
+
+	annotation PBI_NavigationStepName = Navigation
