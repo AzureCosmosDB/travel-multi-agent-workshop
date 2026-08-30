@@ -88,13 +88,13 @@ now = datetime.now(timezone.utc).isoformat()
 _sql_token = mssparkutils.credentials.getToken("pbi")
 _jdbc = f"jdbc:sqlserver://{SQL_EP}:1433;database={SQL_DB};encrypt=true;trustServerCertificate=false"
 
-def read_sql(table):
-    return (spark.read.format("jdbc")
-            .option("url", _jdbc)
-            .option("dbtable", f"[{SOURCE_SCHEMA}].[{table}]")
-            .option("accessToken", _sql_token)
-            .load()
-            .where(F.col("tenantId") == TENANT))
+def read_sql(table, tenant_scoped=True):
+    df = (spark.read.format("jdbc")
+          .option("url", _jdbc)
+          .option("dbtable", f"[{SOURCE_SCHEMA}].[{table}]")
+          .option("accessToken", _sql_token)
+          .load())
+    return df.where(F.col("tenantId") == TENANT) if tenant_scoped and "tenantId" in df.columns else df
 
 turns = read_sql("OptimizationTurns")
 # schema-compat: pre-rename telemetry stored the model tier as `model_tier`; the current
@@ -103,7 +103,10 @@ if "complexity_tier" not in turns.columns and "model_tier" in turns.columns:
     turns = turns.withColumnRenamed("model_tier", "complexity_tier")
 trips = read_sql("Trips")
 messages = read_sql("Messages")
-print("turns:", turns.count(), "trips:", trips.count(), "messages:", messages.count())'''
+policies = read_sql("OptimizationPolicies", tenant_scoped=False)
+governance = read_sql("OptimizationGovernance")
+print("turns:", turns.count(), "trips:", trips.count(), "messages:", messages.count(),
+      "policies:", policies.count(), "governance:", governance.count())'''
 
 FUNNEL = '''# ---- funnel stages per session (PROVIDED) ----
 # A session is "searched" if any turn delegated (handoff>0 / agent_path hit find_places),
@@ -744,7 +747,28 @@ def _caveat_line(_det):
     return ""
 
 
-_disc_rows, _rec_rows = [], []
+_policy_status = {}
+if all(_c in policies.columns for _c in ("scenario", "status")):
+    _policy_status = {
+        _r["scenario"]: _r["status"]
+        for _r in policies.select("scenario", "status").collect()
+        if _r["scenario"]
+    }
+
+_slo = {"slo": 4.0, "min_confidence": 0.7, "min_effect": 0.05, "by": "default"}
+if "type" in governance.columns:
+    _slo_query = governance.where(F.col("type") == "slo_policy")
+    if "timeStamp" in governance.columns:
+        _slo_query = _slo_query.orderBy(F.col("timeStamp").desc())
+    _slo_docs = _slo_query.limit(1).collect()
+    if _slo_docs:
+        _slo_doc = _slo_docs[0].asDict()
+        for _key in _slo:
+            if _slo_doc.get(_key) is not None:
+                _slo[_key] = _slo_doc[_key]
+
+_disc_rows, _agent_opp_rows, _rec_rows = [], [], []
+_total_spend = sum(float(_n.get("cost") or 0.0) for _n in nodes)
 for _rank, _det in enumerate(_detections):
     _norm, _why = _guardrail(_propose(_det), _det["engine_saving"])
     if _norm is None:                          # a bad LLM proposal -> fall back and guardrail that
@@ -756,27 +780,63 @@ for _rank, _det in enumerate(_detections):
          _det["opportunity_id"], _det["kind"], _norm["agent"], _norm["dimension"],
          _norm["seam"], _norm["target"], float(_norm["saving"]), _norm["apply_mode"],
          _norm["autonomy_ceiling"], _json.dumps(_det["evidence"]), now))
+    _scenario_status = (
+        _policy_status.get(_det["scenario"], "not_proposed")
+        if _norm["apply_mode"] == "auto"
+        else "proposed"
+    )
+    _display_state = (
+        "Active" if _scenario_status == "active"
+        else "Not applied" if _norm["apply_mode"] == "auto"
+        else "Proposed"
+    )
+    _effect_pct = 100 * float(_norm["saving"]) / _total_spend if _total_spend else 0.0
+    _agent_opp_rows.append(
+        (f"agentopp::{TENANT}::{_det['opportunity_id']}", "agent_opportunity", TENANT, _rank + 1,
+         f"{_norm['seam']} \\u2192 {_norm['target']}", float(_norm["saving"]), round(_effect_pct, 2),
+         "Automatic" if _norm["apply_mode"] == "auto" else "Manual",
+         _norm["autonomy_ceiling"], "\\u2713" if _effect_pct / 100 >= float(_slo["min_effect"]) else "\\u00d7",
+         _display_state, now))
     _card_obj = {"scenario": _det["scenario"], "scenario_id": _det["scenario"], "title": _det["title"],
                  "dimension": _norm["dimension"], "apply_mode": _norm["apply_mode"],
                  "maturity": "discovered by the LLM analyst (engine-guardrailed)",
-                 "estimated_saving_usd": float(_norm["saving"]), "status": "insight"}
+                 "estimated_saving_usd": float(_norm["saving"]), "status": _scenario_status}
     _rec_rows.append(
         (f"reccard::{TENANT}::{_det['scenario']}", "recommendation_card", TENANT, _det["scenario"],
-         _det["scenario"], _rank, _card_obj["title"], _card_obj["dimension"], _card_obj["apply_mode"],
-         _card_obj["maturity"], float(_card_obj["estimated_saving_usd"]),
+         _det["scenario"], _rank, f"{_rank + 1} \\u00b7 {_card_obj['title']}", _card_obj["title"],
+         _card_obj["dimension"], _card_obj["apply_mode"], _card_obj["status"], _card_obj["maturity"],
+         float(_card_obj["estimated_saving_usd"]),
          _evidence_line(_det), _caveat_line(_det), _card_obj, now))
 
-# reverse-ETL: the analyst's native discovered_opportunity rows + flat recommendation_card projections
+# reverse-ETL: native analyst rows plus report-compatible ranked opportunities, SLO, and recommendations
 disc_df = spark.createDataFrame(
     _disc_rows,
     ["id", "type", "tenantId", "rank", "opportunity_id", "kind", "agent", "dimension", "seam",
      "target", "saving", "apply_mode", "autonomy_ceiling", "evidence_json", "computed_at"])
 
+agent_opp_df = spark.createDataFrame(
+    _agent_opp_rows,
+    ["id", "type", "tenantId", "order", "note", "saving_usd", "saving_pct", "apply_mode",
+     "maturity", "method", "status", "computed_at"])
+
+_slo_rows = [
+    (f"slometric::{TENANT}::1", "slo_metric", TENANT, 1, "1 \\u00b7 Quality gate (e2e_quality \\u2265)",
+     f"{float(_slo['slo']):g}", now),
+    (f"slometric::{TENANT}::2", "slo_metric", TENANT, 2, "2 \\u00b7 Min confidence",
+     f"{100 * float(_slo['min_confidence']):.1f}%", now),
+    (f"slometric::{TENANT}::3", "slo_metric", TENANT, 3, "3 \\u00b7 Min effect",
+     f"{100 * float(_slo['min_effect']):.1f}%", now),
+    (f"slometric::{TENANT}::4", "slo_metric", TENANT, 4, "4 \\u00b7 Source", str(_slo["by"]), now),
+]
+slo_df = spark.createDataFrame(
+    _slo_rows, ["id", "type", "tenantId", "order", "title", "evidence_line", "computed_at"])
+
 _rec_schema = StructType([
     StructField("id", StringType()), StructField("type", StringType()), StructField("tenantId", StringType()),
     StructField("scenario", StringType()), StructField("scenario_id", StringType()),
-    StructField("order", LongType()), StructField("title", StringType()), StructField("dimension", StringType()),
-    StructField("apply_mode", StringType()), StructField("maturity", StringType()),
+    StructField("order", LongType()), StructField("note", StringType()), StructField("title", StringType()),
+    StructField("dimension", StringType()), StructField("apply_mode", StringType()),
+    StructField("status", StringType()), StructField("maturity", StringType()),
     StructField("estimated_saving_usd", DoubleType()),
     StructField("evidence_line", StringType()), StructField("caveat", StringType()),
     StructField("card", StructType([
@@ -788,9 +848,10 @@ _rec_schema = StructType([
 ])
 rec_df = spark.createDataFrame(_rec_rows, _rec_schema)
 
-for _df in (disc_df, rec_df):
+for _df in (disc_df, agent_opp_df, slo_df, rec_df):
     _df.write.format("cosmos.oltp").options(**cosmos_write).mode("append").save()
 print(f"Analyst reverse-ETL complete -> {len(_disc_rows)} discovered_opportunity + "
+      f"{len(_agent_opp_rows)} agent_opportunity + {len(_slo_rows)} slo_metric + "
       f"{len(_rec_rows)} recommendation_card rows ("
       + ", ".join(f"{d['scenario']} ${d['engine_saving']}" for d in _detections) + ")")'''
 

@@ -1,0 +1,10 @@
+table 'Cost Comparison'
+
+	column Scenario
+		dataType: string
+		summarizeBy: none
+		sourceColumn: [Scenario]
+
+	partition 'Cost Comparison' = calculated
+		mode: import
+		source = DATATABLE("Scenario", STRING, {{"Baseline"}, {"Actual"}})

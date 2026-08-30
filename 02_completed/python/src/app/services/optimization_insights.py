@@ -152,26 +152,46 @@ def build_recommendation_rows(tenant_id: str) -> list[dict]:
     recomputing these aggregations from Cosmos on every request, the analytics
     plane (this script / the Fabric notebook) computes them and writes them back
     to ``OptimizationInsights``, where the app reads them cheaply. The volatile
-    policy ``status`` is re-stamped live by the app on read — analysis is
-    analytical, but acting (apply/revert) stays operational.
+    policy ``status`` is re-stamped live by the app on read. The manual
+    prompt/code opportunity state is also copied from the authoritative live
+    opportunity feed for BI, while acting (apply/revert) stays operational.
     """
     from src.app.services import optimization_recommendations as rec
 
     now = _now()
     rows: list[dict] = []
+    from src.app import optimization_agent_api
+
+    opportunities, _, _ = optimization_agent_api._opportunities(tenant_id)
+    manual_opportunity = next(
+        (
+            opportunity
+            for opportunity in opportunities
+            if opportunity.get("opportunity_id") == "opp-repeated-node"
+        ),
+        None,
+    )
     for order, card in enumerate(rec.build_recommendations(tenant_id)):
+        scenario = card.get("scenario")
+        is_manual = scenario == "tool-call-dedup" and manual_opportunity is not None
         rows.append({
-            "id": f"reccard::{tenant_id}::{card.get('scenario')}",
+            "id": f"reccard::{tenant_id}::{scenario}",
             "type": "recommendation_card", "tenantId": tenant_id,
-            "scenario": card.get("scenario"), "scenario_id": card.get("scenario_id"),
+            "scenario": scenario, "scenario_id": card.get("scenario_id"),
             "order": order,
+            "note": f"{order + 1} · {card.get('title')}",
             # Flat display fields so BI can render the card without reaching into
             # the nested `card` object — nested fields don't surface cleanly over
-            # the Fabric mirror / DirectQuery. Consumed by the HTML-card measure
-            # in PowerBI_Optimization_Build_Guide.md (Page 3).
+            # the Fabric mirror / DirectQuery. The report's wrapped narrative
+            # measure consumes these fields directly.
             "title": card.get("title"),
             "dimension": card.get("dimension"),
-            "apply_mode": card.get("apply_mode") or "policy",
+            "apply_mode": "staged_change" if is_manual else card.get("apply_mode") or "policy",
+            "status": (
+                manual_opportunity.get("governed_state") or "new"
+                if is_manual
+                else card.get("status") or "insight"
+            ),
             "maturity": card.get("maturity"),
             "estimated_saving_usd": card.get("estimated_saving_usd") or 0,
             # Flattened evidence summary + caveat so the BI cards can show the same
@@ -186,6 +206,121 @@ def build_recommendation_rows(tenant_id: str) -> list[dict]:
         "type": "turn_metrics", "tenantId": tenant_id,
         "metrics": rec.build_turn_metrics(tenant_id), "computed_at": now,
     })
+    return rows
+
+
+def build_agent_opportunity_rows(tenant_id: str) -> list[dict]:
+    """Flatten the engine-ranked opportunity feed and its effective SLO policy.
+
+    The agent API remains the single source of truth for ranking, projected saving,
+    governance state, and SLO gating. These rows only make that same result usable
+    by the mirrored DirectQuery semantic model.
+    """
+    from src.app import optimization_agent_api
+
+    now = _now()
+    opportunities, total_spend, slo = optimization_agent_api._opportunities(tenant_id)
+    rows: list[dict] = []
+    for rank, opportunity in enumerate(opportunities, start=1):
+        seam = str(opportunity.get("seam") or "")
+        target = str(opportunity.get("target") or "")
+        governed_state = str(opportunity.get("governed_state") or "new")
+        applied_state = str(opportunity.get("applied_state") or "n/a")
+        apply_mode = str(opportunity.get("apply_mode") or "")
+        apply_mode_label = {
+            "staged_change": "Manual",
+            "manual": "Manual",
+            "auto": "Automatic",
+            "diagnostic": "Diagnostic",
+        }.get(apply_mode.lower(), apply_mode.replace("_", " ").title())
+        if seam in {"prompt", "code"}:
+            display_state = {
+                "new": "Proposed",
+                "proposed": "Proposed",
+                "approved": "Approved",
+                "deployed": "Deployed",
+                "rolled-back": "Rolled back",
+                "dismissed": "Dismissed",
+                "staged": "Approved",
+                "unstaged": "Dismissed",
+                "applied": "Deployed",
+                "reverted": "Rolled back",
+            }.get(governed_state.lower(), governed_state.replace("_", " ").title())
+        else:
+            display_state = {
+                "active": "Active",
+                "not_proposed": "Not applied",
+                "n/a": "—",
+                "na": "—",
+            }.get(applied_state.lower(), applied_state.replace("_", " ").title())
+        rows.append({
+            "id": f"agentopp::{tenant_id}::{opportunity.get('opportunity_id', rank)}",
+            "type": "agent_opportunity",
+            "tenantId": tenant_id,
+            # Compatibility projection for Fabric mirroring: a mirrored Cosmos table's
+            # SQL schema does not evolve when a later document introduces brand-new
+            # properties. Populate the existing sparse OptimizationInsights columns
+            # below so DirectQuery receives the same truthful values immediately.
+            "order": rank,
+            "note": f"{seam} \u2192 {target}",
+            "saving_usd": round(float(opportunity.get("saving") or 0.0), 6),
+            "saving_pct": round(100 * float(opportunity.get("effect") or 0.0), 2),
+            "apply_mode": apply_mode_label,
+            "maturity": opportunity.get("autonomy_ceiling"),
+            "method": "\u2713" if opportunity.get("clears_slo") else "\u00d7",
+            "status": display_state,
+            "baseline_cost_usd": round(float(total_spend or 0.0), 6),
+            "rank": rank,
+            "opportunity_id": opportunity.get("opportunity_id"),
+            "agent": opportunity.get("agent"),
+            "dimension": opportunity.get("dimension"),
+            "seam": seam,
+            "target": target,
+            "fix": f"{seam} \u2192 {target}",
+            "saving": round(float(opportunity.get("saving") or 0.0), 6),
+            "effect": round(float(opportunity.get("effect") or 0.0), 4),
+            "apply_mode_label": apply_mode_label,
+            "autonomy_ceiling": opportunity.get("autonomy_ceiling"),
+            "clears_slo": bool(opportunity.get("clears_slo")),
+            "clears_slo_label": "\u2713" if opportunity.get("clears_slo") else "\u00d7",
+            "governed_state": governed_state,
+            "applied_state": applied_state,
+            "display_state": display_state,
+            "total_spend": round(float(total_spend or 0.0), 6),
+            "computed_at": now,
+        })
+
+    rows.append({
+        "id": f"slo::{tenant_id}",
+        "type": "slo_policy",
+        "tenantId": tenant_id,
+        # Same stable-schema projection used above. These columns are interpreted
+        # only when type="slo_policy"; their DAX measures remain strongly filtered.
+        "baseline_cost_usd": float(slo.get("slo", 0.0)),
+        "actual_cost_usd": float(slo.get("min_confidence", 0.0)),
+        "saving_usd": float(slo.get("min_effect", 0.0)),
+        "method": slo.get("by") or "default",
+        "slo": float(slo.get("slo", 0.0)),
+        "min_confidence": float(slo.get("min_confidence", 0.0)),
+        "min_effect": float(slo.get("min_effect", 0.0)),
+        "by": slo.get("by") or "default",
+        "computed_at": now,
+    })
+    for order, (label, value) in enumerate((
+        ("1 · Quality gate (e2e_quality ≥)", f"{float(slo.get('slo', 0.0)):g}"),
+        ("2 · Min confidence", f"{100 * float(slo.get('min_confidence', 0.0)):.1f}%"),
+        ("3 · Min effect", f"{100 * float(slo.get('min_effect', 0.0)):.1f}%"),
+        ("4 · Source", str(slo.get("by") or "default")),
+    ), start=1):
+        rows.append({
+            "id": f"slometric::{tenant_id}::{order}",
+            "type": "slo_metric",
+            "tenantId": tenant_id,
+            "order": order,
+            "title": label,
+            "evidence_line": value,
+            "computed_at": now,
+        })
     return rows
 
 
@@ -361,7 +496,11 @@ def build_memory_intelligence_rows(db) -> list[dict]:
             counts[k] = counts.get(k, 0) + 1
         return [{
             "id": f"{rowtype}::{MEMORY_PARTITION}::{k}", "type": rowtype, "tenantId": MEMORY_PARTITION,
-            "label": k, "count": v, "computed_at": now,
+            "label": k,
+            "title": k.replace("_", " ").title(),
+            "count": v,
+            "evidence_line": f"{v:,} · {100 * v / total:.1f}%",
+            "computed_at": now,
         } for k, v in counts.items()]
 
     rows += _buckets(lambda m: m.get("type", "unknown"), "memory_type")
@@ -388,6 +527,7 @@ def recompute_insights(tenant_id: str, db: Any = None) -> dict:
 
     rows: list = []
     rows += build_insight_rows(tenant_id)
+    rows += build_agent_opportunity_rows(tenant_id)
     rows += build_recommendation_rows(tenant_id)
     rows += build_optimization_result_rows(db)
     rows += build_memory_intelligence_rows(db)

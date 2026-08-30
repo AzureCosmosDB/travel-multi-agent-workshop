@@ -11,7 +11,7 @@
         Phase 1  workspace  ->  assign to capacity  ->  workspace identity  ->  Cosmos RBAC
         (manual) create the Cosmos connection in the Fabric portal, copy its id
         Phase 2  mirrored database (starts replicating)  ->  Module 09 notebook  ->  Apply/Revert UDF
-        Phase 3  import the Power BI report (.pbix) and point it at your mirror (no Desktop needed)
+        Phase 3  deploy the Power BI semantic model + report and point them at your mirror
 
     The analytics demo dataset the notebook reads is seeded automatically during `azd up`
     (postprovision), so there is nothing to seed here.
@@ -40,8 +40,9 @@
 
 .PARAMETER Phase
     1   = workspace + identity + RBAC only (stop before the mirror)
-    2   = workspace + identity + RBAC, mirror, notebook, and UDF (stop before report import)
-    all = Phase 1, the connection step, the mirror + notebook + UDF, then the report import  (default)
+    2   = workspace + identity + RBAC, mirror, notebook, and UDF (stop before report deployment)
+    3   = deploy and validate only the Power BI semantic model + report
+    all = Phase 1, the connection step, mirror + notebook + UDF, then Power BI deployment (default)
 
 .EXAMPLE
     .\Provision-Fabric.ps1
@@ -58,7 +59,7 @@ param(
     [string]$WorkspaceName,
     [string]$ConnectionId,
     [switch]$Solution,
-    [ValidateSet('1', '2', 'all')]
+    [ValidateSet('1', '2', '3', 'all')]
     [string]$Phase = 'all'
 )
 
@@ -185,6 +186,15 @@ function Invoke-Provision([string[]]$extraArgs) {
     }
 }
 
+# --- Phase 3 only -------------------------------------------------------------
+if ($Phase -eq '3') {
+    Write-Section 'Phase 3 - Power BI semantic model + report'
+    Invoke-Provision @('--phase', 'report')
+    if ($script:provisionExit -ne 0) { Fail "Power BI deployment failed (exit $script:provisionExit). See the output above." }
+    Write-Host 'Power BI report deployed and pointed at your mirror (no Desktop required).' -ForegroundColor Green
+    exit 0
+}
+
 # --- Phase 1 -----------------------------------------------------------------
 if ($Phase -ne '2') {
     Write-Section 'Phase 1 - workspace, identity, Cosmos RBAC'
@@ -260,15 +270,15 @@ Invoke-Provision @('--phase', '2', '--connection-id', $ConnectionId)
 if ($script:provisionExit -ne 0) { Fail "Phase 2 failed (exit $script:provisionExit). See the output above." }
 
 if ($Phase -eq '2') {
-    Write-Host 'Stopped after Phase 2 as requested. Re-run with -Phase all to import and validate the report.'
+    Write-Host 'Stopped after Phase 2 as requested. Re-run with -Phase all to deploy and validate Power BI.'
     exit 0
 }
 
-# --- Phase 3 - Power BI report import ---------------------------------------
-Write-Section 'Phase 3 - Power BI report import'
+# --- Phase 3 - Power BI semantic model + report -----------------------------
+Write-Section 'Phase 3 - Power BI semantic model + report'
 Invoke-Provision @('--phase', 'report')
-if ($script:provisionExit -ne 0) { Fail "Report import failed (exit $script:provisionExit). See the output above." }
-Write-Host 'Report imported and pointed at your mirror (no Power BI Desktop required).' -ForegroundColor Green
+if ($script:provisionExit -ne 0) { Fail "Power BI deployment failed (exit $script:provisionExit). See the output above." }
+Write-Host 'Power BI report deployed and pointed at your mirror (no Desktop required).' -ForegroundColor Green
 
 Write-Section 'Done'
 Write-Host 'Fabric analytics provisioned.' -ForegroundColor Green
@@ -279,5 +289,5 @@ Write-Host 'has data to replicate. In the Fabric portal, open your workspace and
 Write-Host '  - a mirrored database that is replicating the Cosmos containers,'
 Write-Host '  - the ConversionFunnelReverseETL notebook, and'
 Write-Host '  - the optimization-apply-loop User Data Function (Power BI Apply/Revert), and'
-Write-Host '  - the TravelAssistantAnalyticsReport (imported and pointed at your mirror).'
+Write-Host '  - the TravelAssistantAnalyticsReport semantic model + report (pointed at your mirror).'
 Write-Host 'Then continue with Module 09, Activity 2 (open the notebook and run sections 1 and 2).'

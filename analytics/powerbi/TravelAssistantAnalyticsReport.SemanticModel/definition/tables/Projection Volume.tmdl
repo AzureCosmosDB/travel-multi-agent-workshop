@@ -1,0 +1,13 @@
+table 'Projection Volume'
+
+	column 'Turns per Day'
+		dataType: int64
+		formatString: #,0
+		summarizeBy: none
+		sourceColumn: [Value]
+
+		annotation SummarizationSetBy = User
+
+	partition 'Projection Volume' = calculated
+		mode: import
+		source = GENERATESERIES(100, 100000, 100)

@@ -65,7 +65,7 @@ Status: **Grounded** = exists and works today (cited) · **Spike** = plausible, 
 | A3 | **Memory-retention** apply/revert | `services/optimization_recommendations.py` (`apply_memory_retention` / `revert_memory_retention`) |
 | A4 | **Staged-change** mechanism (`{file,diff}`, `apply_mode:"staged_change"`, `/stage`) | `optimization_api.py`, `optimization_recommendations.py` (`get_city_context_staged_change`) |
 | A5 | **Turn-grain telemetry** (`Debug` → `OptimizationTurns`) + reverse-ETL / `compute_insights` | `data/export_conversations.py`, analytics notebook |
-| A6 | **Report + Console** surfaces (dashboards + apply-loop UI) | `analytics/…Report.pbix`, `console/` |
+| A6 | **Report + Console** surfaces (dashboards + apply-loop UI) | `analytics/powerbi/…Report/` + `…SemanticModel/`, `console/` |
 | A7 | **Eval harness** (`answer_quality`/`correctness`/`humanness`; e2e/routing/tool_usage) | `01_exercises/evaluation/` (runner: LangSmith `aevaluate`) |
 | A8 | **Hand-authored** recommendation/diagnostic builders (the current SCEN cards) | `services/optimization_recommendations.py` (the thing the redesign *replaces*) |
 | A9 | **Pricing / Configuration** reference data (mirrored) | `Configuration` container |

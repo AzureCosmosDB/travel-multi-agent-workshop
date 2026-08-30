@@ -50,11 +50,11 @@ Three processes run the application; a fourth plane is the analytics layer.
 | App | **MCP server** (FastMCP) | `mcp_server/mcp_http_server.py` | Tools the agents call: memory, summarization, place discovery, trip CRUD. |
 | App | **Frontend** (Angular) | `frontend/` | Chat UI **and** the web **Analytics Portal** (`/analytics/`). |
 | Analytics | **Fabric mirror + notebooks** | `analytics/` | Mirror Cosmos → OneLake; compute insights; write results back. |
-| Analytics | **Power BI report** | `analytics/…Report.pbix` | The visibility surface (dashboards). |
+| Analytics | **Power BI report** | `analytics/powerbi/…Report/` + `…SemanticModel/` | DirectQuery analytics plus scoped policy Apply/Revert actions. |
 
-> **Console vs. report.** The **Console** (in the web app) is the *interactive apply-loop* — inspect
-> recommendations, apply a policy, see the effect. The **Power BI report** is the *visibility surface*
-> — dashboards over the mirrored analytical data. Two surfaces of the same loop.
+> **Portal and report.** The web analytics portal and Power BI are two views of the same loop.
+> Both expose the analytical snapshot; Power BI also supports scoped policy Apply/Revert through
+> a Fabric User Data Function, while broad demo-maintenance actions remain in the web/API tooling.
 
 ---
 

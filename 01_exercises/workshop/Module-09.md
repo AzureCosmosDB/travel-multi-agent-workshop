@@ -31,7 +31,9 @@ By the end you will be able to:
 - Implement the **reverse-ETL write** that closes the loop.
 - Run an **LLM analyst** over the aggregated telemetry — the model *proposes* a recommendation card, the engine's **guardrails** *dispose* — and reverse-ETL the **discovered opportunity**.
 - View the **complete** notebook-produced snapshot — **every** portal tab — by switching **Source → Reverse-ETL (notebook)** after the notebook runs.
-- Understand the optional Power BI report and translytical write-back path, which remains secondary for this workshop.
+- Compare the **web analytics portal** and the deployed **Power BI report** as two views over the same reverse-ETL snapshot.
+- Use Power BI's **data-function buttons** to call a Fabric User Data Function and safely Apply/Revert an optimization policy.
+- Generate policy-aware traffic, rerun reverse-ETL, and verify that both analytics surfaces reflect the changed model mix.
 - Connect the pattern to **L4/L5 autonomy**.
 
 ## Module Exercises
@@ -41,8 +43,8 @@ By the end you will be able to:
 3. [Activity 3: Build the Decision (`cause` classification)](#activity-3-build-the-decision-cause-classification)
 4. [Activity 4: Reverse-ETL the Insights Back to Cosmos](#activity-4-reverse-etl-the-insights-back-to-cosmos)
 5. [Activity 5: View the Notebook Snapshot in the Web Analytics Portal](#activity-5-view-the-notebook-snapshot-in-the-web-analytics-portal)
-6. [Activity 6: The LLM Analyst (Propose, Dispose)](#activity-6-the-llm-analyst-propose-dispose)
-7. [Activity 7 (bonus): Optional Power BI Report and Translytical Preview](#activity-7-bonus-optional-power-bi-report-and-translytical-preview)
+6. [Activity 6: Explore Power BI, Apply the Policy, and Re-measure](#activity-6-explore-power-bi-apply-the-policy-and-re-measure)
+7. [Activity 7: The LLM Analyst (Propose, Dispose)](#activity-7-the-llm-analyst-propose-dispose)
 
 ---
 
@@ -52,7 +54,7 @@ A **mirrored database** is a zero-ETL, near-real-time copy of your Cosmos analyt
 
 > **What `azd up` actually provisioned.** For the analytics path, `azd` created **only the Fabric F2 _capacity_** (compute) and the Cosmos containers. It did **not** create the Fabric workspace, the mirrored database, or the notebook — you stand those up in **Activity 2**.
 
-Once created, the mirror will carry these Cosmos containers as tables: `OptimizationTurns`, `Trips`, `OptimizationPolicies`, `Configuration`, `Messages`, and the reverse-ETL target `OptimizationInsights`. This module reads `OptimizationTurns`, `Trips`, and `Messages`, uses `Configuration` for pricing, and writes results back to `OptimizationInsights`.
+Once created, the mirror carries the workshop's analytics containers as tables, including `OptimizationTurns`, `NodeExecutions`, `Trips`, `OptimizationPolicies`, `OptimizationGovernance`, `Configuration`, `Messages`, `ApiEvents`, `memories`, and the reverse-ETL target `OptimizationInsights`. This module reads those mirrored tables, uses `Configuration` for pricing, and writes computed results back to `OptimizationInsights`.
 
 Two things to internalize:
 
@@ -119,8 +121,8 @@ Refresh your workspace. Confirm you see both:
 
 - a **mirrored database** whose tables show a *Replicating* / *Running* status,
 - the **`ConversionFunnelReverseETL`** notebook,
-- the **`optimization-apply-loop`** User Data Function — the optional translytical Apply/Revert preview in Activity 7 (the provisioning deployed it with the `azure-cosmos` library and your Cosmos endpoint already configured), and
-- the **`TravelAssistantAnalyticsReport`** — an optional Power BI report, imported, pointed at your mirror, and query-validated by the script (no Power BI Desktop required). If validation fails, provisioning stops with the dataset error instead of reporting a false success. The web analytics portal remains the recommended surface for this workshop.
+- the **`optimization-apply-loop`** User Data Function — the translytical Apply/Revert capability used in Activity 6 (provisioning injected your Cosmos endpoint/database and installed `azure-cosmos`), and
+- the **`TravelAssistantAnalyticsReport`** report and semantic model — deployed from source, pointed at your mirror, and query-validated by the script (no Power BI Desktop required). If validation fails, provisioning stops instead of reporting a false success.
 
 Your `azd up` deployment already **seeded the demo tenant, `analytics`**, into your Cosmos `OptimizationTurns` / `Messages` / `Trips` containers (~120 sessions with a realistic mix of converted and abandoned outcomes). The mirror replicates it within a minute — so there is **nothing extra for you to run**; the notebook has data waiting.
 
@@ -175,9 +177,9 @@ for df in (funnel_df, cause_df, kpi_df, result_df):
     df.write.format("cosmos.oltp").options(**cosmos_write).mode("append").save()
 ```
 
-That's reverse-ETL: Fabric-computed intelligence, landed back in the operational store — where the app and web analytics portal can read it, and where the **mirror** can carry it *back* to Fabric for the optional Power BI report.
+That's reverse-ETL: Fabric-computed intelligence, landed back in the operational store — where the app and web analytics portal can read it, and where the **mirror** carries it back to Fabric for the Power BI report.
 
-> **The rest of the surface, same pattern (provided).** Below TODO 2, the notebook's **Section 5b** (agent-path cost), **Section 5c** (turn metrics), **Section 5d** (agent scorecard), **Section 6** (memory intelligence), and **Section 7** (the LLM analyst) are **provided** and reverse-ETL *themselves* the same way — one `df.write.format("cosmos.oltp")` each — extending the loop to the agent-collaboration, per-agent, cost, memory, and recommendation dimensions. They emit the exact row shapes the maintainer twin `analytics/fabric/compute_insights.py` does (`agent_path_cost`, `agent_scorecard`, `turn_metrics`), so the portal's **Reverse-ETL (notebook)** source reads the same schema whichever producer ran.
+> **The rest of the surface, same pattern (provided).** Below TODO 2, the notebook's **Section 5b** (agent-path cost), **Section 5c** (turn metrics), **Section 5d** (agent scorecard), **Section 6** (memory intelligence), and **Section 7** (the LLM analyst) are **provided** and reverse-ETL *themselves* the same way — one `df.write.format("cosmos.oltp")` each — extending the loop to the agent-collaboration, per-agent, cost, memory, recommendation, ranked-opportunity, and SLO dimensions. They emit the same flat report contract as the maintainer twin `analytics/fabric/compute_insights.py`, so the portal's **Reverse-ETL (notebook)** source and Power BI consume a consistent schema whichever producer ran.
 
 > **Section 5d — the agent scorecard (per-agent health).** This section reads the mirrored **`NodeExecutions`** container — the per-agent node-grain you captured in **[Module 07, Hook 3](./Module-07.md#activity-2-instrument-your-app)** — and scores every agent across **cost efficiency**, **model selection**, and **workflow efficiency**, reverse-ETL'ing `agent_scorecard` rows that the portal's **Agents** tab renders. It prices with the same mirrored **Configuration** rates as the rest of the notebook, so the scorecard cost matches the portal. The pre-seeded **`analytics`** tenant already carries node-grain, so this renders even if you skipped the Module 07 hook; run the hook to see **your own** traffic scored here too.
 
@@ -226,7 +228,7 @@ Portfolio KPIs (turns, estimated cost, trivial-turn share, models used, cache hi
 
 ![Optimizations tab, notebook (Reverse-ETL) source](./media/Module-09/portal-02-optimizations.png)
 
-The analyst-ranked discovered-optimizations table and a scenario card per opportunity, each with **Apply mode**, autonomy, clears-SLO, and governed **State**. **Produced by** Section **7** — the LLM analyst reverse-ETLs one `recommendation_card` (and `discovered_opportunity`) per detection.
+The analyst-ranked discovered-optimizations table and a scenario card per opportunity, each with **Apply mode**, autonomy, clears-SLO, and governed **State**. **Produced by** Section **7** — the LLM analyst reverse-ETLs `discovered_opportunity`, report-compatible `agent_opportunity`, `slo_metric`, and `recommendation_card` rows.
 
 ### Model Selection — quantify the tiering saving
 
@@ -258,19 +260,142 @@ The conversion funnel (engaged → searched → planned → confirmed), the conv
 
 Applied **policies**, the **SLO gate**, the **measured-saving** table (real before/after — model-selection's counterfactual, memory-retention's telemetry saving), baseline-vs-actual bars, and the **decision audit trail**. **Produced by** Section **4b** (measured saving) plus the governance/audit store the Apply/Revert actions write.
 
-**You didn't touch the portal** — every one of those tabs is rendered from an `OptimizationInsights` row your notebook reverse-ETL'd. The insight flowed Cosmos → Fabric → reverse-ETL → Cosmos → Travel API → web analytics portal.
+**You didn't touch the portal** — its analytical visuals are rendered from `OptimizationInsights` rows your notebook reverse-ETL'd, while current policy and governance records remain direct operational reads. The insight flowed Cosmos → Fabric → reverse-ETL → Cosmos → Travel API → web analytics portal.
 
-### Optional: Power BI report
+## Activity 6: Explore Power BI, Apply the Policy, and Re-measure
 
-Power BI remains available as a secondary report over the same Fabric mirror, but it is **not** the recommended workshop path yet; use the web analytics portal (above) for viewing results and taking actions. If you want to inspect the optional report, open **`TravelAssistantAnalyticsReport`** in your **Fabric workspace** (auto-imported and already pointed at your mirror — no Power BI Desktop required); its **Business Impact** and **Measured Saving** pages show the same reverse-ETL results you just read in the portal's Business and Governance tabs.
+You just explored the reverse-ETL snapshot in the web portal. Now open the other view over the same analytical plane:
 
-And the optional report's **turn-level pages** — *Model Selection — Baseline*, *Cost by Tier*, *Model Selection — Opportunity* — are populated by the `analytics` stream you started back in **Activity 2**. If you inspect Power BI, turn on **page auto-refresh** (Format → Page refresh) and filter to `analytics` to watch turns land live over **DirectQuery** — Cosmos → mirror → Power BI, no report edits. (Done watching? **Ctrl+C** the simulator terminal.)
+1. Return to your **Fabric workspace**.
+2. Open **`TravelAssistantAnalyticsReport`**.
+3. If prompted, choose **View** rather than Edit. The report was imported and connected by provisioning; you do not need Power BI Desktop.
 
-> **The optional report is already connected.** `Provision-Fabric.ps1` (Phase 3) imported it and set its `MirrorSQLEndpoint` / `MirrorDatabase` parameters to *your* mirror, so it queries live over DirectQuery with no sign-in prompts. If a page shows stale data, give the mirror a moment to replicate and refresh the page; the report itself needs no edits.
+The report combines two kinds of data:
+
+- **DirectQuery over mirrored operational tables** — for example `OptimizationTurns`, `Trips`, and `OptimizationPolicies`.
+- **Reverse-ETL rows in `OptimizationInsights`** — recommendation cards, agent scorecards, memory intelligence, funnel results, SLO settings, and measured savings.
+
+`Provision-Fabric.ps1` deployed the source-controlled PBIR report and TMDL semantic model, hydrated
+their mirror/UDF/workspace placeholders, configured DirectQuery SSO, and ran a validation query.
+The report is therefore deployment-specific without being manually edited.
+
+### Walk the seven Power BI pages
+
+#### Portfolio Overview
+
+![Power BI Portfolio Overview](./media/Module-09/pbi-01-overview.png)
+
+The same portfolio KPIs and optimization band you saw in the web portal, plus model distribution and turn activity.
+
+#### Optimizations
+
+![Power BI data-driven Optimizations page](./media/Module-09/pbi-02-optimizations.png)
+
+The top table contains the engine-ranked opportunities. The lower-left table reads **every** `recommendation_card` row for `analytics`; it is not a fixed list. Select a recommendation and the detail panel updates from that row's title, dimension, evidence, caveat, apply mode, current state, and estimated saving.
+
+The action state also comes from data:
+
+- an **active** policy enables **Revert** and disables **Apply**;
+- a **not-applied/reverted** policy enables **Apply** and disables **Revert**;
+- a **manual/diagnostic** recommendation disables both buttons.
+
+> **Why the buttons are beside the detail panel, not inside each row.** Power BI data-function actions must be standalone buttons. A native Table/Matrix cannot embed a Fabric User Data Function button in each row. The selected row supplies the `scenario` parameter through `SELECTEDVALUE`; the buttons then call the UDF for that scenario.
+
+#### Model Selection
+
+![Power BI Model Selection page](./media/Module-09/pbi-03-model-selection.png)
+
+Compare model distribution, trivial-turn share, baseline vs actual cost, and cost by complexity tier. Use the turns/day presets to project the measured per-turn saving onto future volume.
+
+#### Memory
+
+![Power BI Memory page](./media/Module-09/pbi-04-memory.png)
+
+Review global memory volume, scored memories, average salience, supersession rate, type/health donuts, and salience distribution.
+
+#### Agents
+
+![Power BI Agents page](./media/Module-09/pbi-05-agents.png)
+
+Compare agents across cost efficiency, model selection, and workflow efficiency. The status indicators and agent-path table are reverse-ETL outputs from node-grain telemetry.
+
+#### Business
+
+![Power BI Business page](./media/Module-09/pbi-06-business.png)
+
+Follow the ordered funnel **Engaged → Searched → Planned → Confirmed**, then compare the addressable abandonment causes.
+
+#### Governance
+
+![Power BI Governance page](./media/Module-09/pbi-07-governance.png)
+
+Inspect current policies, the SLO gate, measured saving by optimization, baseline vs actual cost, and the human decision audit. Governance is read-only here; policy actions live on the **Optimizations** page beside the selected recommendation.
+
+### Understand the User Data Function
+
+Open the **`optimization-apply-loop`** User Data Function in the same workspace. Provisioning created or updated it in Phase 2:
+
+- `function_app.py` was hydrated with your `COSMOSDB_ENDPOINT` and database name.
+- The `azure-cosmos` library was installed.
+- These public functions were published:
+  - `apply_optimization`
+  - `revert_optimization`
+  - `get_optimization_status`
+- The deploying user received Cosmos DB Built-in Data Contributor so the function can update `OptimizationPolicies`.
+
+The write path is:
+
+```text
+Power BI selection
+  → standalone Data function button
+  → optimization-apply-loop UDF
+  → Cosmos OptimizationPolicies
+  → agent reads the policy on its next turn
+```
+
+### Apply model selection from Power BI
+
+On the report's **Optimizations** page:
+
+1. Select **Capability-tiered model selection** in the Recommendations table.
+2. Confirm the detail panel says `Selected: model-selection`.
+3. Click **Apply**.
+4. Wait up to a minute for the Cosmos change to reach the Fabric mirror, then refresh the report. The selected recommendation should read **ACTIVE**, **Apply** should be disabled, and **Revert** should be enabled.
+
+### Generate policy-aware traffic
+
+Power BI changes policy state; it does **not** generate synthetic traffic. Traffic generation is intentionally kept out of the UDF because it is a demo-maintenance/API operation, not an analytical writeback.
+
+If the simulator from Activity 2 is still running with `-Assume auto`, it detects the policy change and switches from the baseline premium-only mix to the tiered model mix. Otherwise run a short experiment from the repository root:
+
+```powershell
+.\analytics\scripts\Run-TrafficSimulator.ps1 -Tenant analytics -Rate 120 -Minutes 2 -Assume auto
+```
+
+If you are using the hosted **`02_completed`** application, you can instead open the web analytics portal's **gear menu → Generate traffic**. That button is capability-detected and is intentionally hidden when the running API does not expose the demo endpoint.
+
+After traffic is generated:
+
+1. Wait about one minute for Mirroring.
+2. Refresh Power BI's **Portfolio Overview** and **Model Selection** pages. The raw mirrored turn/model visuals move through DirectQuery.
+3. Rerun the Fabric notebook (**Run all**) to recompute the reverse-ETL snapshot.
+4. Refresh the web portal with **Source → Reverse-ETL (notebook)** and refresh Power BI. Recommendation, memory, agent, business, and measured-saving visuals now read the new snapshot.
+
+### Which web gear actions belong in Power BI?
+
+| Web gear action | Power BI equivalent | Why |
+|---|---|---|
+| **Generate traffic** | Use `Run-TrafficSimulator.ps1`; hosted completed demo may use the web gear action | Generates synthetic operational records; not a policy writeback. |
+| **Recompute insights** | Rerun the Fabric notebook | Reverse-ETL is the learning objective and authoritative analytical path. |
+| **Freshen turn times** | No report action | Demo-only timestamp maintenance. |
+| **Reset to baseline** | No report action; use the web completed-demo tool when needed | Broad destructive demo reset should not be exposed as a report button. |
+| **Apply/Revert policy** | **Power BI data-function buttons** | Small, scoped, reversible operational write—appropriate for a UDF. |
+
+More User Data Function details: [`analytics/fabric/udf/README.md`](../../analytics/fabric/udf/README.md).
 
 *Stuck? Compare against `analytics/fabric/ConversionFunnelReverseETL_solution.ipynb`.*
 
-## Activity 6: The LLM Analyst (Propose, Dispose)
+## Activity 7: The LLM Analyst (Propose, Dispose)
 
 Everything so far computed a **fixed** insight — the funnel, the counterfactual saving, the agent-path breakdown. The last, highest-maturity step of the loop turns that raw telemetry into a **ranked recommendation** written by an **LLM analyst** — the pattern from **[ADR-0010](../../analytics/docs/adr/adr-0010-agent-centric-data-driven-analysis-engine.md)**, *the agent-centric analysis engine*.
 
@@ -281,7 +406,7 @@ The notebook's **`## 7. LLM analyst`** section (provided) ran as part of your **
 1. builds the **detected issues** from the data above — the capability-tiered **model-selection** counterfactual (engine-computed saving = the **Section 4b counterfactual**, `$_saving` over `_n` turns) **and** the **repeated-node / tool-call-dedup** structural finding (engine-computed saving = the priced *avoidable duplicated hop* in `agent_path`);
 2. asks the app's **Azure OpenAI** model (keyless — an Entra token, no keys in the notebook) to **propose one recommendation card per detected opportunity** as strict JSON;
 3. runs each proposal through **five deterministic guardrails**; and
-4. **reverse-ETLs** every accepted card back to `OptimizationInsights` two ways — a native `discovered_opportunity` row **and** a flat `recommendation_card` projection the portal's **Reverse-ETL (notebook)** source (and the optional Power BI report) already read.
+4. **reverse-ETLs** every accepted card back to `OptimizationInsights` two ways — a native `discovered_opportunity` row **and** a flat `recommendation_card` projection read by both the portal's **Reverse-ETL (notebook)** source and Power BI's data-driven Recommendations table.
 
 The guardrails are the whole point — they make a hallucinating analyst *harmless*:
 
@@ -299,7 +424,7 @@ So even if the model invents a `$999,999` saving or an off-surface target, the e
 
 > **One design, two runtimes.** This notebook cell mirrors the reusable analyst in `src/app/engine/analyst/llm.py` (`make_llm_analyst`) — the *same* system prompt, JSON parser, and five guardrails that `data/run_engine_analysis.py --llm` and `data/verify_analyst_live.py` use against Cosmos. The notebook is the **Fabric** runtime of that one engine; nothing about the safety model changes because it moved to Spark.
 
-**Where it surfaces.** After the write, switch the portal to **Source → Reverse-ETL (notebook)** and each analyst card appears on the **Optimizations** tab (the API reads the `recommendation_card` rows straight from `OptimizationInsights`). The **Manual** redundant-tool-calls card includes **Review change** plus **Approve / Deploy / Dismiss / Roll back** governance buttons, and the **Governance** tab shows the decision audit trail. The optional Power BI report can also show the cards on its **Discovered Opportunities** page. Because the analyst's `tool-call-dedup` card shares its scenario id with the app-plane **insight (awaiting analysis)** card, it **supersedes** that dead-end insight with a staged/L3 `supervisor.prompty` remediation the moment the analyst runs — the model *proposing an updated prompt* is exactly the remediation the insight was waiting on. You just closed the full ADR-0010 loop from Fabric: *aggregate telemetry → detect → LLM proposes → engine disposes → reverse-ETL → the app/portal acts.*
+**Where it surfaces.** After the write, switch the portal to **Source → Reverse-ETL (notebook)** and each analyst card appears on the **Optimizations** tab (the API reads `recommendation_card` rows from `OptimizationInsights`). Power BI reads those same rows: each new recommendation automatically appears in its Recommendations table and selecting it populates the detail panel. The portal's **Manual** redundant-tool-calls card additionally exposes **Review change** plus **Approve / Deploy / Dismiss / Roll back** governance actions; Power BI keeps prompt/code proposals read-only. Because the analyst's `tool-call-dedup` card shares its scenario id with the app-plane **insight (awaiting analysis)** card, it supersedes that dead-end insight with a staged/L3 `supervisor.prompty` remediation the moment the analyst runs. You just closed the full ADR-0010 loop from Fabric: *aggregate telemetry → detect → LLM proposes → engine disposes → reverse-ETL → the app/portal acts.*
 
 ### Hands-on: copy the analyst's prompt, then watch the guardrail win
 
@@ -344,36 +469,17 @@ Sample trace ids you may cite: ['trace-1','trace-2']
 
 > **The analyst call was keyless — and, by default, skipped.** In your **Run all**, Section 7 used the deterministic fallback proposer because the `AOAI_ENDPOINT` parameter is blank, so it still reverse-ETL'd a guardrailed card. To make the *in-notebook* call hit the real model, set **`AOAI_ENDPOINT`** to your Azure OpenAI endpoint (`azd env get-value AZURE_OPENAI_ENDPOINT`) in the Parameters cell and **Run all** again — the call uses your Entra token, so no key goes in the notebook. The guardrails behave identically either way.
 
-## Activity 7 (bonus): Optional Power BI Report and Translytical Preview
-
-For this workshop, use the **web analytics portal** for closed-loop actions: the config cards already carry **Apply/Revert**, the manual redundant-tool-calls card carries the governance lifecycle, and the portal attributes actions automatically (there is no Actor field). Power BI remains available as an optional report, but its translytical write-back workflow is **not the recommended path yet**.
-
-If your Fabric tenant has translytical task flows enabled and you want to preview the Power BI path, the idea is: a button in Power BI calls a Fabric **User Data Function**, which writes back to Cosmos — the same operational store the agent reads per turn. The provisioning already deployed the `optimization-apply-loop` UDF (Activity 2, Step 4), so there is nothing to author; you only bind buttons.
-
-The optional **Applied Optimizations** report page lists every policy and its state. In tenants where translytical write-back is enabled, an **Apply Optimization** button calls the Fabric UDF to flip the selected policy in Cosmos — the agent honors it on its next turn — and **Revert** rolls it back. *(This is the identical flip the portal's **Optimizations** tab already performs with one click, so the portal path needs none of the setup below.)*
-
-> **Optional, preview, and gated by a Fabric tenant admin.** Translytical task flows are a **preview feature** — an admin must enable *Admin portal → Tenant settings → "Users can create and consume translytical task flows"* (search *translytical* / *task flow* / *data function*). **If it's off, the button's Workspace / Function set / Function dropdowns never appear — with no error.** If you can't enable it, skip this activity: apply/revert the identical `model-selection` policy from the web analytics portal instead.
-
-> **Do this in the Power BI *Service* (edit in the browser), not Desktop.** The report is already in your workspace (auto-deployed in Activity 2), so just open it → **Edit**. The data-function button config UI appears reliably only in the Service, and the button only fires there anyway.
-
-1. In the Power BI **Service**, open the published report → **Edit**.
-2. On the report's **Applied Optimizations** page, add an **Apply** button: **Insert → Button**, then **Format → Action → Type = Data function** and fill all three dropdowns — your **workspace** → **function set** `optimization-apply-loop` → **data function** `apply_optimization`. There is no static-value option: create a measure `Apply Scenario = "model-selection"` and bind the `scenario` parameter to it via the **`fx`** button (leave `by` unmapped). (Full steps: `analytics/powerbi/PowerBI_Optimization_Build_Guide.md`, Page 8.)
-3. Duplicate it for **Revert** → the **`revert_optimization`** function.
-4. Because you left `model-selection` **active** at the end of [Module 08](./Module-08.md), start with **Revert** to see the flip: the UDF rolls the `OptimizationPolicies` doc back and the agent returns to the single `gpt-5.1` model on its **next turn**. Then click **Apply** — the doc flips to `status=active` and the running agent honors capability-tiered model selection again on its next turn. Both are safe, reversible policy flips, never a code change.
-
-That's the optional Power BI version of the same closed loop the portal already exposes: **Power BI → Fabric UDF → Cosmos → the agent**. The analytical plane doesn't just observe the operational plane — it can steer it — but for this workshop, the portal is the recommended action surface until translytical write-back is fully wired.
-
-> **How it authenticates:** the UDF uses Fabric's managed Cosmos connection; the deploying user was granted **Cosmos DB Built-in Data Contributor** by the provisioning, so the writeback just works. Details: `analytics/fabric/udf/README.md`.
-
-
 ## Test Your Work
 
 - [ ] The read cell prints non-zero counts for `turns`, `trips`, `messages` from the **mirror**.
 - [ ] Your `cause` classification runs and the cause breakdown looks sane (biggest bucket ≈ `city_friction` on `analytics`).
 - [ ] Your reverse-ETL write completes: `OptimizationInsights` has `funnel_stage` / `abandonment_cause` / `conversion_kpi` rows for the tenant, plus a scenario-keyed `optimization_result` row for `model-selection` (under the reserved key `tenantId="_global_optimizations"`).
 - [ ] After running the notebook, the web analytics portal with **Source → Reverse-ETL (notebook)** shows **every tab** — Overview, Optimizations, Model Selection, Memory, Agents, Business, and Governance — rendered from the notebook snapshot, with no portal edits.
-- [ ] (Activity 6) Running the analyst section adds a `discovered_opportunity` **and** a `recommendation_card` row **per detected opportunity** (`model-selection` *and* `tool-call-dedup`) to `OptimizationInsights` for the tenant; each card's saving equals the **engine-computed** figure — not whatever the LLM claimed (guardrail #3) — and the `tool-call-dedup` card comes back `staged`/L3 on `supervisor.prompty`, superseding the app-plane insight.
-- [ ] (bonus) If you try the optional Power BI preview, **Revert** rolls the `model-selection` policy back to inactive in Cosmos and **Apply** flips it to `active` again (confirm in the portal's **Governance** tab or in Cosmos Data Explorer).
+- [ ] Power BI shows the same seven analytical areas and its data-driven Recommendations table displays every `recommendation_card` row.
+- [ ] On Power BI's **Optimizations** page, selecting `model-selection` populates the detail panel; Apply/Revert enablement matches the current policy state.
+- [ ] The Power BI **Apply** button flips `model-selection` to `active` through the `optimization-apply-loop` UDF, and **Revert** reverses it.
+- [ ] Policy-aware simulated traffic changes from premium-only to tiered after Apply; after rerunning the notebook, both the web portal and Power BI show the new model mix/snapshot.
+- [ ] (Activity 7) Running the analyst section adds a `discovered_opportunity` **and** a `recommendation_card` row **per detected opportunity** (`model-selection` and `tool-call-dedup`) to `OptimizationInsights`; each card's saving equals the engine-computed figure, not the LLM's claim.
 - [ ] You can explain, in your own words, why analytics runs in Fabric (not on Cosmos) and why reverse-ETL is what enables an agent to optimize *itself*.
 
 ---
@@ -383,7 +489,7 @@ That's the optional Power BI version of the same closed loop the portal already 
 You've now built the whole machine except its last reflex. Trace what you hold:
 
 - **Module 08** — you *applied* a reversible policy, but **you** judged whether it was good. That's **L3 — assisted**.
-- **This module** — you moved the *measurement* onto the analytical plane and rendered it in the portal's **Reverse-ETL (notebook)** source. The optional Power BI/UDF path previews another write-back surface, but a human still clicks the button.
+- **This module** — you moved the *measurement* onto the analytical plane, compared the same snapshot in the web portal and Power BI, and used Power BI → Fabric UDF → Cosmos to enact the same reversible policy. A human still clicks the button.
 
 The only thing between here and an **L4 (autonomous)** system is *who decides*. Replace the human's finger on that button with an **evaluator**, and the loop closes itself:
 
@@ -397,7 +503,7 @@ Crucially, that evaluator belongs on the **analytical plane you just built** —
 
 1. **The gate already rides on the policy.** Every proposed policy carries one: `optimization.get_policy("model-selection")["gate"]` → `{"metric": "e2e_quality", "threshold": 4.0}`. That threshold is *your* starting bar — you set it when the policy is proposed.
 2. **The evaluator is your Module 06 judge, importable as-is:** `from evaluators.llm_judges import answer_quality, humanness`. `answer_quality` returns a **pass/fail** boolean; `humanness` returns a **1–5** score. *You* decide how to fold these into the single `e2e_quality` number the gate compares against — that composite is a design choice, not a library call.
-3. **The enact step is what you already clicked.** `optimization.apply_policy` / `revert_policy` are the same operations behind the portal's Apply/Revert buttons (and the optional Power BI `apply_optimization` / `revert_optimization` UDF preview) — so the gate drives the identical, audited writeback path, just without the click.
+3. **The enact step is what you already clicked.** `optimization.apply_policy` / `revert_policy` are the app equivalents of Power BI's `apply_optimization` / `revert_optimization` UDF functions — so the gate drives the identical, audited writeback path, just without the click.
 4. **There is no drop-in `run_quality_eval`.** The e2e harness (`evaluation/e2e_evaluation.py`) is a CLI `main()`, so you write a thin scorer around its real parts (`load_dataset`, `run_travel_agent_e2e`) and the judges above.
 
 ### The loop you'd add

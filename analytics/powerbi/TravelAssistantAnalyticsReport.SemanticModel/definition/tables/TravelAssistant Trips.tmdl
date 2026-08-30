@@ -1,0 +1,146 @@
+table 'TravelAssistant Trips'
+	lineageTag: f26b6a5f-0988-4098-b56e-33bb035e3a5e
+
+	column _rid
+		dataType: string
+		isNullable: false
+		sourceProviderType: varchar(max)
+		lineageTag: 410c0207-2d6f-4eb1-9b75-fd37a019e6b4
+		summarizeBy: none
+		sourceColumn: _rid
+
+		annotation SummarizationSetBy = Automatic
+
+	column _ts
+		dataType: int64
+		formatString: 0
+		sourceProviderType: bigint
+		lineageTag: a80654e6-2149-40af-b8a7-0d85da3d502d
+		summarizeBy: sum
+		sourceColumn: _ts
+
+		annotation SummarizationSetBy = Automatic
+
+	column id
+		dataType: string
+		sourceProviderType: varchar(max)
+		lineageTag: bf5765e5-2870-45d3-b218-db84ebb1946d
+		summarizeBy: none
+		sourceColumn: id
+
+		annotation SummarizationSetBy = Automatic
+
+	column tripId
+		dataType: string
+		sourceProviderType: varchar(max)
+		lineageTag: e787b41f-d0ac-4880-b56a-1d064b9513ac
+		summarizeBy: none
+		sourceColumn: tripId
+
+		annotation SummarizationSetBy = Automatic
+
+	column userId
+		dataType: string
+		sourceProviderType: varchar(max)
+		lineageTag: a69c0498-fe4d-4cb7-8346-9f26d6450d98
+		summarizeBy: none
+		sourceColumn: userId
+
+		annotation SummarizationSetBy = Automatic
+
+	column tenantId
+		dataType: string
+		sourceProviderType: varchar(max)
+		lineageTag: 19edf634-d3c2-4ce1-a20f-583b24d73f01
+		summarizeBy: none
+		sourceColumn: tenantId
+
+		annotation SummarizationSetBy = Automatic
+
+	column destination
+		dataType: string
+		sourceProviderType: varchar(max)
+		lineageTag: b68fde28-5b36-41e2-b741-cb7e72a96a70
+		summarizeBy: none
+		sourceColumn: destination
+
+		annotation SummarizationSetBy = Automatic
+
+	column startDate
+		dataType: string
+		sourceProviderType: varchar(max)
+		lineageTag: c788769d-32ab-4329-a171-3eabb66c6c4f
+		summarizeBy: none
+		sourceColumn: startDate
+
+		annotation SummarizationSetBy = Automatic
+
+	column endDate
+		dataType: string
+		sourceProviderType: varchar(max)
+		lineageTag: 9a17c743-fe04-4448-a831-e0a697816cd1
+		summarizeBy: none
+		sourceColumn: endDate
+
+		annotation SummarizationSetBy = Automatic
+
+	column tripDuration
+		dataType: double
+		sourceProviderType: float
+		lineageTag: 8d4a4623-b0ff-4d67-87b9-b7749d882677
+		summarizeBy: sum
+		sourceColumn: tripDuration
+
+		annotation SummarizationSetBy = Automatic
+
+		annotation PBI_FormatHint = {"isGeneralNumber":true}
+
+	column status
+		dataType: string
+		sourceProviderType: varchar(max)
+		lineageTag: a4956e62-1c47-47ea-9308-3ef0df4fb8eb
+		summarizeBy: none
+		sourceColumn: status
+
+		annotation SummarizationSetBy = Automatic
+
+	column days
+		dataType: string
+		sourceProviderType: varchar(max)
+		lineageTag: ebbf1c2f-fe7f-4d34-834a-93e673a8ac96
+		summarizeBy: none
+		sourceColumn: days
+
+		annotation SummarizationSetBy = Automatic
+
+	column createdAt
+		dataType: string
+		sourceProviderType: varchar(max)
+		lineageTag: 04b75a4e-8f54-421e-ac97-c9a2fbdd0013
+		summarizeBy: none
+		sourceColumn: createdAt
+
+		annotation SummarizationSetBy = Automatic
+
+	column sessionId
+		dataType: string
+		sourceProviderType: varchar(max)
+		lineageTag: 51b550bb-c675-4b38-ae8d-3d58e68d16b5
+		summarizeBy: none
+		sourceColumn: sessionId
+
+		annotation SummarizationSetBy = Automatic
+
+	partition 'TravelAssistant Trips' = m
+		mode: directQuery
+		source =
+				let
+				    Source = Sql.Database(MirrorSQLEndpoint, MirrorDatabase),
+				    TravelAssistantV2_Trips = Source{[Schema="TravelAssistant",Item="Trips"]}[Data]
+				in
+				    TravelAssistantV2_Trips
+
+	annotation PBI_ResultType = Table
+
+	annotation PBI_NavigationStepName = Navigation
+

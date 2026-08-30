@@ -24,9 +24,9 @@ Fabric + Power BI + Azure REST APIs:
       Power BI buttons drive the optimization apply-loop with no manual portal steps
 
   Phase 3:
-    - import the report .pbix, point its MirrorSQLEndpoint / MirrorDatabase parameters at
-      this deployment's mirror, take ownership, bind the DirectQuery source for SSO, and
-      verify it queries — so deploying the report needs no Power BI Desktop
+    - deploy the source-controlled TMDL semantic model and PBIR report, hydrate their
+      deployment placeholders, bind the DirectQuery source for SSO, and verify the model
+      queries — so deploying the report needs no Power BI Desktop
 
 Auth uses your `az login` (DefaultAzureCredential). Config is read from `azd env get-values`
 by default; override with CLI flags. Idempotent: existing workspace/mirror/etc. are reused.
@@ -697,13 +697,133 @@ def grant_cosmos_data_contributor(cosmos_account: str, rg: str, sub: str) -> Non
 
 
 # --------------------------------------------------------------------------- phase 3
+def _definition_parts_from_directory(
+    source_dir: str,
+    replacements: Optional[dict[str, str]] = None,
+) -> list[dict[str, str]]:
+    """Load a PBIR/TMDL item definition and hydrate deployment placeholders."""
+    if not source_dir or not os.path.isdir(source_dir):
+        raise FileNotFoundError(f"Fabric item source directory not found: {source_dir}")
+    replacements = replacements or {}
+    parts: list[dict[str, str]] = []
+    unresolved: set[str] = set()
+    for root, _dirs, files in os.walk(source_dir):
+        for filename in sorted(files):
+            full_path = os.path.join(root, filename)
+            path = os.path.relpath(full_path, source_dir).replace(os.sep, "/")
+            with open(full_path, "rb") as source:
+                raw = source.read()
+            try:
+                text = raw.decode("utf-8")
+            except UnicodeDecodeError:
+                payload = base64.b64encode(raw).decode("ascii")
+            else:
+                for placeholder, value in replacements.items():
+                    text = text.replace(placeholder, value)
+                unresolved.update(re.findall(r"\{\{[A-Z0-9_]+\}\}", text))
+                payload = base64.b64encode(text.encode("utf-8")).decode("ascii")
+            parts.append({"path": path, "payload": payload, "payloadType": "InlineBase64"})
+    if unresolved:
+        raise RuntimeError(
+            f"unresolved deployment placeholder(s) in {source_dir}: {', '.join(sorted(unresolved))}"
+        )
+    return parts
+
+
+def _create_or_update_fabric_item(
+    tok: Tokens,
+    ws_id: str,
+    item_type: str,
+    display_name: str,
+    parts: list[dict[str, str]],
+) -> str:
+    """Create or update a Fabric item from an enhanced definition."""
+    hdr = tok.headers(FABRIC_SCOPE)
+    collection = {"SemanticModel": "semanticModels", "Report": "reports"}[item_type]
+    existing = next(
+        (
+            item for item in req(
+                "GET", f"{FABRIC_API}/workspaces/{ws_id}/{collection}", hdr
+            ).json().get("value", [])
+            if item.get("displayName") == display_name
+        ),
+        None,
+    )
+    definition = {"definition": {"parts": parts}}
+    if existing:
+        log(f"updating existing {item_type} '{display_name}'...")
+        response = req(
+            "POST",
+            f"{FABRIC_API}/workspaces/{ws_id}/{collection}/{existing['id']}/updateDefinition",
+            hdr,
+            json_body=definition,
+            ok=(200, 202),
+        )
+        poll_lro(response, hdr)
+        return existing["id"]
+
+    log(f"creating {item_type} '{display_name}'...")
+    response = req(
+        "POST",
+        f"{FABRIC_API}/workspaces/{ws_id}/{collection}",
+        hdr,
+        json_body={
+            "displayName": display_name,
+            "definition": definition["definition"],
+        },
+        ok=(200, 201, 202),
+    )
+    result = poll_lro(response, hdr) or response.json()
+    return result["id"]
+
+
+def deploy_powerbi_report_sources(
+    tok: Tokens,
+    ws_id: str,
+    workspace_name: str,
+    semantic_model_source: str,
+    report_source: str,
+    sql_endpoint: str,
+    mirror_db: str,
+    udf_id: str,
+    display_name: str = "TravelAssistantAnalyticsReport",
+) -> tuple[str, str]:
+    """Deploy the source-controlled TMDL semantic model and PBIR report."""
+    model_parts = _definition_parts_from_directory(
+        semantic_model_source,
+        {
+            "{{MIRROR_SQL_ENDPOINT}}": sql_endpoint,
+            "{{MIRROR_DATABASE}}": mirror_db,
+        },
+    )
+    model_id = _create_or_update_fabric_item(
+        tok, ws_id, "SemanticModel", display_name, model_parts
+    )
+    report_parts = _definition_parts_from_directory(
+        report_source,
+        {
+            "{{FABRIC_WORKSPACE_NAME}}": workspace_name,
+            "{{FABRIC_SEMANTIC_MODEL_ID}}": model_id,
+            "{{FABRIC_WORKSPACE_ID}}": ws_id,
+            "{{FABRIC_UDF_ID}}": udf_id,
+        },
+    )
+    report_id = _create_or_update_fabric_item(
+        tok, ws_id, "Report", display_name, report_parts
+    )
+    _bind_directquery_sso(tok, ws_id, model_id)
+    _verify_dataset(tok, ws_id, model_id, "TravelAssistant OptimizationInsights")
+    log(f"Power BI semantic model ready: {model_id}")
+    log(f"Power BI report ready: {report_id}")
+    return model_id, report_id
+
+
 def import_report(tok: Tokens, ws_id: str, report_path: str, sql_endpoint: str, mirror_db: str) -> bool:
     """Import a .pbix/.pbit report, point its parameters at THIS deployment's mirror, take
-    ownership, bind the DirectQuery source for SSO, and verify it can query — so deploying
-    the report needs no Power BI Desktop. Skips cleanly if the artifact isn't present yet."""
+    ownership, bind the DirectQuery source for SSO, and verify it can query. This is a
+    compatibility path; source deployment is the workshop default."""
     if not report_path or not os.path.exists(report_path):
-        log(f"report artifact not found at {report_path}; skipping import "
-            f"(save analytics/powerbi/TravelAssistantAnalyticsReport.pbix first)")
+        log(f"report artifact not found at {report_path}; skipping compatibility import")
         return False
     hdr = {"Authorization": f"Bearer {tok.get(PBI_SCOPE)}"}
     name = os.path.splitext(os.path.basename(report_path))[0]
@@ -872,15 +992,20 @@ def main() -> None:
     p.add_argument("--solution", action="store_true",
                    help="upload the completed *_solution notebook instead of the learner TODO version "
                         "(use for 02_completed / the demo)")
+    powerbi_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "powerbi")
     p.add_argument("--report",
-                   default=os.path.join(os.path.dirname(os.path.dirname(__file__)),
-                                        "powerbi", "TravelAssistantAnalyticsReport.pbix"),
-                   help="report artifact to import (default: analytics/powerbi/"
-                        "TravelAssistantAnalyticsReport.pbix)")
+                   help="optional .pbix/.pbit compatibility override; by default deploys "
+                        "the source-controlled PBIR/TMDL definitions")
     p.add_argument("--pbit", help="(deprecated) alias for --report")
+    p.add_argument("--report-source",
+                   default=os.path.join(powerbi_dir, "TravelAssistantAnalyticsReport.Report"),
+                   help="PBIR report definition directory")
+    p.add_argument("--semantic-model-source",
+                   default=os.path.join(powerbi_dir, "TravelAssistantAnalyticsReport.SemanticModel"),
+                   help="TMDL semantic-model definition directory")
     p.add_argument("--phase", choices=["1", "2", "3", "report", "all"], default="all",
                    help="1=workspace+identity+rbac, 2=+mirror+notebook+udf, 3=all+report "
-                        "import, report=ONLY import the .pbix (reuses the persisted "
+                        "deployment, report=ONLY deploy the report (reuses the persisted "
                         "FABRIC_WORKSPACE_ID/FABRIC_MIRROR_ID)")
     args = p.parse_args()
     if args.solution:
@@ -906,11 +1031,53 @@ def main() -> None:
                 "env (run phases 1-2 first)")
         sql_ep = get_mirror_sql_endpoint(tok, ws_id, mirror_id)
         report_path = args.pbit or args.report
-        imported = import_report(tok, ws_id, report_path, sql_ep, f"{cfg['db_name']}Analytics")
-        if not imported:
-            die("report phase did not import an artifact")
-        log("REPORT IMPORT AND VALIDATION COMPLETE.")
-        print(json.dumps({"workspaceId": ws_id, "report": os.path.basename(report_path)}, indent=2))
+        if report_path:
+            imported = import_report(
+                tok, ws_id, report_path, sql_ep, f"{cfg['db_name']}Analytics"
+            )
+            if not imported:
+                die("report phase did not import an artifact")
+            log("REPORT IMPORT AND VALIDATION COMPLETE.")
+            print(json.dumps({
+                "workspaceId": ws_id, "report": os.path.basename(report_path)
+            }, indent=2))
+            return
+
+        udf_id = env.get("FABRIC_UDF_ID", "")
+        if not udf_id:
+            udf_items = req(
+                "GET", f"{FABRIC_API}/workspaces/{ws_id}/userDataFunctions",
+                tok.headers(FABRIC_SCOPE)
+            ).json().get("value", [])
+            udf_id = next(
+                (
+                    item["id"] for item in udf_items
+                    if item.get("displayName") == "optimization-apply-loop"
+                ),
+                "",
+            )
+        if not udf_id:
+            die("report deployment needs FABRIC_UDF_ID (run phase 2 first)")
+        model_id, report_id = deploy_powerbi_report_sources(
+            tok=tok,
+            ws_id=ws_id,
+            workspace_name=cfg["workspace_name"],
+            semantic_model_source=args.semantic_model_source,
+            report_source=args.report_source,
+            sql_endpoint=sql_ep,
+            mirror_db=f"{cfg['db_name']}Analytics",
+            udf_id=udf_id,
+        )
+        persist_env({
+            "FABRIC_SEMANTIC_MODEL_ID": model_id,
+            "FABRIC_REPORT_ID": report_id,
+        })
+        log("REPORT SOURCE DEPLOYMENT AND VALIDATION COMPLETE.")
+        print(json.dumps({
+            "workspaceId": ws_id,
+            "semanticModelId": model_id,
+            "reportId": report_id,
+        }, indent=2))
         return
 
     # ---- Phase 1 (fully automated) ----
@@ -973,9 +1140,31 @@ def main() -> None:
         print(json.dumps({"workspaceId": ws_id, "mirrorId": mirror_id, "udfId": udf_id}, indent=2))
         return
 
-    # ---- Phase 3 (report import — points the .pbix at this deployment's mirror) ----
+    # ---- Phase 3 (deploy the source-controlled Power BI report/model) ----
     report_path = args.pbit or args.report
-    import_report(tok, ws_id, report_path, sql_ep, f"{cfg['db_name']}Analytics")
+    if report_path:
+        imported = import_report(
+            tok, ws_id, report_path, sql_ep, f"{cfg['db_name']}Analytics"
+        )
+        if not imported:
+            die("report phase did not import an artifact")
+    elif not udf_id:
+        die("report source deployment requires the Phase 2 UDF")
+    else:
+        model_id, report_id = deploy_powerbi_report_sources(
+            tok=tok,
+            ws_id=ws_id,
+            workspace_name=cfg["workspace_name"],
+            semantic_model_source=args.semantic_model_source,
+            report_source=args.report_source,
+            sql_endpoint=sql_ep,
+            mirror_db=f"{cfg['db_name']}Analytics",
+            udf_id=udf_id,
+        )
+        persist_env({
+            "FABRIC_SEMANTIC_MODEL_ID": model_id,
+            "FABRIC_REPORT_ID": report_id,
+        })
     log("ALL PHASES COMPLETE.")
     print(json.dumps({"workspaceId": ws_id, "mirrorId": mirror_id}, indent=2))
 

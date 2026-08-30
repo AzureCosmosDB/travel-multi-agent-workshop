@@ -1,0 +1,21 @@
+table 'Turns per Day'
+
+	measure 'Turns per Day Value' = SELECTEDVALUE('Turns per Day'[Turns per Day], 1300)
+		formatString: #,0
+
+	column 'Turns per Day'
+		dataType: int64
+		formatString: #,0
+		summarizeBy: none
+		sourceColumn: [Value]
+
+		annotation SummarizationSetBy = User
+
+	column 'Volume Label'
+		dataType: string
+		summarizeBy: none
+		sourceColumn: [Label]
+
+	partition 'Turns per Day' = calculated
+		mode: import
+		source = DATATABLE("Value", INTEGER, "Label", STRING, {{1300, "1 · 1.3K"}, {5000, "2 · 5K"}, {10000, "3 · 10K"}, {50000, "4 · 50K"}, {100000, "5 · 100K"}})
