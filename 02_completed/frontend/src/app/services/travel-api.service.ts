@@ -1,5 +1,5 @@
 import { Injectable } from '@angular/core';
-import { HttpClient, HttpHeaders } from '@angular/common/http';
+import { HttpClient, HttpHeaders, HttpParams } from '@angular/common/http';
 import { Observable, BehaviorSubject } from 'rxjs';
 import { tap } from 'rxjs/operators';
 import {
@@ -8,6 +8,7 @@ import {
   Place,
   Trip,
   Memory,
+  UserSummary,
   ChatCompletionResponse,
   PlaceSearchRequest,
   User,
@@ -64,6 +65,10 @@ export class TravelApiService {
 
   private get userId(): string {
     return this.currentUserSubject.value?.userId || this.defaultUserId;
+  }
+
+  getUserId(): string {
+    return this.userId;
   }
 
   private getHeaders(): HttpHeaders {
@@ -166,18 +171,33 @@ export class TravelApiService {
       { headers: this.getHeaders() }
     ).pipe(
       tap(response => {
-        // Backend returns array of messages directly
+        // Backend returns ONLY the new turn's messages (user + assistant).
+        // Append to existing history; do NOT replace it.
         if (Array.isArray(response)) {
-          const messages: Message[] = response.map((msg: any) => ({
+          const newMessages: Message[] = response.map((msg: any) => ({
             role: (msg.senderRole === 'User' ? 'user' : 'assistant') as 'user' | 'assistant' | 'system',
-            content: msg.text || ''
+            content: msg.text || '',
+            timestamp: msg.timeStamp
           }));
-          this.messagesSubject.next(messages);
+          // Drop any optimistic user message (no timestamp) the component added,
+          // then append the authoritative server messages.
+          const prior = this.messagesSubject.value.filter(m => m.timestamp);
+          this.messagesSubject.next([...prior, ...newMessages]);
         } else if (response.messages) {
           this.messagesSubject.next(response.messages);
         }
       })
     );
+  }
+
+  /**
+   * Optimistically append a message to the local stream (e.g. the user's
+   * just-typed message) so the UI updates instantly while the completion
+   * call is in flight. The server's authoritative copy will replace it
+   * once `sendMessage` resolves.
+   */
+  appendOptimisticMessage(message: Message): void {
+    this.messagesSubject.next([...this.messagesSubject.value, message]);
   }
 
   // ============================================================================
@@ -238,25 +258,36 @@ export class TravelApiService {
   // Memories
   // ============================================================================
 
-  getMemories(): Observable<Memory[]> {
-    const url = `${this.baseUrl}/tenant/${this.tenantId}/user/${this.userId}/memories`;
+  getMemories(userId: string, opts?: { q?: string; threadId?: string; topK?: number }): Observable<Memory[]> {
+    let params = new HttpParams();
+    if (opts?.q) {
+      params = params.set('q', opts.q);
+    }
+    if (opts?.threadId) {
+      params = params.set('thread_id', opts.threadId);
+    }
+    if (opts?.topK) {
+      params = params.set('top_k', opts.topK.toString());
+    }
+
+    const url = `${this.baseUrl}/users/${encodeURIComponent(userId)}/memories`;
     console.log('🔍 Fetching memories from:', url);
-    return this.http.get<Memory[]>(url, { headers: this.getHeaders() }).pipe(
+    return this.http.get<Memory[]>(url, { headers: this.getHeaders(), params }).pipe(
       tap(memories => console.log('✅ Memories response:', memories))
     );
   }
 
-  createMemory(memory: Partial<Memory>): Observable<Memory> {
-    return this.http.post<Memory>(
-      `${this.baseUrl}/tenant/${this.tenantId}/user/${this.userId}/memories`,
-      memory,
-      { headers: this.getHeaders() }
+  deleteMemory(userId: string, memoryId: string, threadId: string): Observable<void> {
+    const params = new HttpParams().set('thread_id', threadId);
+    return this.http.delete<void>(
+      `${this.baseUrl}/users/${encodeURIComponent(userId)}/memories/${encodeURIComponent(memoryId)}`,
+      { headers: this.getHeaders(), params }
     );
   }
 
-  deleteMemory(memoryId: string): Observable<any> {
-    return this.http.delete(
-      `${this.baseUrl}/tenant/${this.tenantId}/user/${this.userId}/memories/${memoryId}`,
+  getUserSummary(userId: string): Observable<UserSummary | null> {
+    return this.http.get<UserSummary | null>(
+      `${this.baseUrl}/users/${encodeURIComponent(userId)}/summary`,
       { headers: this.getHeaders() }
     );
   }

@@ -1,6 +1,6 @@
 # Copilot Instructions — Travel Multi-Agent Workshop
 
-A workshop that builds a multi-agent travel assistant with **Python + LangGraph + Azure OpenAI + Azure Cosmos DB**, an **Angular** frontend, and a **FastMCP** tool server.
+A workshop that builds a multi-agent travel assistant with **Python + LangGraph + Azure AI Foundry + Azure Cosmos DB**, an **Angular** frontend, and a **FastMCP** tool server.
 
 ## Repository layout
 

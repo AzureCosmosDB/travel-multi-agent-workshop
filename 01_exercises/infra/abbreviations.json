@@ -100,7 +100,6 @@
     "networkVpnGatewaysVpnSites": "vst-",
     "notificationHubsNamespaces": "ntfns-",
     "notificationHubsNamespacesNotificationHubs": "ntf-",
-    "openAiAccounts": "openai-",
     "operationalInsightsWorkspaces": "log-",
     "portalDashboards": "dash-",
     "powerBIDedicatedCapacities": "pbi-",

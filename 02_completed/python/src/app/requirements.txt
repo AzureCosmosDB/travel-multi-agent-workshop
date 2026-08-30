@@ -7,7 +7,7 @@ asgiref==3.8.1
 attrs==25.1.0
 azure-core==1.32.0
 azure-core-tracing-opentelemetry==1.0.0b12
-azure-cosmos==4.9.0
+azure-cosmos>=4.15.0
 azure-identity==1.19.0
 azure-monitor-opentelemetry==1.6.10
 azure-monitor-opentelemetry-exporter==1.0.0b38
@@ -121,3 +121,8 @@ wrapt==1.17.2
 yarl==1.18.3
 zipp==3.23.0
 zstandard==0.23.0
+
+# Azure Cosmos DB Agent Memory — PyPI package
+# https://pypi.org/project/azure-cosmos-agent-memory/
+prompty>=2.0.0a9
+ azure-cosmos-agent-memory>=0.1.0b2

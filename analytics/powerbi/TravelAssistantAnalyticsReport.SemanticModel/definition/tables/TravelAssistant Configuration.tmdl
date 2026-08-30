@@ -1,0 +1,162 @@
+table 'TravelAssistant Configuration'
+	lineageTag: a3d51e0b-668a-4d29-b134-caeb26afaa14
+
+	column _rid
+		dataType: string
+		sourceProviderType: varchar(8000)
+		lineageTag: a1cb7bb1-baf1-4db7-9f3e-1ce16811fff3
+		summarizeBy: none
+		sourceColumn: _rid
+
+		annotation SummarizationSetBy = Automatic
+
+	column _ts
+		dataType: int64
+		sourceProviderType: bigint
+		lineageTag: d101b0f6-9a59-439b-b77f-9490facc03ab
+		summarizeBy: none
+		sourceColumn: _ts
+
+		annotation SummarizationSetBy = Automatic
+
+	column id
+		dataType: string
+		sourceProviderType: varchar(8000)
+		lineageTag: 4c462e0d-1f1a-4d3f-a634-0c8044884b51
+		summarizeBy: none
+		sourceColumn: id
+
+		annotation SummarizationSetBy = Automatic
+
+	column type
+		dataType: string
+		sourceProviderType: varchar(8000)
+		lineageTag: d320952f-3a99-4d7e-8677-e3f267f07d37
+		summarizeBy: none
+		sourceColumn: type
+
+		annotation SummarizationSetBy = Automatic
+
+	column model
+		dataType: string
+		sourceProviderType: varchar(8000)
+		lineageTag: 1d476ec1-103d-418b-bf6b-eb42d07b550a
+		summarizeBy: none
+		sourceColumn: model
+
+		annotation SummarizationSetBy = Automatic
+
+	column input_price
+		dataType: double
+		sourceProviderType: float
+		lineageTag: 7300a8f0-4462-4ba5-9625-e0266f83abfe
+		summarizeBy: none
+		sourceColumn: input_price
+
+		annotation SummarizationSetBy = Automatic
+
+	column output_price
+		dataType: double
+		sourceProviderType: float
+		lineageTag: 107d42c4-7b8a-4a50-9d1a-5eea050f1eba
+		summarizeBy: none
+		sourceColumn: output_price
+
+		annotation SummarizationSetBy = Automatic
+
+	column source
+		dataType: string
+		sourceProviderType: varchar(8000)
+		lineageTag: 5140b98e-cea6-44bc-9793-762043a91888
+		summarizeBy: none
+		sourceColumn: source
+
+		annotation SummarizationSetBy = Automatic
+
+	column updated_epoch
+		dataType: double
+		sourceProviderType: float
+		lineageTag: 92625172-26f1-4942-b846-344852b45d8d
+		summarizeBy: none
+		sourceColumn: updated_epoch
+
+		annotation SummarizationSetBy = Automatic
+
+	column updated_at
+		dataType: string
+		sourceProviderType: varchar(8000)
+		lineageTag: be3857a9-580f-4c54-8d80-e1baec4c31dd
+		summarizeBy: none
+		sourceColumn: updated_at
+
+		annotation SummarizationSetBy = Automatic
+
+	column enabled
+		dataType: boolean
+		sourceProviderType: bit
+		lineageTag: fadd1754-e146-49c9-b58a-bb61ecf29344
+		summarizeBy: none
+		sourceColumn: enabled
+
+		annotation SummarizationSetBy = Automatic
+
+	column default_deployment
+		dataType: string
+		sourceProviderType: varchar(8000)
+		lineageTag: 4db5cf0b-1093-479b-83ec-110dc62cccd1
+		summarizeBy: none
+		sourceColumn: default_deployment
+
+		annotation SummarizationSetBy = Automatic
+
+	column tiers
+		dataType: string
+		sourceProviderType: varchar(8000)
+		lineageTag: 90e3dc35-3189-42f5-8300-ab4a2aee335c
+		summarizeBy: none
+		sourceColumn: tiers
+
+		annotation SummarizationSetBy = Automatic
+
+	column classifier
+		dataType: string
+		sourceProviderType: varchar(8000)
+		lineageTag: 3bf51610-da85-486c-a71d-1685e8ecc594
+		summarizeBy: none
+		sourceColumn: classifier
+
+		annotation SummarizationSetBy = Automatic
+
+	column salience_high
+		dataType: double
+		sourceProviderType: float
+		lineageTag: a0107cee-326e-420f-ba6d-4fc2e2dd07c1
+		summarizeBy: sum
+		sourceColumn: salience_high
+
+		annotation SummarizationSetBy = Automatic
+
+		annotation PBI_FormatHint = {"isGeneralNumber":true}
+
+	column salience_medium
+		dataType: double
+		sourceProviderType: float
+		lineageTag: e9c0a0c6-22d7-44eb-9e6d-5521e3bc7bf8
+		summarizeBy: sum
+		sourceColumn: salience_medium
+
+		annotation SummarizationSetBy = Automatic
+
+		annotation PBI_FormatHint = {"isGeneralNumber":true}
+
+	partition 'TravelAssistant Configuration' = m
+		mode: directQuery
+		source =
+				let
+				    Source = Sql.Database(MirrorSQLEndpoint, MirrorDatabase),
+				    TravelAssistant_Configuration = Source{[Schema="TravelAssistant",Item="Configuration"]}[Data]
+				in
+				    TravelAssistant_Configuration
+
+	annotation PBI_ResultType = Table
+

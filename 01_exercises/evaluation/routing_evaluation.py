@@ -1,7 +1,10 @@
 """
-Agent Routing Evaluation Script for Travel Assistant
+Tool Routing Evaluation Script for Travel Assistant
 
-Tests if the orchestrator correctly routes requests to specialist agents.
+Tests whether the supervisor picks the correct top-level tool wrapper
+(``find_places``, ``create_or_update_itinerary``, or ``recall_memories``)
+for each user request. When the supervisor answers directly without invoking
+a tool, the actual route is reported as ``"none"``.
 
 Usage:
     python routing_evaluation.py
@@ -31,7 +34,25 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "python"))
 
 from src.app.travel_agents import setup_agents, build_agent_graph
 from src.app.services.azure_cosmos_db import initialize_cosmos_client
-from evaluators.heuristic_evaluators import correct_routing
+from evaluators.heuristic_evaluators import correct_tool_routing
+
+# Ensure stdout/stderr use UTF-8 so emoji in prints don't crash on Windows,
+# where the console defaults to cp1252 and raises UnicodeEncodeError on emoji.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8")
+    except (AttributeError, ValueError):
+        pass
+
+
+# The three top-level tool wrappers the supervisor exposes. Inner MCP tools
+# (discover_places, create_new_trip, ...) fire on_tool_start events too, but
+# routing is measured by which wrapper the supervisor itself chose first.
+SUPERVISOR_TOOL_WRAPPERS = {
+    "find_places",
+    "create_or_update_itinerary",
+    "recall_memories",
+}
 
 
 def load_dataset(dataset_path: str) -> list:
@@ -42,21 +63,26 @@ def load_dataset(dataset_path: str) -> list:
 
 async def run_travel_agent_routing(inputs: dict) -> dict:
     """
-    Track which agent handles the request.
-    
+    Track which supervisor tool wrapper handles the request first.
+
+    The supervisor exposes three top-level tool wrappers; this returns the
+    name of the first wrapper invoked. When the supervisor responds directly
+    without calling any wrapper (e.g., a greeting), ``actual_tool`` is
+    ``"none"``.
+
     Args:
         inputs: Dictionary containing the question
-        
+
     Returns:
-        Dictionary with actual_route and all_agents visited
+        Dictionary with ``actual_tool`` and ``all_supervisor_tools``
     """
     question = inputs["question"]
     unique_id = f"{hash(question)}_{id(inputs)}_{os.urandom(4).hex()}"
     thread_id = f"route_eval_{unique_id}"
-    
-    agents_visited = []
-    
-    # Stream events to track agent execution
+
+    first_tool: str | None = None
+    all_supervisor_tools: list[str] = []
+
     async for event in graph.astream_events(
         {"messages": [HumanMessage(content=question)]},
         config={
@@ -68,36 +94,24 @@ async def run_travel_agent_routing(inputs: dict) -> dict:
         },
         version="v2"
     ):
-        # Track when nodes are invoked
-        if event["event"] == "on_chain_start":
-            name = event.get("name", "")
-            # Track actual node names
-            if name in ["orchestrator", "hotel", "dining", "activity", "itinerary_generator", "summarizer"]:
-                if name not in agents_visited:
-                    agents_visited.append(name)
-    
-    # Determine the actual route:
-    # If orchestrator delegated to a specialist, return the specialist
-    # If orchestrator handled it alone, return orchestrator
-    specialist_agents = [a for a in agents_visited if a != "orchestrator"]
-    
-    if specialist_agents:
-        # Orchestrator delegated - return the specialist that handled it
-        actual_route = specialist_agents[-1]  # Use last specialist in case of multiple
-    else:
-        # Orchestrator handled it alone
-        actual_route = "orchestrator"
-    
+        if event["event"] == "on_tool_start":
+            tool_name = event.get("name", "")
+            if tool_name in SUPERVISOR_TOOL_WRAPPERS:
+                if first_tool is None:
+                    first_tool = tool_name
+                if tool_name not in all_supervisor_tools:
+                    all_supervisor_tools.append(tool_name)
+
     return {
-        "actual_route": actual_route,
-        "all_agents": agents_visited
+        "actual_tool": first_tool or "none",
+        "all_supervisor_tools": all_supervisor_tools,
     }
 
 
 async def main():
     """Main evaluation execution."""
     print("=" * 60)
-    print("🧭 AGENT ROUTING EVALUATION - Travel Assistant")
+    print("🧭 TOOL ROUTING EVALUATION - Travel Assistant")
     print("=" * 60)
     
     # Load environment variables
@@ -145,7 +159,7 @@ async def main():
     print(f"🔄 Creating dataset '{dataset_name}'...")
     dataset = client.create_dataset(
         dataset_name=dataset_name,
-        description="Agent routing evaluation for multi-agent travel assistant"
+        description="Supervisor tool-routing evaluation for travel assistant"
     )
     client.create_examples(dataset_id=dataset.id, examples=dataset_examples)
     print(f"✅ Dataset created with {len(dataset_examples)} examples")
@@ -158,13 +172,13 @@ async def main():
     results = await client.aevaluate(
         run_travel_agent_routing,
         data=dataset_name,
-        evaluators=[correct_routing],
+        evaluators=[correct_tool_routing],
         experiment_prefix="travel-routing",
         num_repetitions=1,
         max_concurrency=4,
         metadata={
             "version": "v1.0",
-            "description": "Test orchestrator routing to specialist agents"
+            "description": "Test supervisor tool-wrapper routing decisions"
         }
     )
     

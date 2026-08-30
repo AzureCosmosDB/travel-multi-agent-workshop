@@ -34,6 +34,14 @@ from src.app.travel_agents import setup_agents, build_agent_graph
 from src.app.services.azure_cosmos_db import initialize_cosmos_client
 from evaluators.llm_judges import answer_quality, correctness, humanness
 
+# Ensure stdout/stderr use UTF-8 so emoji in prints don't crash on Windows,
+# where the console defaults to cp1252 and raises UnicodeEncodeError on emoji.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8")
+    except (AttributeError, ValueError):
+        pass
+
 
 def load_dataset(dataset_path: str) -> list:
     """Load dataset from JSON file."""

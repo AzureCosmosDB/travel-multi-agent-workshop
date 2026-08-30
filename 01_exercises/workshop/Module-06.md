@@ -1,12 +1,12 @@
 # Module 06 - Evaluating Your Multi-Agent Application (Bonus Module)
 
-**[< Observability & Experimentation](./Module-05.md)** - **[Lessons Learned & The Future >](./Module-07.md)**
+**[< Observability & Experimentation](./Module-05.md#module-05---observability-tracing)** - **[Agent Analytics >](./Module-07.md#module-07---agent-analytics-visibility-insight)**
 
 ## Introduction
 
-You've built a sophisticated multi-agent travel assistant with intelligent memory, orchestration, and specialized agents. But how do you know it's working correctly? How do you catch bugs before they reach users? How do you measure improvements when you make changes?
+You've built a travel assistant that combines a LangGraph supervisor, three tool wrappers (`find_places`, `create_or_update_itinerary`, `recall_memories`), an MCP server, and the Cosmos DB Agent Memory Toolkit. But how do you know it's working correctly? How do you catch bugs before they reach users? How do you measure improvements when you make changes?
 
-Evaluation is critical for multi-agent systems because they have many moving parts: routing logic, tool selection, memory retrieval, and response generation. A bug in any component can cascade through the system. Without systematic testing, you're flying blind.
+Evaluation matters for agentic systems because they have many moving parts: tool selection by the supervisor, sub-agent execution, memory retrieval, and response generation. A bug in any component can cascade through the system. Without systematic testing, you're flying blind.
 
 In this module, you'll learn how to create comprehensive evaluations for your multi-agent application. You'll build datasets, implement evaluators using both LLM-as-judge and heuristic methods, and learn to interpret results in LangSmith.
 
@@ -18,7 +18,7 @@ In this module, you will:
 - Review the evaluation infrastructure already created in the `evaluation/` folder
 - Create evaluation datasets for different test scenarios
 - Implement LLM-as-judge evaluators for response quality assessment
-- Build heuristic evaluators for routing accuracy and tool usage
+- Build heuristic evaluators for tool-routing accuracy and tool usage
 - Run evaluations and interpret results in LangSmith
 - Learn how to expand your evaluation coverage for production systems
 
@@ -27,21 +27,21 @@ In this module, you will:
 1. [Activity 1: Understanding Multi-Agent Evaluation](#activity-1-understanding-multi-agent-evaluation)
 2. [Activity 2: Setting Up Your Evaluation Infrastructure](#activity-2-setting-up-your-evaluation-infrastructure)
 3. [Activity 3: Running End-to-End Evaluation](#activity-3-running-end-to-end-evaluation)
-4. [Activity 4: Running Agent Routing Evaluation](#activity-4-running-agent-routing-evaluation)
+4. [Activity 4: Running Tool Routing Evaluation](#activity-4-running-tool-routing-evaluation)
 5. [Activity 5: Running Tool Usage Evaluation](#activity-5-running-tool-usage-evaluation)
 6. [Activity 6: Next Steps - Expanding Your Evaluation Coverage](#activity-6-next-steps---expanding-your-evaluation-coverage)
 
 ---
 
-## Activity 1: Understanding Multi-Agent Evaluation
+## Activity 1: Understanding Agentic Evaluation
 
-### Why Evaluate Multi-Agent Systems?
+### Why Evaluate Agentic Systems?
 
-Multi-agent systems are complex. Unlike single-model applications, they have multiple points of failure:
+Agentic systems are complex. Unlike single-model applications, they have multiple points of failure:
 
-- **Routing**: Does the orchestrator send requests to the right specialist?
-- **Tool Usage**: Are agents calling the correct tools with proper parameters?
-- **Memory**: Are preferences stored, retrieved, and applied correctly?
+- **Tool Selection**: Does the supervisor pick the right tool for each request?
+- **Tool Usage**: Are the right MCP tools called with the right parameters?
+- **Memory**: Are preferences captured by the toolkit and recalled correctly?
 - **Response Quality**: Are responses accurate, helpful, and natural?
 
 A traditional unit test can check if a function returns the right type, but it can't tell you if your travel assistant's response sounds robotic or if it hallucinated a hotel name. You need a different approach.
@@ -54,16 +54,16 @@ A traditional unit test can check if a function returns the right type, but it c
 - Evaluates accuracy, helpfulness, and conversational tone
 - Uses LLM-as-judge to assess subjective qualities
 
-**2. Agent Routing Accuracy**
+**2. Tool Routing Accuracy**
 
-- Verifies the orchestrator routes requests to the correct specialist
-- Ensures "Find hotels in Paris" goes to the hotel agent, not the dining agent
+- Verifies the supervisor picks the correct top-level tool wrapper (`find_places`, `create_or_update_itinerary`, or `recall_memories`)
+- Ensures "Find hotels in Paris" routes to `find_places`, not `create_or_update_itinerary`
 - Uses simple comparisons (heuristic evaluation)
 
 **3. Tool Usage Correctness**
 
-- Checks if agents call the expected tools
-- Verifies tools like `extract_preferences` or `discover_places` are invoked
+- Checks if the supervisor and its sub-agents call the expected tools
+- Verifies tools like `discover_places`, `create_new_trip`, or `recall_memories` are invoked
 - Measures both precision (no unexpected tools) and recall (all required tools called)
 
 ### Evaluation Approaches
@@ -80,9 +80,9 @@ A traditional unit test can check if a function returns the right type, but it c
 - Fast, deterministic checks based on rules
 - Good for objective criteria like "Was this tool called?"
 - No LLM costs, instant results
-- Example: Checking if `actual_route == expected_route`
+- Example: Checking if `actual_tool == expected_tool`
 
-### Challenges Specific to Multi-Agent Systems
+### Challenges Specific to Agentic Systems
 
 **Non-Determinism**
 
@@ -97,7 +97,7 @@ A traditional unit test can check if a function returns the right type, but it c
 
 **Multiple Execution Paths**
 
-- Same question might take different valid paths through agents
+- Same question might take different valid paths through the supervisor and its sub-agents
 - Solution: Define acceptable variations in your test cases
 
 ---
@@ -112,14 +112,14 @@ The evaluation infrastructure has already been created in the `evaluation/` fold
 01_exercises/evaluation/
 ├── datasets/                    # Test datasets in JSON format
 │   ├── e2e_dataset.json         # End-to-end response quality tests (6 cases)
-│   ├── routing_dataset.json     # Agent routing tests (8 cases)
+│   ├── routing_dataset.json     # Supervisor tool-routing tests (8 cases)
 │   └── tool_usage_dataset.json  # Tool calling pattern tests (4 cases)
 ├── evaluators/                  # Evaluation functions
 │   ├── __init__.py
 │   ├── llm_judges.py            # LLM-as-judge evaluators
 │   └── heuristic_evaluators.py  # Fast heuristic checks
 ├── e2e_evaluation.py            # End-to-end evaluation script
-├── routing_evaluation.py        # Agent routing evaluation script
+├── routing_evaluation.py        # Tool routing evaluation script
 ├── tool_usage_evaluation.py     # Tool usage evaluation script
 ```
 
@@ -135,18 +135,12 @@ Each dataset is a JSON file containing test cases with inputs and expected outpu
     "question": "Find me hotels in Barcelona"
   },
   "outputs": {
-    "answer": "Before I search for hotels in Barcelona, I'd love to personalize my recommendations for you. Do you have any preferences or requirements",
-    "expected_tools": ["recall_memories", "discover_places"],
-    "expected_agent": "hotel"
+    "answer": "Before I search for hotels in Barcelona, I'd love to personalize my recommendations for you. Do you have any preferences or requirements?"
   }
 }
 ```
 
-This test case checks:
-
-- The response quality (does it appropriately ask for preferences?)
-- The tools called (recall_memories and discover_places)
-- The agent routing (should go to hotel agent)
+This test case checks the response quality — does the supervisor appropriately ask for preferences before searching? The LLM-as-judge evaluators compare the actual response to this reference behavior.
 
 ### Understanding the Evaluators
 
@@ -168,7 +162,7 @@ This test case checks:
 
 **Heuristic Evaluators** (`evaluators/heuristic_evaluators.py`):
 
-1. **`correct_routing`**: Verifies orchestrator routing decisions
+1. **`correct_tool_routing`**: Verifies the supervisor picked the right top-level tool wrapper
 2. **`required_tools_called`**: Confirms all required tools were invoked
 3. **`tool_call_accuracy`**: Calculates precision/recall of tool usage (0.0-1.0)
 
@@ -177,10 +171,10 @@ This test case checks:
 Each script follows this pattern:
 
 1. Load environment variables
-2. Initialize Cosmos DB and agents
+2. Initialize Cosmos DB and the supervisor agent
 3. Load dataset from JSON file
 4. Create/update LangSmith dataset
-5. Define target function (runs the agent and captures outputs)
+5. Define target function (runs the supervisor and captures outputs)
 6. Run evaluation with appropriate evaluators
 7. Results automatically logged to LangSmith
 
@@ -204,7 +198,7 @@ Your complete **.env** file should now look like this:
 COSMOSDB_ENDPOINT="<your_cosmos_db_uri>"
 AZURE_OPENAI_ENDPOINT="<your_azure_open_ai_uri>"
 AZURE_OPENAI_EMBEDDINGDEPLOYMENTID="text-embedding-3-small"
-AZURE_OPENAI_COMPLETIONSDEPLOYMENTID="gpt-4.1"
+AZURE_OPENAI_COMPLETIONSDEPLOYMENTID="gpt-5.1"
 LANGCHAIN_API_KEY="<your_langsmith_api_key>"
 LANGCHAIN_TRACING_V2="true"
 LANGCHAIN_PROJECT="multi-agent-travel-app"
@@ -219,17 +213,16 @@ Open `evaluation/datasets/e2e_dataset.json` and review the test cases.
 You'll see 6 examples covering different scenarios:
 
 - Hotel searches
-- Restaurant preferences
+- Vegetarian restaurant requests
 - Itinerary creation
-- Preference queries
-- Preference extraction
+- Preference recall
+- Open-ended trip planning
+- Dietary preference statements
 
 Each test case has:
 
 - `question`: The user's input
-- `answer`: The expected response pattern (not exact match)
-- `expected_tools`: Tools that should be called
-- `expected_agent`: Which specialist should handle the request
+- `answer`: The expected response pattern (not exact match — the LLM-as-judge evaluators compare against it)
 
 ### Step 2: Understand the Evaluators
 
@@ -269,14 +262,14 @@ You must be in **multi-agent-workshop\01_exercises** folder and then use the bel
 
 ```powershell
 cd multi-agent-workshop\01_exercises
-.\venv\Scripts\Activate.ps1
+.\.venv-travel\Scripts\Activate.ps1
 ```
 
 **Now run the E2E evaluation, Open a new terminal tab**
 
 ```powershell
 cd multi-agent-workshop\01_exercises\evaluation
-.\venv\Scripts\Activate.ps1
+.\.venv-travel\Scripts\Activate.ps1
 $env:PYTHONPATH="..\python"; python e2e_evaluation.py
 ```
 
@@ -375,9 +368,9 @@ This is useful for managing your test cases without editing JSON files directly.
 
 ---
 
-## Activity 4: Running Agent Routing Evaluation
+## Activity 4: Running Tool Routing Evaluation
 
-Routing evaluation verifies that the orchestrator correctly routes requests to specialist agents.
+Tool routing evaluation verifies that the supervisor picks the correct top-level tool wrapper for each request.
 
 ### Step 1: Review the Routing Dataset
 
@@ -385,44 +378,45 @@ Open `evaluation/datasets/routing_dataset.json` and review the 8 test cases.
 
 Examples:
 
-- "Find hotels in Barcelona" → Expected route: `hotel`
-- "I need vegetarian restaurants" → Expected route: `orchestrator` (preference extraction)
-- "Show me museums in London" → Expected route: `activity`
-- "I prefer luxury hotels" → Expected route: `orchestrator` (preference only, no search)
+- "Find hotels in Barcelona" → Expected tool: `find_places`
+- "Create a 3-day itinerary for Paris" → Expected tool: `create_or_update_itinerary`
+- "What are my hotel preferences?" → Expected tool: `recall_memories`
+- "Hi, I'm planning a trip" → Expected tool: `none` (supervisor answers directly)
 
 ### Step 2: Understand the Routing Evaluator
 
 The routing evaluation uses one heuristic evaluator:
 
-**`correct_routing`**
+**`correct_tool_routing`**
 
-- Compares `actual_route` to `expected_route`
+- Compares `actual_tool` to `expected_tool`
 - Returns True if they match, False otherwise
 - Fast, deterministic check
 
-How routing is determined:
+How the actual tool is determined:
 
-- If the orchestrator delegates to a specialist, return the specialist name
-- If the orchestrator handles it alone, return "orchestrator"
-- This tests whether the orchestrator makes the right routing decision
+- The script streams events from the supervisor graph and watches for `on_tool_start` events
+- It filters for the three supervisor wrappers — `find_places`, `create_or_update_itinerary`, and `recall_memories`
+- The first matching wrapper is the routing decision
+- If no wrapper fires (the supervisor answers directly), `actual_tool` is `"none"`
 
 ### Step 3: Run the Routing Evaluation
-In the same terminal window, where you ran the e2e evaluation, run the below command to start the agent routing evaluations.
+In the same terminal window, where you ran the e2e evaluation, run the below command to start the tool routing evaluations.
 
 ```powershell
 $env:PYTHONPATH="..\python"; python routing_evaluation.py
 ```
 
-You'll see similar output to the E2E evaluation, but focused on routing accuracy.
+You'll see similar output to the E2E evaluation, but focused on tool-routing accuracy.
 
 ### Step 4: Brief Explanation
 
 The routing evaluation:
 
-1. Runs each question through the agent graph
-2. Tracks which agents are visited using event streaming
-3. Determines the primary agent that handled the request
-4. Compares to the expected route
+1. Runs each question through the supervisor graph
+2. Tracks which top-level tool wrapper is invoked first using event streaming
+3. Returns the wrapper name (or `"none"` if no wrapper fired)
+4. Compares to the expected tool
 5. Logs pass/fail for each test case
 
 ### Step 5: Viewing Results in LangSmith
@@ -441,9 +435,9 @@ Click on the experiment to see detailed results.
 
 You'll see:
 
-- Which test cases passed (correct routing)
-- Which test cases failed (incorrect routing)
-- For failures, you can see what route was taken vs expected
+- Which test cases passed (correct tool chosen)
+- Which test cases failed (wrong tool chosen)
+- For failures, you can see what tool was invoked vs expected
 
 Click on any individual test case to see full details.
 
@@ -456,7 +450,7 @@ You can see:
 - The expected reference response
 - Each evaluator's score and reasoning
 
-This helps identify routing bugs, like the orchestrator sending hotel queries to the dining agent.
+This helps identify routing bugs, like the supervisor calling `find_places` when the user only asked about their stored preferences.
 
 ### Step 6: Viewing the Dataset
 
@@ -464,7 +458,7 @@ Go back to the "Datasets & Experiments", and click on the **travel-assistant-rou
 
 ![Test10](./media/Module-06/Test9.png)
 
-Review the test cases and their expected routing decisions. You can add more routing scenarios here to expand coverage.
+Review the test cases and their expected tool selections. You can add more routing scenarios here to expand coverage.
 
 ---
 
@@ -478,8 +472,9 @@ Open `evaluation/datasets/tool_usage_dataset.json` and review the 4 test cases.
 
 Examples:
 
-- "I prefer budget hotels" → Required tools: `extract_preferences_from_message`, `resolve_memory_conflicts`, `store_resolved_preferences`, `transfer_to_hotel`
-- "Find hotels in Barcelona" → Required tools: `extract_preferences_from_message`, `transfer_to_hotel`, `recall_memories`, `discover_places`
+- "Find hotels in Barcelona" → Required tools: `find_places`, `discover_places`
+- "Create a 3-day itinerary for Rome" → Required tools: `create_or_update_itinerary`, `create_new_trip`
+- "What are my hotel preferences?" → Required tools: `recall_memories`
 
 ### Step 2: Understand the Tool Evaluators
 
@@ -549,11 +544,11 @@ You can see:
 - The expected reference response
 - Each evaluator's score and reasoning
 
-This helps identify when agents skip important tools or call unnecessary ones.
+This helps identify when the supervisor or sub-agents skip important tools or call unnecessary ones.
 
 ### Step 6: Viewing the Dataset
 
-Go back to the "Datasets & Experiments", and click on the **travel-assistant-routing** experiment. Now go the to tab **examples** next to the **experiments** tab.
+Go back to the "Datasets & Experiments", and click on the **travel-assistant-tools** experiment. Now go the to tab **examples** next to the **experiments** tab.
 
 ![Test15](./media/Module-06/Test13.png)
 
@@ -567,39 +562,38 @@ Now that you have a working evaluation infrastructure, here are ways to expand a
 
 ### 1. Memory Integration Testing
 
-Test if preferences are correctly stored, retrieved, and applied:
+Test if preferences are correctly captured by the toolkit, retrieved by `recall_memories`, and applied to downstream searches:
 
-**Preference Storage**
+**Preference Capture**
 
-- "I prefer budget hotels" → Check if preference is stored in Cosmos DB
-- Verify the preference appears in memory when queried
+- After a few turns mentioning "I prefer budget hotels", check that a matching fact appears in the `memories` container in Cosmos DB
+- Verify the preference is returned the next time `recall_memories` is called for that user
 
 **Preference Recall**
 
-- After storing "vegetarian" preference, ask "Show me restaurants in Paris"
-- Verify the agent recalls the vegetarian preference
-- Check if only vegetarian restaurants are returned
+- Pre-seed (or chat) a "vegetarian" preference for a user, then ask "Show me restaurants in Paris"
+- Verify the supervisor calls `recall_memories` first and that the recalled fact biases the `find_places` results
+- Check if the returned restaurants are vegetarian-friendly
 
-**Conflict Resolution**
+**Conflicting Preferences**
 
-- "I prefer budget hotels" → "Show me luxury hotels"
-- Verify the system detects and resolves the conflict
-- Check if the user is asked to clarify
+- Say "I prefer budget hotels" in one session, then "Show me luxury hotels" in another
+- The toolkit's dedup pipeline updates the stored preference automatically — verify by inspecting the `memories` container after both runs
+- Confirm subsequent `recall_memories` calls reflect the most recent preference
 
-Example test case for conflict resolution:
+Example test case for a recall-aware search:
 
 ```json
 {
   "inputs": {
-    "question": "I want luxury hotels",
-    "previous_preferences": ["budget hotels"]
+    "question": "Show me restaurants in Paris",
+    "seeded_preferences": ["vegetarian"]
   },
   "outputs": {
-    "answer": "I notice you previously preferred budget hotels, but now you're asking for luxury hotels. Would you like me to update your preference?",
+    "answer": "Here are some great vegetarian restaurants in Paris.",
     "expected_tools": [
       "recall_memories",
-      "detect_conflict",
-      "resolve_memory_conflicts"
+      "find_places"
     ]
   }
 }
@@ -613,14 +607,13 @@ Test multi-turn conversations and context retention:
 
 - Turn 1: "Find hotels in Paris"
 - Turn 2: "What about restaurants?" (should remember Paris context)
-- Verify the agent searches for restaurants in Paris, not a generic search
+- Verify the supervisor calls `find_places` with `city="Paris"` on turn 2 even though Paris wasn't repeated
 
-**Auto-Summarization**
+**Toolkit Summarization**
 
-- Create a conversation with 20+ messages
-- Verify summarization is triggered
-- Check that key preferences are retained in the summary
-- Ensure conversation context isn't lost after summarization
+- Hold a long conversation (20+ turns) with the same `thread_id`
+- Verify that thread summaries appear in the `memories_summaries` container (the Cosmos DB Agent Memory Toolkit produces these on its own cadence)
+- Check that recalled summaries surface during later turns when the user references earlier context
 
 Example multi-turn test:
 
@@ -635,7 +628,7 @@ Example multi-turn test:
   },
   "outputs": {
     "final_answer_should_mention": ["Barcelona", "beach", "restaurants"],
-    "expected_tools": ["recall_memories", "discover_places"],
+    "expected_tools": ["recall_memories", "find_places"],
     "context_retained": true
   }
 }
@@ -686,9 +679,9 @@ Measure and track system performance:
 
 **Response Latency**
 
-- Track average response time per agent type
-- Identify slow agents or tools
-- Set acceptable thresholds (e.g., <3 seconds for hotel search)
+- Track average response time per tool wrapper (`find_places`, `create_or_update_itinerary`, `recall_memories`)
+- Identify slow tools or MCP calls
+- Set acceptable thresholds (e.g., <3 seconds for a `find_places` search)
 
 **Token Usage and Cost**
 
@@ -707,12 +700,12 @@ Example performance test:
 ```python
 import time
 
-def test_hotel_search_performance():
+def test_find_places_performance():
     start = time.time()
     response = await graph.ainvoke({"messages": [HumanMessage("Find hotels in Paris")]})
     duration = time.time() - start
 
-    assert duration < 3.0, f"Hotel search took {duration}s, expected <3s"
+    assert duration < 3.0, f"find_places search took {duration}s, expected <3s"
     assert count_tokens(response) < 1000, "Response used too many tokens"
 ```
 
@@ -794,18 +787,16 @@ To add a new test case, edit `evaluation/datasets/e2e_dataset.json`:
     "question": "Find wheelchair accessible hotels near museums in London"
   },
   "outputs": {
-    "answer": "Let me find wheelchair accessible hotels near museums in London for you.",
-    "expected_tools": ["recall_memories", "discover_places"],
-    "expected_agent": "hotel",
-    "accessibility_mentioned": true
+    "answer": "Let me find wheelchair accessible hotels near museums in London for you."
   }
 }
 ```
 
-Then re-run the evaluation:
+Then re-run the evaluation with the **same command from [Step 3](#step-3-run-the-evaluation-script)** — venv active, in a terminal from the `evaluation` folder:
 
-```bash
-python evaluation/e2e_evaluation.py
+```powershell
+.\.venv-travel\Scripts\Activate.ps1
+$env:PYTHONPATH="..\python"; python e2e_evaluation.py
 ```
 
 The new test case will be included in the next evaluation run.
@@ -829,4 +820,15 @@ With comprehensive evaluation in place, you can make changes confidently, knowin
 
 ---
 
-**[< Observability & Experimentation](./Module-05.md)** - **[Lessons Learned & The Future >](./Module-07.md)**
+## Where to next?
+
+The next three modules — **07–09** — are the **optional Agent Analytics & Optimization track**:
+instrument your agents, then **detect → recommend → apply → verify** cost and quality wins, viewed
+live in the web **Analytics Portal** (with Microsoft Fabric reverse-ETL in Module 09).
+
+- **Continuing with analytics?** Head to **[Module 07 — Agent Analytics »](./Module-07.md#module-07---agent-analytics-visibility-insight)**.
+- **Short on time, or skipping the analytics track?** Jump straight to **[Module 10 — Lessons Learned & The Future »](./Module-10.md#module-10---lessons-learned-the-future-of-agentic-systems)** to wrap up. You can always come back to 07–09 later.
+
+---
+
+**[< Observability & Experimentation](./Module-05.md#module-05---observability-tracing)** - **[Agent Analytics >](./Module-07.md#module-07---agent-analytics-visibility-insight)**

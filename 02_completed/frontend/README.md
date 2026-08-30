@@ -7,7 +7,7 @@ Angular-based frontend for the Travel Assistant Multi-Agent System.
 - 🏠 **Home**: Hero section with trending themes and trip planning
 - 🗺️ **Explore**: Browse hotels, restaurants, and attractions with filters
 - 💬 **Chat**: Real-time agent conversation with specialized travel concierges
-- 👤 **Profile**: Manage travel preferences and memories
+- 👤 **Profile**: Review the User Summary panel and manage memories
 - ✈️ **Trips**: View and manage itineraries
 
 ## Prerequisites
@@ -75,7 +75,11 @@ The frontend communicates with the FastAPI backend via the `TravelApiService`:
 - **Chat Completion**: Send messages and receive agent responses
 - **Places Search**: Search for hotels, restaurants, and attractions
 - **Trips**: Create and manage itineraries
-- **Memories**: Store and retrieve user preferences
+- **Memories**: Retrieve user memories and the Profile User Summary via toolkit-backed endpoints
+
+### Memory layer
+
+Memory is provided by the [`azure-cosmos-agent-memory`](https://pypi.org/project/azure-cosmos-agent-memory/) SDK in the backend. The toolkit auto-creates the Cosmos DB `memories`, `memories_turns`, and `memories_summaries` containers on first run; every 10 chat turns a background auto-flush produces summaries, facts, and `user_summary`. Memory records are partitioned by `(user_id, thread_id)`, not `tenantId`, and the memory prompts now ship inside the toolkit instead of this repo.
 
 ### State Management
 
@@ -111,7 +115,8 @@ POST   /api/tenant/{tenantId}/user/{userId}/threads
 POST   /api/tenant/{tenantId}/user/{userId}/threads/{threadId}/completion
 GET    /api/tenant/{tenantId}/user/{userId}/places/search
 GET    /api/tenant/{tenantId}/user/{userId}/trips
-GET    /api/tenant/{tenantId}/user/{userId}/memories
+GET    /api/users/{userId}/memories
+GET    /api/users/{userId}/summary
 ```
 
 ## Environment Configuration

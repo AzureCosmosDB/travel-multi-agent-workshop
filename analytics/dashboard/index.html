@@ -1,0 +1,1188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Agent Optimization Dashboard</title>
+<style>
+/* Self-contained dark-navy theme (blue accent #4f8cff). */
+:root {
+  --bg: #0f1420; --panel: #171e2e; --panel2: #1e2740; --line: #2a3650;
+  --text: #e6ecf7; --muted: #93a1bd; --accent: #4f8cff; --accent2: #6ee7b7;
+  --warn: #f6c453; --bad: #ff6b6b; --good: #57d9a3; --radius: 12px;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text);
+  font: 15px/1.5 -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; }
+a { color: var(--accent); }
+.muted { color: var(--muted); }
+code, .mono { font-family: Consolas, "Courier New", monospace; background: var(--panel2); padding: 1px 5px; border-radius: 5px; font-size: 12.5px; }
+
+/* header */
+header { padding: 16px 28px; border-bottom: 1px solid var(--line); display: flex; align-items: center;
+  gap: 16px; flex-wrap: wrap; background: linear-gradient(180deg, #141b2b, #0f1420);
+  position: sticky; top: 0; z-index: 30; }
+header h1 { font-size: 19px; margin: 0; letter-spacing: .2px; }
+header .sub { color: var(--muted); font-size: 13px; }
+.spacer { flex: 1; }
+.cfg { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.cfg label { color: var(--muted); font-size: 12px; }
+input, select { background: var(--panel2); border: 1px solid var(--line); color: var(--text);
+  border-radius: 8px; padding: 7px 10px; font-size: 13px; }
+select:hover, input:hover { border-color: var(--accent); }
+select:focus, input:focus { outline: none; border-color: var(--accent); }
+button { background: var(--accent); color: #fff; border: 0; border-radius: 8px; padding: 8px 14px;
+  font-size: 13px; font-weight: 600; cursor: pointer; }
+button.ghost { background: transparent; border: 1px solid var(--line); color: var(--text); }
+button:hover { filter: brightness(1.08); }
+.tools { position: relative; display: inline-block; }
+.toolsmenu { position: absolute; right: 0; top: calc(100% + 6px); z-index: 40; width: 322px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 6px;
+  box-shadow: 0 12px 32px rgba(0,0,0,.5); }
+.toolshdr { color: var(--muted); font-size: 10.5px; text-transform: uppercase; letter-spacing: .5px; padding: 6px 10px 4px; }
+.toolitem { display: block; width: 100%; text-align: left; background: transparent; border: 0;
+  color: var(--text); padding: 8px 10px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; }
+.toolitem:hover { background: var(--panel2); filter: none; }
+.toolitem span { display: block; color: var(--muted); font-weight: 400; font-size: 11px; margin-top: 3px; line-height: 1.35; white-space: normal; }
+.toolitem.danger { color: #ff8f8f; }
+.toolitem.danger:hover { background: rgba(255,107,107,.12); }
+.status-pill { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; color: var(--muted);
+  padding: 5px 11px; border-radius: 999px; border: 1px solid var(--line); background: var(--panel2); }
+.dot { width: 8px; height: 8px; border-radius: 999px; background: var(--muted); }
+.dot.ok { background: var(--good); } .dot.err { background: var(--bad); } .dot.warn { background: var(--warn); }
+.dot.load { background: var(--warn); animation: pulse 1s infinite; }
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
+
+/* tabs */
+main { padding: 18px 28px 60px; max-width: 1200px; margin: 0 auto; }
+.tabs { display: flex; gap: 2px; flex-wrap: wrap; border-bottom: 1px solid var(--line); margin-bottom: 22px; position: sticky; top: 66px; background: var(--bg); z-index: 20; }
+.tab { background: transparent; border: 0; border-bottom: 2px solid transparent; color: var(--muted);
+  padding: 11px 16px; font-size: 13px; font-weight: 600; cursor: pointer; border-radius: 0; display: flex; align-items: center; gap: 7px; }
+.tab:hover { color: var(--text); filter: none; }
+.tab.active { color: var(--text); border-bottom-color: var(--accent); }
+.tab .pg { font-size: 10px; color: var(--muted); background: var(--panel2); border: 1px solid var(--line); border-radius: 999px; padding: 1px 7px; font-weight: 700; }
+.tab.active .pg { color: var(--accent); border-color: var(--accent); }
+.pane { display: none; animation: fade .18s ease; }
+.pane.active { display: block; }
+@keyframes fade { from { opacity: .3; } to { opacity: 1; } }
+
+/* layout bits */
+.section-title { font-size: 13px; text-transform: uppercase; letter-spacing: .8px; color: var(--muted); margin: 26px 0 12px; }
+.section-title:first-child { margin-top: 4px; }
+.note { color: var(--muted); font-size: 13px; margin: -2px 0 14px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 14px; }
+.grid.g4 { grid-template-columns: repeat(4, 1fr); }
+.grid.g2 { grid-template-columns: 1fr 1fr; }
+.grid.g32 { grid-template-columns: 1.3fr 1fr; }
+.grid.g13 { grid-template-columns: 1fr 2fr; }
+.grid.g23 { grid-template-columns: 2fr 3fr; }
+@media (max-width: 980px) { .grid.g4 { grid-template-columns: repeat(2,1fr); } .grid.g2, .grid.g32, .grid.g13, .grid.g23 { grid-template-columns: 1fr; } }
+.tile { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 15px 17px; }
+.tile .k { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .5px; }
+.tile .v { font-size: 26px; font-weight: 700; margin: 6px 0 2px; letter-spacing: -.5px; }
+.tile .why { color: var(--muted); font-size: 12px; line-height: 1.4; }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px 18px; margin-bottom: 16px; }
+.panel h3 { margin: 0 0 12px; font-size: 15px; }
+.panel h3 small { color: var(--muted); font-weight: 400; font-size: 12px; }
+.card { background: var(--panel2); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px 18px; }
+
+/* badges / chips */
+.badge { display: inline-block; padding: 3px 9px; border-radius: 999px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; border: 1px solid var(--line); color: var(--muted); background: var(--panel); }
+.badge.ok, .badge.active, .badge.auto, .badge.approve, .badge.approved, .badge.deployed, .badge.attest { background: rgba(87,217,163,.15); color: var(--good); border-color: var(--good); }
+.badge.watch, .badge.staged, .badge.staged_change, .badge.proposed, .badge.new { background: rgba(246,196,83,.14); color: var(--warn); border-color: var(--warn); }
+.badge.opportunity { background: rgba(79,140,255,.15); color: var(--accent); border-color: var(--accent); }
+.badge.reject, .badge.na, .badge.reverted, .badge.rolled_back, .badge.dismissed, .badge.not_proposed, .badge.insight, .badge.diagnostic { background: rgba(147,161,189,.12); color: var(--muted); border-color: var(--line); }
+
+/* tables */
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { color: var(--muted); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: .4px; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+td.strong { font-weight: 700; }
+tr:last-child td { border-bottom: none; }
+
+/* matrix */
+table.matrix td.agent { font-weight: 700; }
+table.matrix tr.ag-main td.agent { white-space: nowrap; }
+table.matrix tr.ag-main td { border-bottom: none; padding-bottom: 3px; }
+table.matrix tr.ag-sub td { padding-top: 0; }
+table.matrix tr.ag-sub .sub { color: var(--muted); font-weight: 400; font-size: 12px; }
+
+/* hbars */
+.bars { display: flex; flex-direction: column; gap: 11px; }
+.bar-row { display: grid; grid-template-columns: 160px 1fr auto; align-items: center; gap: 10px; }
+.bar-row .name { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bar-track { background: var(--panel2); border-radius: 999px; height: 12px; overflow: hidden; border: 1px solid var(--line); }
+.bar-fill { height: 100%; border-radius: 999px; background: var(--accent); }
+.bar-row .amt { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+/* charts */
+.chartrow { display: flex; align-items: center; gap: 22px; flex-wrap: wrap; }
+.legend { display: flex; flex-direction: column; gap: 7px; font-size: 13px; }
+.legend .li { display: flex; align-items: center; gap: 8px; }
+.legend .sw { width: 11px; height: 11px; border-radius: 3px; flex: none; }
+.legend .lv { color: var(--muted); margin-left: auto; font-variant-numeric: tabular-nums; }
+svg text { font-family: inherit; }
+
+/* recommendation cards */
+.recstack { display: flex; flex-direction: column; gap: 12px; }
+.rec { display: flex; flex-direction: row; align-items: flex-start; gap: 16px; }
+.rec .rec-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.rec .title { font-weight: 700; font-size: 14px; }
+.rec .dim { font-size: 12px; color: var(--muted); }
+.rec .save { font-size: 20px; font-weight: 700; color: var(--accent2); white-space: nowrap; text-align: right; min-width: 118px; flex-shrink: 0; }
+.rec .save small { font-size: 11px; color: var(--muted); font-weight: 500; display: block; }
+.rec .ev { font-size: 12px; color: var(--muted); }
+.rec .cav { font-size: 12px; color: var(--warn); }
+.rec .facts { font-size: 12.5px; font-weight: 600; color: var(--accent); font-variant-numeric: tabular-nums; }
+.rec .manage { display: inline-block; margin-top: 5px; font-size: 12px; font-weight: 600; color: var(--accent); text-decoration: none; }
+.rec .manage:hover { text-decoration: underline; }
+.rec .manage.disabled { color: var(--muted); font-weight: 500; cursor: default; }
+.cardacts { display: flex; gap: 8px; margin-top: 8px; }
+.cardacts .act { font-size: 12px; font-weight: 600; padding: 5px 12px; border-radius: 7px; border: 1px solid var(--line); background: var(--surface, #1a2233); color: var(--text); cursor: pointer; }
+.cardacts .act:hover:not(:disabled) { border-color: var(--accent); }
+.cardacts .act.apply { border-color: var(--accent2); color: var(--accent2); }
+.cardacts .act.revert { border-color: var(--warn); color: var(--warn); }
+.cardacts .act:disabled { opacity: .4; cursor: default; }
+.toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); background: var(--panel-strong, #141b2b); color: var(--text); border: 1px solid var(--line); border-radius: 9px; padding: 11px 18px; font-size: 13px; box-shadow: 0 10px 30px rgba(0,0,0,.45); opacity: 0; transition: opacity .2s; pointer-events: none; z-index: 60; max-width: 70vw; }
+.toast.show { opacity: 1; }
+.toast.bad { border-color: var(--warn); }
+.reviewbtn { font-size: 11.5px; font-weight: 600; padding: 3px 10px; border-radius: 6px; border: 1px solid var(--accent); background: transparent; color: var(--accent); cursor: pointer; }
+.reviewbtn:hover { background: var(--accent); color: #fff; }
+.statechip { display: inline-block; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .4px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line); color: var(--accent); }
+.statechip.sm { font-size: 10px; padding: 1px 6px; margin-left: 4px; }
+.modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.55); display: flex; align-items: center; justify-content: center; z-index: 80; padding: 24px; }
+.modal-overlay[hidden] { display: none; }
+.modal { background: var(--panel-strong, #141b2b); border: 1px solid var(--line); border-radius: 12px; width: min(940px, 96vw); max-height: 88vh; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 24px 60px rgba(0,0,0,.5); }
+.modal-head { display: flex; align-items: flex-start; justify-content: space-between; padding: 16px 20px; border-bottom: 1px solid var(--line); gap: 12px; }
+.modal-title { font-weight: 700; font-size: 16px; }
+.modal-sub { font-size: 12px; color: var(--muted); margin-top: 4px; }
+.modal-x { background: none; border: none; color: var(--muted); font-size: 18px; cursor: pointer; line-height: 1; }
+.modal-body { padding: 14px 20px; overflow: hidden; flex: 1 1 auto; min-height: 0; display: flex; }
+.diff-view { font-family: Consolas, "Courier New", monospace; font-size: 12.5px; line-height: 1.5; border: 1px solid var(--line); border-radius: 8px; overflow-y: auto; overflow-x: hidden; flex: 1 1 auto; min-height: 0; user-select: none; -webkit-user-select: none; -ms-user-select: none; }
+.diff-view .dl { display: flex; white-space: pre-wrap; word-break: break-word; padding: 0 10px; }
+.diff-view .dl.add { background: rgba(46,160,67,.20); }
+.diff-view .dl.del { background: rgba(248,81,73,.20); }
+.diff-view .gutter { width: 16px; flex: none; color: var(--muted); }
+.diff-view .dl.add .gutter { color: #4ade80; } .diff-view .dl.del .gutter { color: var(--warn); }
+.diff-view .collapsed { color: var(--muted); padding: 4px 10px; font-style: italic; background: rgba(255,255,255,.03); }
+.modal-foot { display: flex; align-items: center; gap: 10px; padding: 14px 20px; border-top: 1px solid var(--line); }
+.gov-actions { display: flex; gap: 8px; flex: 1; flex-wrap: wrap; }
+.gbtn { font-size: 12px; font-weight: 600; padding: 6px 13px; border-radius: 7px; border: 1px solid var(--line); background: var(--surface, #1a2233); color: var(--text); cursor: pointer; }
+.gbtn.apply { border-color: #4ade80; color: #4ade80; } .gbtn.revert { border-color: var(--warn); color: var(--warn); }
+.copybtn { font-size: 12px; font-weight: 700; padding: 8px 16px; border-radius: 7px; border: 1px solid var(--accent); background: var(--accent); color: #fff; cursor: pointer; white-space: nowrap; }
+.rec .badges { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 2px; }
+
+/* projection */
+.proj-grid { display: grid; grid-template-columns: 1fr 1.5fr; gap: 20px; align-items: center; }
+@media (max-width: 900px) { .proj-grid { grid-template-columns: 1fr; } }
+.proj-nums { display: flex; gap: 24px; flex-wrap: wrap; }
+.proj-nums .k { color: var(--muted); font-size: 12px; }
+.proj-nums .v { font-size: 24px; font-weight: 700; }
+.proj-nums .v.hl { color: var(--accent2); }
+input[type=range] { width: 100%; accent-color: var(--accent); background: transparent; border: 0; padding: 0; }
+.slider-out { font-weight: 700; color: var(--accent); font-variant-numeric: tabular-nums; }
+
+.slo-line { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
+.slo-line:last-child { border-bottom: none; }
+.slo-line b { font-variant-numeric: tabular-nums; }
+.tick { color: var(--good); font-weight: 700; } .cross { color: var(--muted); }
+.empty { color: var(--muted); font-size: 13px; padding: 10px 2px; }
+.pill-note { font-size: 12px; color: var(--muted); margin-top: 10px; }
+#opps { overflow-x: auto; }
+.analytics-note { padding: 10px 20px; font-size: 13px; line-height: 1.5; border-bottom: 1px solid var(--line); background: rgba(246,196,83,.10); color: var(--text); }
+.analytics-note b { color: var(--warn); }
+.analytics-note code { font-size: 12px; background: var(--surface, rgba(255,255,255,.05)); padding: 1px 5px; border-radius: 4px; }
+.analytics-note.err { background: rgba(248,81,73,.12); }
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>Agent Optimization Dashboard</h1>
+    <div class="sub">Live analytics over the multi-agent travel assistant — reads the API directly</div>
+  </div>
+  <div class="spacer"></div>
+  <div class="cfg">
+    <label>Dataset</label>
+    <select id="tenant">
+      <option>marvel</option><option>analytics</option>
+    </select>
+    <label>Source</label>
+    <select id="source" title="Reverse-ETL reads the OptimizationInsights snapshot produced by the analytics notebook (Module 09); Live recomputes from the raw captured turns">
+      <option value="live">Live (recompute)</option>
+      <option value="auto">Reverse-ETL (notebook)</option>
+    </select>
+    <label><input type="checkbox" id="auto" /> auto</label>
+    <button id="refresh">Refresh</button>
+    <div class="tools">
+      <button id="toolsBtn" class="ghost" title="Demo maintenance">⚙</button>
+      <div id="toolsMenu" class="toolsmenu" hidden>
+        <div class="toolshdr">Demo tools</div>
+        <button id="generateTraffic" class="toolitem" hidden>Generate traffic
+          <span>Add a burst of synthetic turns — policy-aware: baseline until you apply model-selection, then tiered (nano/mini/premium).</span>
+        </button>
+        <button id="recomputeInsights" class="toolitem" hidden>Recompute insights
+          <span>Rebuild the Business / Memory / Governance snapshot in-process — no Fabric needed.</span>
+        </button>
+        <button id="freshenTimes" class="toolitem">Freshen turn times
+          <span>Re-stamp captured turns into the last 2 hours so Turns-by-minute reads current. Timestamps only.</span>
+        </button>
+        <button id="resetState" class="toolitem danger" hidden>Reset to baseline
+          <span>Clear governance + insights AND normalize turns to the single-premium baseline. Tokens, funnel &amp; app data untouched.</span>
+        </button>
+      </div>
+    </div>
+    <span class="status-pill"><span class="dot" id="statusDot"></span><span id="statusText">idle</span></span>
+  </div>
+</header>
+<div id="analyticsNote" class="analytics-note" hidden></div>
+<div id="toast" class="toast"></div>
+<div id="diffModal" class="modal-overlay" hidden>
+  <div class="modal">
+    <div class="modal-head">
+      <div><div class="modal-title" id="diffTitle">Proposed change</div><div class="modal-sub" id="diffSub"></div></div>
+      <button class="modal-x" id="diffClose" title="Close">✕</button>
+    </div>
+    <div class="modal-body"><div class="diff-view" id="diffView"></div></div>
+    <div class="modal-foot">
+      <div class="gov-actions" id="govActions"></div>
+      <button class="copybtn" id="diffCopy" title="Copies the clean, updated prompt (no diff markers) — the display above is read-only on purpose">Copy updated prompt</button>
+    </div>
+  </div>
+</div>
+
+<main>
+  <nav class="tabs" id="tabs">
+    <button class="tab active" data-tab="overview">Overview</button>
+    <button class="tab" data-tab="opps">Optimizations</button>
+    <button class="tab" data-tab="model">Model Selection</button>
+    <button class="tab" data-tab="memory">Memory</button>
+    <button class="tab" data-tab="agents">Agents</button>
+    <button class="tab" data-tab="business">Business</button>
+    <button class="tab" data-tab="gov">Governance</button>
+  </nav>
+
+  <!-- 1: Overview -->
+  <section class="pane active" id="pane-overview">
+    <div class="section-title">Portfolio KPIs</div>
+    <div class="grid" id="kpis"></div>
+    <div class="section-title">Optimization band</div>
+    <div class="grid g4" id="oppBand"></div>
+    <div class="section-title">Turn breakdown</div>
+    <div class="grid g23">
+      <div class="panel"><h3>Total turns by model</h3><div class="chartrow" id="ovModels"></div></div>
+      <div class="panel"><h3>Total turns by minute <small>— captured turns bucketed by minute</small></h3><div id="turnsTimeline"></div></div>
+    </div>
+  </section>
+
+  <!-- 2: Opportunities -->
+  <section class="pane" id="pane-opps">
+    <div class="section-title">Discovered optimizations <span class="muted">— engine/analyst-ranked, each linked to an agent + dimension + fix seam</span></div>
+    <div class="panel"><div id="opps"></div></div>
+    <div class="section-title">Scenario recommendations <span class="muted">— rule-based scenario cards, one per optimization</span></div>
+    <div class="recstack" id="recs"></div>
+  </section>
+
+  <!-- 3+4: Model Selection -->
+  <section class="pane" id="pane-model">
+    <div class="section-title">Diagnosis <span class="muted">— what models run, and where cost goes</span></div>
+    <div class="grid g2">
+      <div class="panel"><h3>Model distribution <small>(turns)</small></h3><div class="chartrow" id="models"></div></div>
+      <div class="panel"><h3>Trivial-turn share</h3><div id="trivialGauge" style="text-align:center"></div></div>
+    </div>
+    <div class="grid g13">
+      <div class="panel"><h3>Baseline vs actual cost <small>— measured counterfactual</small></h3><div class="bars" id="baselineActual"></div></div>
+      <div class="panel"><h3>Estimated cost by complexity tier</h3><div class="bars" id="byTier"></div></div>
+    </div>
+    <div class="section-title">Projected impact <span class="muted">— project the measured price-only per-turn saving onto volume</span></div>
+    <div class="panel"><div id="projection"></div></div>
+  </section>
+
+  <!-- 5: Memory -->
+  <section class="pane" id="pane-memory">
+    <div class="section-title">Memory intelligence <span class="muted">— global (keyed by user, not tenant)</span></div>
+    <div class="grid g4" id="memKpis"></div>
+    <div class="grid g2" style="margin-top:14px">
+      <div class="panel"><h3>Memories by type</h3><div class="chartrow" id="memType"></div></div>
+      <div class="panel"><h3>Memory health <small>— Superseded + Low-value = prunable waste</small></h3><div class="chartrow" id="memHealth"></div></div>
+    </div>
+    <div class="panel" style="margin-top:14px"><h3>Salience distribution <small>— scored memories (Unscored = procedural, excluded)</small></h3><div class="bars" id="memSalience"></div></div>
+  </section>
+
+  <!-- 6/6b: Agents -->
+  <section class="pane" id="pane-agents">
+    <div class="section-title">Agent performance <span class="muted">— per-agent × dimension health, from node-grain telemetry</span></div>
+    <div class="grid g2">
+      <div class="panel"><h3>Per-agent scorecard</h3><div id="scorecard"></div></div>
+      <div class="panel"><h3>Cost by agent <small>— USD · share · tokens</small></h3><div class="bars" id="agentCost"></div></div>
+    </div>
+    <div class="section-title">Dimension detail <span class="muted">— status + headline per agent × dimension</span></div>
+    <div class="panel"><div id="dimDetail"></div></div>
+    <div class="section-title">Agent-path cost concentration <span class="muted">— where token spend concentrates (cost proxy = tokens)</span></div>
+    <div class="panel"><div id="agentPaths"></div></div>
+  </section>
+
+  <!-- 7: Business -->
+  <section class="pane" id="pane-business">
+    <div class="section-title">Business impact — conversion</div>
+    <div class="grid g4" id="business"></div>
+    <div class="grid g2" style="margin-top:14px">
+      <div class="panel"><h3>Conversion funnel <small>— sessions: engaged → searched → planned → confirmed</small></h3><div class="bars" id="funnel"></div></div>
+      <div class="panel"><h3>Why sessions don't convert <small>— abandonment cause by sessions</small></h3><div class="bars" id="abandon"></div></div>
+    </div>
+  </section>
+
+  <!-- 8: Governance -->
+  <section class="pane" id="pane-gov">
+    <div class="section-title">Applied state &amp; governance</div>
+    <div class="grid g32">
+      <div class="panel"><h3>Applied optimizations <small>(policies)</small></h3><div id="policies"></div></div>
+      <div class="panel"><h3>SLO gate</h3><div id="slo"></div></div>
+    </div>
+    <div class="section-title">Measured saving <span class="muted">— honest before/after; $0 until applied</span></div>
+    <div class="grid g32">
+      <div class="panel"><h3>Measured saving by optimization</h3><div id="result"></div></div>
+      <div class="panel"><h3>Model-selection: baseline vs actual</h3><div id="baBar" style="text-align:center"></div></div>
+    </div>
+    <div class="section-title">Decision audit trail <span class="muted">— C1–C5 human sign-off</span></div>
+    <div class="panel"><div id="decisions"></div></div>
+  </section>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+/* API base resolution (no API box): a `?api=` override wins (handy for pointing at a
+   specific API in dev); otherwise auto-detect — local hosts talk to the API on :8000,
+   while a hosted portal uses same-origin `/api` (nginx proxies it to the backend, so no
+   CORS and no URL injection needed). */
+const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "0.0.0.0", ""]);
+function resolveApi() {
+  try { const p = new URLSearchParams(location.search).get("api"); if (p) return p.replace(/\/+$/, ""); } catch (e) {}
+  return LOCAL_HOSTS.has(location.hostname) ? "http://localhost:8000" : "/api";
+}
+const api = () => resolveApi();
+const tenant = () => ($("tenant").value || "marvel").trim();
+const src = () => ($("source") && $("source").value) || "auto";
+const PALETTE = ["#4f8cff", "#6ee7b7", "#f6c453", "#ff6b6b", "#57d9a3", "#b98cff", "#4dd0e1", "#ffa726"];
+
+const fmtInt = (n) => (n == null ? "—" : Number(n).toLocaleString());
+const fmtUSD = (n, d = 2) => (n == null ? "—" : "$" + Number(n).toLocaleString(undefined, { minimumFractionDigits: d, maximumFractionDigits: d }));
+const fmtPct = (n) => (n == null ? "—" : Number(n).toFixed(1) + "%");
+const fmtK = (n) => (n == null ? "—" : n >= 1e6 ? (n / 1e6).toFixed(2) + "M" : n >= 1e3 ? (n / 1e3).toFixed(1) + "k" : String(Math.round(n)));
+const esc = (s) => String(s == null ? "" : s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const titleize = (s) => String(s || "").replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+const slug = (s) => String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, "_");
+
+function setStatus(kind, text) { $("statusDot").className = "dot" + (kind ? " " + kind : ""); $("statusText").textContent = text; }
+function tileHtml(t) { return `<div class="tile"><div class="k">${esc(t.k)}</div><div class="v">${t.v}</div><div class="why">${esc(t.why)}</div></div>`; }
+function unavail(status) {
+  if (status === 404) return `<div class="empty">Not available on this API instance — this section needs the <b>02_completed</b> API (the <code>01_exercises</code> API doesn't expose it).</div>`;
+  if (status === 0) return `<div class="empty">Can't reach the API. Locally, start the Travel API on <code>:8000</code>; when hosted it's proxied at <code>/api</code>.</div>`;
+  return `<div class="empty">Error loading (HTTP ${status}).</div>`;
+}
+
+/* ---------- SVG chart helpers ---------- */
+function donutSVG(segments, size = 168, thick = 26) {
+  const total = segments.reduce((s, x) => s + x.value, 0);
+  const r = (size - thick) / 2, cx = size / 2, cy = size / 2, C = 2 * Math.PI * r;
+  let off = 0, arcs = "";
+  if (total > 0) {
+    segments.forEach((seg) => {
+      const len = (seg.value / total) * C;
+      arcs += `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${seg.color}" stroke-width="${thick}" stroke-dasharray="${len} ${C - len}" stroke-dashoffset="${-off}" transform="rotate(-90 ${cx} ${cy})"/>`;
+      off += len;
+    });
+  } else {
+    arcs = `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="var(--line)" stroke-width="${thick}"/>`;
+  }
+  return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">${arcs}</svg>`;
+}
+function donutChart(segments, centerV, centerK) {
+  const total = segments.reduce((s, x) => s + x.value, 0);
+  const legend = segments.map((s) => `<div class="li"><span class="sw" style="background:${s.color}"></span><span>${esc(s.label)}</span><span class="lv">${fmtInt(s.value)} · ${fmtPct(total ? s.value / total * 100 : 0)}</span></div>`).join("");
+  const center = centerV != null ? `<div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;pointer-events:none"><div style="font-size:22px;font-weight:700">${centerV}</div><div class="muted" style="font-size:11px">${esc(centerK || "")}</div></div>` : "";
+  return `<div style="position:relative;flex:none">${donutSVG(segments)}${center}</div><div class="legend">${legend}</div>`;
+}
+function gaugeSVG(pct, label) {
+  const p = Math.max(0, Math.min(100, pct || 0)), r = 80, C = Math.PI * r, len = (p / 100) * C;
+  return `<svg width="220" height="132" viewBox="0 0 200 120">
+    <path d="M20 100 A80 80 0 0 1 180 100" fill="none" stroke="var(--line)" stroke-width="18" stroke-linecap="round"/>
+    <path d="M20 100 A80 80 0 0 1 180 100" fill="none" stroke="var(--accent)" stroke-width="18" stroke-linecap="round" stroke-dasharray="${len} ${C}"/>
+    <text x="100" y="90" text-anchor="middle" font-size="30" font-weight="700" fill="var(--text)">${p.toFixed(1)}%</text>
+    <text x="100" y="110" text-anchor="middle" font-size="12" fill="var(--muted)">${esc(label || "")}</text></svg>`;
+}
+function hbars(items, color) {
+  const max = Math.max(...items.map((i) => i.value || 0), 1e-9);
+  return items.map((i) => `<div class="bar-row"><span class="name" title="${esc(i.label)}">${esc(i.label)}</span>
+    <div class="bar-track"><div class="bar-fill" style="width:${((i.value || 0) / max * 100).toFixed(1)}%;background:${color || "var(--accent)"}"></div></div>
+    <span class="amt">${esc(i.amt)}</span></div>`).join("");
+}
+function projChartSVG(perTurn, tpd) {
+  const maxT = 100000, W = 460, H = 190, ml = 58, mb = 30, mt = 12, mr = 14;
+  const pw = W - ml - mr, ph = H - mt - mb, yMax = perTurn * maxT * 30 || 1;
+  const sx = (t) => ml + (t / maxT) * pw, sy = (v) => mt + ph - (v / yMax) * ph;
+  const mx = sx(tpd), my = sy(perTurn * tpd * 30);
+  const grid = [0, .25, .5, .75, 1].map((f) => {
+    const y = mt + ph - f * ph;
+    return `<line x1="${ml}" y1="${y}" x2="${W - mr}" y2="${y}" stroke="var(--line)" stroke-width="1"/><text x="${ml - 6}" y="${y + 4}" text-anchor="end" font-size="10" fill="var(--muted)">${fmtUSD(f * yMax, 0)}</text>`;
+  }).join("");
+  return `<svg width="100%" viewBox="0 0 ${W} ${H}" style="max-width:${W}px">
+    ${grid}
+    <line x1="${ml}" y1="${mt + ph}" x2="${W - mr}" y2="${mt + ph}" stroke="var(--muted)" stroke-width="1"/>
+    <text x="${ml}" y="${H - 8}" font-size="10" fill="var(--muted)">0</text>
+    <text x="${W - mr}" y="${H - 8}" text-anchor="end" font-size="10" fill="var(--muted)">100k turns/day</text>
+    <line x1="${sx(0)}" y1="${sy(0)}" x2="${sx(maxT)}" y2="${sy(perTurn * maxT * 30)}" stroke="var(--accent)" stroke-width="2.5"/>
+    <line x1="${mx}" y1="${mt}" x2="${mx}" y2="${mt + ph}" stroke="var(--accent2)" stroke-width="1" stroke-dasharray="4 3"/>
+    <circle cx="${mx}" cy="${my}" r="5" fill="var(--accent2)"/></svg>`;
+}
+function groupedBarSVG(baseline, actual) {
+  const max = Math.max(baseline, actual, 1e-9), W = 260, H = 170, base = 130, bw = 66;
+  const h = (v) => (v / max) * 108;
+  const bar = (x, v, col, lbl) => `<rect x="${x}" y="${base - h(v)}" width="${bw}" height="${h(v)}" rx="4" fill="${col}"/>
+    <text x="${x + bw / 2}" y="${base - h(v) - 6}" text-anchor="middle" font-size="12" font-weight="700" fill="var(--text)">${fmtUSD(v, 2)}</text>
+    <text x="${x + bw / 2}" y="${base + 16}" text-anchor="middle" font-size="11" fill="var(--muted)">${lbl}</text>`;
+  return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
+    <line x1="20" y1="${base}" x2="${W - 20}" y2="${base}" stroke="var(--line)"/>
+    ${bar(46, baseline, "var(--muted)", "Baseline")}${bar(148, actual, "var(--accent)", "Actual")}</svg>`;
+}
+
+/* ---------- fetch + state ---------- */
+async function getJSON(path) {
+  let r;
+  try { r = await fetch(api() + path, { headers: { "Accept": "application/json" } }); }
+  catch (e) { const err = new Error("network"); err.status = 0; throw err; }
+  if (!r.ok) { const err = new Error(`${r.status}`); err.status = r.status; throw err; }
+  return r.json();
+}
+const state = {};
+async function fetchInto(key, path) {
+  try { state[key] = { data: await getJSON(path) }; }
+  catch (e) { state[key] = { error: e, status: (e && e.status) != null ? e.status : 0 }; }
+}
+
+/* ---------- renderers ---------- */
+function renderKPIs() {
+  const e = state.metrics;
+  if (!e || e.error) { $("kpis").innerHTML = unavail(e ? e.status : 0); return; }
+  const m = e.data;
+  const ct = confirmedTripsVal();
+  const cpo = (ct && m.estimated_cost_usd != null) ? m.estimated_cost_usd / ct : null;
+  $("kpis").innerHTML = [
+    { k: "Turns captured", v: fmtInt(m.total_turns), why: `${fmtInt(m.total_tokens)} tokens` },
+    { k: "Estimated cost", v: fmtUSD(m.estimated_cost_usd, 2), why: "at Configuration pricing" },
+    { k: "Trivial-turn share", v: fmtPct(m.trivial_pct), why: `${fmtInt(m.trivial_turns)} trivial turns` },
+    { k: "Models used", v: fmtInt(m.distinct_models), why: "distinct deployments" },
+    { k: "Cache hit", v: m.cache_hit_pct == null ? "—" : fmtPct(m.cache_hit_pct), why: "cached / input tokens" },
+    { k: "Confirmed trips", v: ct == null ? "—" : fmtInt(ct), why: "booked (confirmed/completed)" },
+    { k: "Cost per outcome", v: cpo == null ? "—" : fmtUSD(cpo, 2), why: "est cost / confirmed trip" },
+  ].map(tileHtml).join("");
+}
+function confirmedTripsVal() {
+  const e = state.confirmedTrips;
+  return (e && e.data && e.data.confirmed_trips != null) ? e.data.confirmed_trips : null;
+}
+function renderOppBand() {
+  // Match Power BI: Open Opportunities = count of recommendation_card rows;
+  // Estimated saving = Σ estimated_saving_usd over those cards (NOT the engine
+  // /opportunities projection, which is a different, larger number).
+  let openOpps = null, estSaving = null;
+  if (state.recs && state.recs.data) {
+    const r = state.recs.data.recommendations || [];
+    openOpps = r.length;
+    estSaving = r.reduce((s, x) => s + (x.estimated_saving_usd || 0), 0);
+  }
+  let measured = null;
+  if (state.result && state.result.data) measured = (state.result.data.results || []).reduce((s, x) => s + (x.saving_usd || 0), 0);
+  let active = null;
+  if (state.policies && state.policies.data) active = (state.policies.data.policies || []).filter((p) => p.status === "active").length;
+  $("oppBand").innerHTML = [
+    { k: "Open optimizations", v: openOpps == null ? "—" : fmtInt(openOpps), why: "recommendation cards" },
+    { k: "Estimated saving", v: estSaving == null ? "—" : fmtUSD(estSaving, 4), why: "Σ card estimates" },
+    { k: "Measured saving", v: measured == null ? "—" : fmtUSD(measured, 2), why: "sum of before/after" },
+    { k: "Active policies", v: active == null ? "—" : fmtInt(active), why: "applied optimizations" },
+  ].map(tileHtml).join("");
+}
+function modelSegments() {
+  const dist = (state.metrics && state.metrics.data && state.metrics.data.model_distribution) || {};
+  return Object.entries(dist).sort((a, b) => b[1] - a[1]).map(([label, value], i) => ({ label, value, color: PALETTE[i % PALETTE.length] }));
+}
+function renderModelsDonut(elId) {
+  const el = $(elId), e = state.metrics;
+  if (!el) return;
+  if (!e || e.error) { el.innerHTML = unavail(e ? e.status : 0); return; }
+  const segs = modelSegments();
+  if (!segs.length) { el.innerHTML = `<div class="empty">—</div>`; return; }
+  const total = segs.reduce((s, x) => s + x.value, 0);
+  el.innerHTML = donutChart(segs, fmtInt(total), "turns");
+}
+function renderTrivialGauge() {
+  const el = $("trivialGauge"), e = state.metrics;
+  if (!e || e.error) { el.innerHTML = unavail(e ? e.status : 0); return; }
+  el.innerHTML = gaugeSVG(e.data.trivial_pct, `${fmtInt(e.data.trivial_turns)} of ${fmtInt(e.data.total_turns)} turns`);
+}
+function renderByTier() {
+  const el = $("byTier"), e = state.metrics;
+  if (!e || e.error) { el.innerHTML = unavail(e ? e.status : 0); return; }
+  const rows = (e.data.by_tier || []);
+  if (!rows.length) { el.innerHTML = `<div class="empty">—</div>`; return; }
+  el.innerHTML = hbars(rows.map((r) => ({ label: `${r.complexity_tier} · ${r.deployment}`, value: r.cost, amt: `${fmtUSD(r.cost, 4)} · ${fmtInt(r.turns)} turns` })));
+}
+function renderBaselineActual() {
+  const el = $("baselineActual"), e = state.result;
+  if (!e || e.error) { el.innerHTML = unavail(e ? e.status : 0); return; }
+  const ms = (e.data.results || []).find((r) => r.scenario === "model-selection");
+  if (!ms || (!ms.baseline_cost_usd && !ms.actual_cost_usd)) {
+    el.innerHTML = `<div class="empty">No measured model-selection result yet.</div>`; return;
+  }
+  el.innerHTML = hbars([
+    { label: "Baseline (all-premium)", value: ms.baseline_cost_usd, amt: fmtUSD(ms.baseline_cost_usd, 2) },
+    { label: "Actual (as-run)", value: ms.actual_cost_usd, amt: fmtUSD(ms.actual_cost_usd, 2) },
+  ]) + `<div class="pill-note">Measured saving ${fmtUSD(ms.saving_usd, 2)} (${fmtPct(ms.saving_pct)}) over ${fmtInt(ms.turns)} turns — counterfactual vs. an all-premium baseline.</div>`;
+}
+
+const DIMS = ["cost_efficiency", "model_selection", "workflow_efficiency"];
+function badge(kind, txt) { return `<span class="badge ${slug(kind)}">${esc(txt != null ? txt : kind)}</span>`; }
+/* Friendly apply-mode labels: config seams the app executes = "Automatic"; prompt/code
+   seams a human deploys = "Manual". Keeps the raw value as the CSS class for styling. */
+const APPLY_MODE_LABEL = { staged_change: "Manual", manual: "Manual", auto: "Automatic", diagnostic: "Diagnostic" };
+const applyModeLabel = (m) => APPLY_MODE_LABEL[String(m || "").toLowerCase()] || titleize(String(m || ""));
+/* User-facing labels for the config-policy status axis. "not_proposed" is an internal
+   lifecycle term that reads as "nothing to do" next to an enabled Apply — "Not applied"
+   is coherent with the one-click Apply (which auto-proposes then applies). */
+const POLICY_STATE_LABEL = { not_proposed: "Not applied", active: "Active", proposed: "Proposed", reverted: "Reverted", "n/a": "—", na: "—" };
+const policyStateLabel = (s) => POLICY_STATE_LABEL[String(s || "").toLowerCase()] || titleize(String(s || ""));
+function renderScorecard() {
+  const el = $("scorecard"), e = state.scorecard;
+  if (!e || e.error) { el.innerHTML = unavail(e ? e.status : 0); return; }
+  const agents = (e.data.agents || []);
+  if (!agents.length) { el.innerHTML = `<div class="empty">No node-grain scorecard rows for <b>${esc(tenant())}</b>. Capture per-agent executions (Module 07) or pick a seeded dataset.</div>`; return; }
+  const head = `<tr><th>Agent</th>${DIMS.map((d) => `<th>${esc(titleize(d))}</th>`).join("")}</tr>`;
+  const cspan = 1 + DIMS.length;
+  const rows = agents.map((a) => {
+    const dims = a.dimensions || {};
+    const cells = DIMS.map((d) => `<td title="${esc((dims[d] || {}).headline || "")}">${badge((dims[d] || {}).status || "na")}</td>`).join("");
+    const sub = `${fmtUSD(a.cost, 4)} · ${fmtPct((a.cost_share || 0) * 100)} of spend · ${fmtInt(a.executions)} calls`;
+    return `<tr class="ag-main"><td class="agent">${esc(a.agent)}</td>${cells}</tr>`
+         + `<tr class="ag-sub"><td colspan="${cspan}"><div class="sub">${sub}</div></td></tr>`;
+  }).join("");
+  const pend = (agents[0] && agents[0].pending_dimensions) || [];
+  el.innerHTML = `<table class="matrix"><thead>${head}</thead><tbody>${rows}</tbody></table>` + (pend.length ? `<div class="pill-note">Not yet scored (signal not captured): ${pend.map((p) => esc(titleize(p))).join(", ")}.</div>` : "");
+}
+function renderAgentCost() {
+  const el = $("agentCost"), e = state.scorecard;
+  if (!e || e.error) { el.innerHTML = unavail(e ? e.status : 0); return; }
+  const agents = (e.data.agents || []).slice().sort((a, b) => (b.cost || 0) - (a.cost || 0));
+  if (!agents.length) { el.innerHTML = `<div class="empty">—</div>`; return; }
+  el.innerHTML = hbars(agents.map((a) => ({ label: a.agent, value: a.cost,
+    amt: `${fmtUSD(a.cost, 4)} · ${fmtPct((a.cost_share || 0) * 100)} · ${fmtK(a.total_tokens)} tok` })));
+}
+function renderDimDetail() {
+  const el = $("dimDetail"), e = state.scorecard;
+  if (!e || e.error) { el.innerHTML = unavail(e ? e.status : 0); return; }
+  const agents = (e.data.agents || []);
+  if (!agents.length) { el.innerHTML = `<div class="empty">—</div>`; return; }
+  const rows = [];
+  agents.forEach((a) => {
+    const dims = a.dimensions || {};
+    Object.keys(dims).forEach((d) => {
+      const dd = dims[d] || {};
+      rows.push(`<tr><td class="strong">${esc(a.agent)}</td><td>${esc(titleize(d))}</td><td>${badge(dd.status || "na")}</td><td>${esc(dd.headline || "")}</td></tr>`);
+    });
+  });
+  el.innerHTML = `<table><thead><tr><th>Agent</th><th>Dimension</th><th>Status</th><th>Headline</th></tr></thead><tbody>${rows.join("")}</tbody></table>`;
+}
+function renderAgentPaths() {
+  const el = $("agentPaths"), e = state.agentPaths;
+  if (!e || e.error) { el.innerHTML = unavail(e ? e.status : 0); return; }
+  const paths = (e.data.paths || []);
+  if (!paths.length) { el.innerHTML = `<div class="empty">No agent-path rows yet — run compute_insights / the notebook.</div>`; return; }
+  const top = paths[0];
+  const rows = paths.map((p) => `<tr>
+    <td class="mono">${esc(p.agent_path)}</td>
+    <td class="num">${fmtInt(p.turns)}</td>
+    <td class="num">${fmtInt(p.total_tokens)}</td>
+    <td class="num">${fmtInt(p.avg_tokens)}</td>
+    <td class="num">${fmtPct((p.token_share || 0) * 100)}</td></tr>`).join("");
+  el.innerHTML = `<div class="note">Most expensive path — <b>${esc(top.agent_path)}</b> — carries <b>${fmtPct((top.token_share || 0) * 100)}</b> of all agent tokens. That's where model-tiering and tool-dedup pay off first.</div>
+    <table><thead><tr><th>Agent path</th><th class="num">Turns</th><th class="num">Tokens</th><th class="num">Avg tokens</th><th class="num">Token share</th></tr></thead><tbody>${rows}</tbody></table>`;
+}
+function oppStateCell(o) {
+  // Manual (prompt/code) rows: the governance lifecycle is the operative state.
+  // Config rows: whether the app-executed policy is live. One "State" column, contextual.
+  if (o.seam === "prompt" || o.seam === "code")
+    return `<span class="statechip sm">${esc(govDisp(o.governed_state))}</span>`;
+  const raw = o.applied_state || "na";
+  const label = { active: "Active", not_proposed: "Not applied", "n/a": "—", na: "—" }[String(raw).toLowerCase()] || titleize(String(raw));
+  return badge(raw, label);
+}
+function renderOpps() {
+  const el = $("opps"), e = state.opps;
+  if (!e || e.error) { el.innerHTML = unavail(e ? e.status : 0); return; }
+  const d = e.data, opps = (d.opportunities || []).slice().sort((a, b) => (b.saving || 0) - (a.saving || 0));
+  if (!opps.length) { el.innerHTML = `<div class="empty">No optimizations detected for <b>${esc(tenant())}</b>.</div>`; return; }
+  const rows = opps.map((o) => `<tr>
+    <td class="strong">${esc(o.agent)}</td><td>${esc(o.dimension)}</td>
+    <td><span class="mono">${esc(o.seam)}</span> → ${esc(o.target)}</td>
+    <td class="num strong" style="color:var(--accent2)">${fmtUSD(o.saving, 2)}</td>
+    <td class="num">${o.effect == null ? "—" : fmtPct(o.effect * 100)}</td>
+    <td>${badge(o.apply_mode, applyModeLabel(o.apply_mode))}</td><td>${esc(o.autonomy_ceiling || "—")}</td>
+    <td>${o.clears_slo ? '<span class="tick">✓</span>' : '<span class="cross">✕</span>'}</td>
+    <td>${oppStateCell(o)}</td></tr>`).join("");
+  el.innerHTML = `<div class="note">Total measured spend analyzed: <b>${fmtUSD(d.total_spend, 2)}</b>. Savings are engine-projected (effect × attributable spend).</div>
+    <table><thead><tr><th>Agent</th><th>Dimension</th><th>Fix (seam → target)</th><th class="num">Proj. saving</th><th class="num">Effect</th><th>Apply mode</th><th>Autonomy</th><th>Clears SLO</th><th title="Config optimizations: whether the app-executed policy is live (Active / Not proposed). Manual prompt/code optimizations: the governance lifecycle (Proposed → Approved → Deployed → Rolled back).">State</th></tr></thead><tbody>${rows}</tbody></table>`;
+}
+/* Human-attested lifecycle for prompt/code seams (distinct from the app-executed
+   Apply/Revert on config-seam cards): Proposed → Approved → Deployed → Rolled back,
+   with Dismissed as the reject path. "Deployed" = you put the edit into production
+   yourself (attestation); the app never edits the file. */
+const GOV_LABELS = {
+  new: "Proposed", proposed: "Proposed", approved: "Approved", deployed: "Deployed",
+  "rolled-back": "Rolled back", dismissed: "Dismissed",
+  staged: "Approved", unstaged: "Dismissed", applied: "Deployed", reverted: "Rolled back",  // legacy
+};
+const govDisp = (s) => GOV_LABELS[String(s || "new").toLowerCase()] || (String(s).charAt(0).toUpperCase() + String(s).slice(1));
+
+/* ---------- proposed-change diff modal (prompt/code seams) ---------- */
+let _diffAfter = "", _diffOid = "";
+function oppById(oid) {
+  return ((state.opps && state.opps.data && state.opps.data.opportunities) || []).find((o) => o.opportunity_id === oid) || {};
+}
+function renderDiffRows(before, after) {
+  const a = String(before).split("\n"), b = String(after).split("\n");
+  let start = 0; while (start < a.length && start < b.length && a[start] === b[start]) start++;
+  let ea = a.length, eb = b.length; while (ea > start && eb > start && a[ea - 1] === b[eb - 1]) { ea--; eb--; }
+  const ctx = (l) => `<div class="dl"><span class="gutter"> </span><span>${esc(l === "" ? " " : l)}</span></div>`;
+  const rows = [];
+  for (let i = 0; i < start; i++) rows.push(ctx(a[i]));                 // full leading context (entire prompt shown)
+  for (let i = start; i < ea; i++) rows.push(`<div class="dl del"><span class="gutter">-</span><span>${esc(a[i] === "" ? " " : a[i])}</span></div>`);
+  for (let i = start; i < eb; i++) rows.push(`<div class="dl add"><span class="gutter">+</span><span>${esc(b[i] === "" ? " " : b[i])}</span></div>`);
+  for (let i = ea; i < a.length; i++) rows.push(ctx(a[i]));             // full trailing context
+  return rows.join("");
+}
+function govTransitions(gstate) {
+  const s = String(gstate || "new").toLowerCase();
+  if (s === "approved" || s === "staged")          // endorsed, awaiting your deploy
+    return [["deployed", "Deploy", "apply"], ["dismissed", "Dismiss", ""]];
+  if (s === "deployed" || s === "applied")         // live in production (you deployed it)
+    return [["rolled-back", "Roll back", "revert"]];
+  if (s === "dismissed")                            // rejected — allow reconsider
+    return [["approved", "Approve", "apply"]];
+  return [["approved", "Approve", "apply"], ["dismissed", "Dismiss", ""]];  // Proposed / new / rolled-back
+}
+function openDiff(oid) {
+  _diffOid = oid; _diffAfter = "";
+  const o = oppById(oid);
+  $("diffTitle").textContent = `Proposed change → ${o.target || oid}`;
+  $("diffSub").innerHTML = `${esc(o.dimension || "")} · seam <b>${esc(o.seam || "")}</b> · <span class="muted">loading…</span>`;
+  $("diffView").innerHTML = `<div class="collapsed">Loading diff…</div>`;
+  $("govActions").innerHTML = `<span class="statechip">${esc(govDisp(o.governed_state))}</span> <span class="muted" style="font-size:12px">— change state with the buttons on the card</span>`;
+  $("diffModal").hidden = false;
+  fetch(`${api()}/optimizations/agent/${encodeURIComponent(tenant())}/opportunity/${encodeURIComponent(oid)}/diff`)
+    .then((r) => r.ok ? r.json() : r.text().then((t) => Promise.reject(new Error(`${r.status} ${t.slice(0, 120)}`))))
+    .then((d) => {
+      _diffAfter = d.after || "";
+      $("diffSub").innerHTML = `${esc(o.dimension || "")} · <b>${esc(d.target || "")}</b> · <span class="muted">${esc(d.requires || "prompt edit — human-attested")}</span>`;
+      if (d.before != null && d.after != null) {
+        $("diffView").innerHTML = renderDiffRows(d.before, d.after);
+        $("diffView").scrollTop = 0;
+        $("diffCopy").style.display = "";
+      } else {
+        $("diffView").innerHTML = `<div class="dl"><span class="gutter"> </span><span>${esc(d.diff || "No preview available for this seam.")}</span></div>`;
+        $("diffCopy").style.display = "none";
+      }
+    })
+    .catch((e) => { $("diffView").innerHTML = `<div class="collapsed">Couldn't load diff: ${esc(e.message)}</div>`; $("diffCopy").style.display = "none"; });
+}
+function closeDiff() { $("diffModal").hidden = true; }
+async function govAction(kind, oid) {
+  oid = oid || _diffOid;
+  const verb = { approved: "Approve", deployed: "Deploy", "rolled-back": "Roll back", dismissed: "Dismiss" }[kind] || kind;
+  const note = kind === "deployed"
+    ? "Records that you deployed this prompt edit to production (attestation) — the app does not edit the file for you."
+    : "Records a governance decision in the audit trail.";
+  if (!confirm(`${verb} "${oid}" as "${actor()}"?\n\n${note}`)) return;
+  try {
+    const r = await fetch(`${api()}/optimizations/agent/${encodeURIComponent(tenant())}/decision`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ opportunity_id: oid, action: kind, by: actor() }),
+    });
+    const t = await r.text(); if (!r.ok) throw new Error(`${r.status} — ${t.slice(0, 160)}`);
+    toast(`${verb} recorded on ${oid} (by ${actor()})`);
+    await refresh();
+  } catch (e) { toast(`${verb} failed: ${e.message}`, true); }
+}
+function cardEvidence(r) {
+  const ev = r.evidence || {};
+  const i = (k) => { const n = Number(ev[k]); return Number.isFinite(n) ? n : 0; };
+  switch (r.scenario_id || r.scenario) {
+    case "model-selection": {
+      const models = ev.model_distribution || {};
+      return `${fmtInt(i("total_turns"))} turns · ${fmtInt(i("downgrade_candidates"))} downgrade candidates (${ev.downgrade_pct ?? 0}%) · ${Object.keys(models).length} models`;
+    }
+    case "memory-retention":
+      return `${fmtInt(i("total_memories"))} memories · ${fmtInt(i("superseded_memories"))} superseded (${ev.superseded_pct ?? 0}%)`;
+    case "tool-call-dedup":
+      return `${fmtInt(i("redundant_tool_turns"))} redundant tool turns of ${fmtInt(i("total_turns"))}`;
+    case "cost-per-outcome":
+      return `${fmtInt(i("total_tokens"))} tokens · ${ev.wasted_pct ?? 0}% wasted · ${fmtInt(i("confirmed_sessions"))} outcomes · ${fmtInt(i("tokens_per_outcome"))}/outcome`;
+    case "agent-path-cost": {
+      const paths = ev.paths || [];
+      if (!paths.length) return "";
+      const top = paths[0];
+      return `${paths.length} paths · costliest ${fmtInt(top.avg_tokens || 0)} avg tok/turn — ${top.agent_path}`;
+    }
+    default: return "";
+  }
+}
+const ACTIONABLE_SCENARIOS = new Set(["model-selection", "memory-retention"]);
+const actor = () => "analytics-portal";  // portal-originated actions (no per-user actor box)
+let toastTimer = null;
+function toast(msg, bad) {
+  const t = $("toast"); if (!t) return;
+  t.textContent = msg; t.className = "toast show" + (bad ? " bad" : "");
+  if (toastTimer) clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { t.className = "toast"; }, 5000);
+}
+function cardActions(r) {
+  const sid = r.scenario_id || r.scenario;
+  if (!ACTIONABLE_SCENARIOS.has(sid)) return "";
+  const st = (r.status || "").toLowerCase();
+  const applied = st === "active" || st === "applied";
+  const apply = `<button class="act apply" data-scn="${esc(sid)}" data-action="apply"${applied ? " disabled title='Already applied'" : " title='Proposes and applies this policy in one click — reversible via Revert'"}>Apply</button>`;
+  const revert = `<button class="act revert" data-scn="${esc(sid)}" data-action="revert"${applied ? "" : " disabled title='Nothing applied to revert'"}>Revert</button>`;
+  return `<div class="cardacts">${apply}${revert}</div>`;
+}
+async function onRecAction(ev) {
+  const btn = ev.target.closest("button.act"); if (!btn || btn.disabled) return;
+  if (btn.dataset.govoid) return;  // governance transition buttons are handled by the gov listener
+  const scn = btn.dataset.scn, action = btn.dataset.action;
+  let msg = `${action.toUpperCase()} "${scn}" as "${actor()}"?\n\nAPI: ${api()}`;
+  if (scn === "memory-retention" && action === "apply") msg += "\n\nThis soft-prunes superseded memories (reversible via Revert).";
+  if (action === "revert") msg += scn === "memory-retention" ? "\n\nThis reverts the policy and restores pruned memories." : "\n\nThis reverts the applied policy.";
+  if (!confirm(msg)) return;
+  btn.disabled = true;
+  setStatus("load", `${action} ${scn}…`);
+  try {
+    const res = await fetch(`${api()}/optimizations/${encodeURIComponent(scn)}/${action}`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ by: actor() }),
+    });
+    const txt = await res.text();
+    if (!res.ok) throw new Error(`${res.status} — ${txt.slice(0, 200)}`);
+    let extra = "";
+    try { const j = JSON.parse(txt); if (j.pruned_memories != null) extra = ` · pruned ${j.pruned_memories}`; if (j.restored_memories != null) extra = ` · restored ${j.restored_memories}`; } catch (e) {}
+    toast(`${action} → ${scn}${extra} (by ${actor()}). Showing Live so you can watch impact.`);
+    if ($("source")) $("source").value = "live";  // impact on new traffic is only visible live, not in the reverse-ETL snapshot
+    await refresh();
+  } catch (e) {
+    toast(`${action} failed: ${e.message}`, true);
+    setStatus("err", `${action} failed`);
+    btn.disabled = false;
+  }
+}
+/* A scenario card is a MANUAL (human-deployed) optimization when it maps to a live
+   prompt/code-seam opportunity. The opportunities endpoint is always engine-live and
+   authoritative, so we derive the Review affordance + "Manual" label from it — this stays
+   correct even when the reverse-ETL recommendation snapshot lags (still says diagnostic). */
+const SCENARIO_OPP = { "tool-call-dedup": "opp-repeated-node" };
+function manualOppFor(r) {
+  const oid = r.opportunity_id || SCENARIO_OPP[r.scenario_id || r.scenario];
+  if (!oid) return null;
+  const o = oppById(oid);
+  return (o && o.opportunity_id && (o.seam === "prompt" || o.seam === "code")) ? o : null;
+}
+function cardReview(o) {
+  if (!o) return "";
+  const btns = govTransitions(o.governed_state).map(([k, label, cls]) =>
+    `<button class="act ${cls}" data-kind="${esc(k)}" data-govoid="${esc(o.opportunity_id)}">${label}</button>`).join("");
+  return `<div class="cardacts"><button class="reviewbtn" data-oid="${esc(o.opportunity_id)}">Review change</button>${btns}</div>`;
+}
+function renderRecs() {
+  const el = $("recs"), e = state.recs;
+  if (!e || e.error) { el.innerHTML = unavail(e ? e.status : 0); return; }
+  const recs = (e.data.recommendations || []);
+  if (!recs.length) { el.innerHTML = `<div class="empty">No recommendations for <b>${esc(tenant())}</b> yet.</div>`; return; }
+  el.innerHTML = recs.map((r) => {
+    const desc = r.rationale || r.note || "", caveat = r.estimate_caveat || r.caveat || "", facts = cardEvidence(r);
+    const mopp = manualOppFor(r);
+    const amRaw = mopp ? "staged_change" : r.apply_mode;   // live seam is authoritative over a stale snapshot
+    // State badge sits in the .badges row for every card type (symmetric): manual cards show the
+    // governance lifecycle (Proposed/…); config + diagnostic cards show their policy status.
+    const stateBadge = mopp
+      ? badge(mopp.governed_state || "new", govDisp(mopp.governed_state))
+      : (r.status ? badge(r.status, policyStateLabel(r.status)) : "");
+    return `<div class="card rec"><div class="rec-main"><div class="title">${esc(r.title || r.scenario)}</div><div class="dim">${esc(r.dimension || "")}</div>
+      ${facts ? `<div class="facts">${esc(facts)}</div>` : ""}
+      ${desc ? `<div class="ev">${esc(desc)}</div>` : ""}${caveat ? `<div class="cav">${esc(caveat)}</div>` : ""}
+      <div class="badges">${amRaw ? badge(amRaw, applyModeLabel(amRaw)) : ""} ${stateBadge}</div>
+      ${cardActions(r)}${cardReview(mopp)}</div>
+      <div class="save">${r.estimated_saving_usd == null ? "—" : fmtUSD(r.estimated_saving_usd, 4)}<small>est. saving</small></div></div>`;
+  }).join("");
+}
+
+let msPerTurn = 0;
+function renderProjection() {
+  const el = $("projection"), e = state.result;
+  if (!e || e.error) { el.innerHTML = unavail(e ? e.status : 0); return; }
+  const ms = (e.data.results || []).find((r) => r.scenario === "model-selection" && (r.turns || 0) > 0 && (r.saving_usd || 0) !== 0);
+  if (!ms) { el.innerHTML = `<div class="empty">No measured model-selection result yet for the projection. Run the analytics notebook (or apply model-selection) so a before/after exists.</div>`; return; }
+  msPerTurn = (ms.saving_usd || 0) / (ms.turns || 1);
+  el.innerHTML = `<div class="proj-grid">
+    <div>
+      <div class="proj-nums"><div><div class="k">Measured saving</div><div class="v">${fmtUSD(ms.saving_usd, 2)} <span class="muted" style="font-size:14px">(${fmtPct(ms.saving_pct)})</span></div></div></div>
+      <div style="margin:16px 0 6px" class="muted" style="font-size:12px">Turns per day: <span class="slider-out" id="tpdOut">1330</span></div>
+      <input type="range" id="tpd" min="100" max="100000" step="100" value="1330" />
+      <div class="proj-nums" style="margin-top:14px">
+        <div><div class="k">Projected monthly</div><div class="v hl" id="projMonth">—</div></div>
+        <div><div class="k">Projected annual</div><div class="v" id="projYear">—</div></div>
+      </div>
+      <div class="pill-note">Projects the measured <i>price-only</i> per-turn saving (${fmtUSD(msPerTurn, 6)}/turn) onto volume — no conversion gains invented.</div>
+    </div>
+    <div id="projChart"></div>
+  </div>`;
+  $("tpd").addEventListener("input", updateProjection);
+  updateProjection();
+}
+function updateProjection() {
+  const tpd = Number(($("tpd") || {}).value || 0);
+  if ($("tpdOut")) $("tpdOut").textContent = tpd.toLocaleString();
+  if ($("projMonth")) $("projMonth").textContent = fmtUSD(msPerTurn * tpd * 30, 2);
+  if ($("projYear")) $("projYear").textContent = fmtUSD(msPerTurn * tpd * 365, 2);
+  if ($("projChart")) $("projChart").innerHTML = projChartSVG(msPerTurn, tpd);
+}
+
+function renderMemory() {
+  const e = state.memoryIns;
+  const kEl = $("memKpis");
+  if (!e || e.error) {
+    kEl.innerHTML = unavail(e ? e.status : 0);
+    $("memType").innerHTML = $("memHealth").innerHTML = $("memSalience").innerHTML = "";
+    return;
+  }
+  const d = e.data, kpi = d.kpi || {};
+  if (!(d.by_type || []).length && kpi.total_memories == null) {
+    kEl.innerHTML = `<div class="empty">No memory insights yet — run compute_insights / the notebook.</div>`;
+    $("memType").innerHTML = $("memHealth").innerHTML = $("memSalience").innerHTML = "";
+    return;
+  }
+  kEl.innerHTML = [
+    { k: "Total memories", v: fmtInt(kpi.total_memories), why: "across all users" },
+    { k: "Scored memories", v: fmtInt(kpi.scored_memories), why: "excl. procedural (unscored)" },
+    { k: "Avg salience", v: kpi.avg_salience == null ? "—" : Number(kpi.avg_salience).toFixed(3), why: "retrieval strength" },
+    { k: "Supersession rate", v: kpi.supersession_rate == null ? "—" : fmtPct(kpi.supersession_rate), why: "superseded / total" },
+  ].map(tileHtml).join("");
+  const total = kpi.total_memories || (d.by_type || []).reduce((s, x) => s + (x.count || 0), 0);
+  const typeSegs = (d.by_type || []).map((b, i) => ({ label: titleize(b.label), value: b.count, color: PALETTE[i % PALETTE.length] }));
+  $("memType").innerHTML = typeSegs.length ? donutChart(typeSegs, fmtInt(total), "memories") : `<div class="empty">—</div>`;
+  const healthColor = { Active: PALETTE[1], Superseded: PALETTE[2], "Low-value": PALETTE[3], Unscored: "#93a1bd" };
+  const healthSegs = (d.health || []).map((b) => ({ label: b.label, value: b.count, color: healthColor[b.label] || PALETTE[0] }));
+  const healthTotal = (d.health || []).reduce((s, x) => s + (x.count || 0), 0);
+  $("memHealth").innerHTML = healthSegs.length ? donutChart(healthSegs, fmtInt(healthTotal), "total") : `<div class="empty">—</div>`;
+  const sal = (d.salience || []).filter((b) => b.label !== "Unscored");
+  $("memSalience").innerHTML = sal.length ? hbars(sal.map((b) => ({ label: b.label, value: b.count, amt: fmtInt(b.count) }))) : `<div class="empty">—</div>`;
+}
+
+function renderBusiness() {
+  const el = $("business"), e = state.conversion;
+  const m = (state.metrics && state.metrics.data) || {};
+  const ct = confirmedTripsVal();
+  const cpo = (ct && m.estimated_cost_usd != null) ? m.estimated_cost_usd / ct : null;
+  if (!e || e.error) { el.innerHTML = unavail(e ? e.status : 0); $("funnel").innerHTML = $("abandon").innerHTML = ""; return; }
+  const k = e.data.kpi || {}, f = e.data.funnel || [], causes = e.data.causes || [];
+  if (!f.length && k.conversion_rate == null) {
+    el.innerHTML = `<div class="empty">No conversion insights yet — run compute_insights / the notebook.</div>`;
+    $("funnel").innerHTML = $("abandon").innerHTML = ""; return;
+  }
+  el.innerHTML = [
+    { k: "Conversion rate", v: k.conversion_rate == null ? "—" : fmtPct(k.conversion_rate), why: `${fmtInt(k.confirmed)} of ${fmtInt(k.engaged)} sessions` },
+    { k: "Confirmed trips", v: ct == null ? "—" : fmtInt(ct), why: "booked (Page 1 metric)" },
+    { k: "Cost per outcome", v: cpo == null ? "—" : fmtUSD(cpo, 2), why: "est cost / confirmed trip" },
+    { k: "Biggest leak", v: k.biggest_leak ? titleize(k.biggest_leak) : "—", why: "top addressable drop-off" },
+  ].map(tileHtml).join("");
+  const fmax = Math.max(...f.map((x) => x.sessions || 0), 1);
+  $("funnel").innerHTML = f.map((s) => `<div class="bar-row"><span class="name">${esc(titleize(s.stage))}</span>
+    <div class="bar-track"><div class="bar-fill" style="width:${((s.sessions || 0) / fmax * 100).toFixed(1)}%"></div></div>
+    <span class="amt">${fmtInt(s.sessions)}</span></div>`).join("");
+  const ca = causes.filter((c) => (c.sessions || 0) > 0);
+  $("abandon").innerHTML = ca.length
+    ? hbars(ca.map((c) => ({ label: titleize(c.cause), value: c.sessions, amt: fmtInt(c.sessions) })), "var(--warn)")
+    : `<div class="empty">No abandonment recorded.</div>`;
+}
+
+function renderPolicies() {
+  const el = $("policies"), e = state.policies;
+  if (!e || e.error) { el.innerHTML = unavail(e ? e.status : 0); return; }
+  const pols = (e.data.policies || []);
+  if (!pols.length) { el.innerHTML = `<div class="empty">No policies proposed or applied yet.</div>`; return; }
+  const rows = pols.map((p) => `<tr><td class="strong">${esc(p.title || p.scenario)}</td><td>${badge(p.status)}</td>
+    <td class="num">v${esc(p.version != null ? p.version : "—")}</td><td>${esc(p.proposed_by || "—")}</td>
+    <td>${esc(p.updated_at ? new Date(p.updated_at).toLocaleDateString() : "—")}</td></tr>`).join("");
+  el.innerHTML = `<table><thead><tr><th>Optimization</th><th>Status</th><th class="num">Ver</th><th>By</th><th>Updated</th></tr></thead><tbody>${rows}</tbody></table>`;
+}
+function renderSlo() {
+  const el = $("slo"), e = state.slo;
+  if (!e || e.error) { el.innerHTML = unavail(e ? e.status : 0); return; }
+  const s = e.data;
+  el.innerHTML = `<div class="slo-line"><span>Quality gate (e2e_quality ≥)</span><b>${esc(s.slo)}</b></div>
+    <div class="slo-line"><span>Min confidence</span><b>${fmtPct((s.min_confidence || 0) * 100)}</b></div>
+    <div class="slo-line"><span>Min effect</span><b>${fmtPct((s.min_effect || 0) * 100)}</b></div>
+    <div class="slo-line"><span>Source</span><b>${esc(s.by || "default")}</b></div>
+    <div class="pill-note">Optimizations must clear this gate before autonomous apply.</div>`;
+}
+function renderDecisions() {
+  const el = $("decisions"), e = state.decisions;
+  if (!e || e.error) { el.innerHTML = unavail(e ? e.status : 0); return; }
+  const decs = (e.data.decisions || []);
+  if (!decs.length) { el.innerHTML = `<div class="empty">No governed decisions logged yet. The C1–C5 audit trail fills as humans approve / reject / attest in the Console or via <span class="mono">POST /optimizations/agent/${esc(tenant())}/decision</span> — never seeded.</div>`; return; }
+  const rows = decs.map((d) => `<tr><td>${esc(d.timeStamp ? new Date(d.timeStamp).toLocaleString() : "—")}</td><td>${badge(d.kind)}</td><td>${esc(d.subject || "—")}</td><td>${esc(d.by || "—")}</td></tr>`).join("");
+  el.innerHTML = `<table><thead><tr><th>When</th><th>Kind</th><th>Subject</th><th>By</th></tr></thead><tbody>${rows}</tbody></table>`;
+}
+function renderResult() {
+  const el = $("result"), e = state.result;
+  if (!e || e.error) { el.innerHTML = unavail(e ? e.status : 0); return; }
+  const rows = (e.data.results || []);
+  if (!rows.length) { el.innerHTML = `<div class="empty">${esc((e.data && e.data.note) || "No measured result yet — run the analytics notebook, or apply an optimization.")}</div>`; return; }
+  el.innerHTML = `<table><thead><tr><th>Optimization</th><th>Method</th><th class="num">Baseline</th><th class="num">Actual</th><th class="num">Saving</th><th class="num">%</th></tr></thead><tbody>${rows.map((r) => `<tr>
+    <td class="strong">${esc(r.title || r.scenario)}</td><td>${esc(r.method || "")}</td>
+    <td class="num">${fmtUSD(r.baseline_cost_usd, 4)}</td><td class="num">${fmtUSD(r.actual_cost_usd, 4)}</td>
+    <td class="num" style="color:var(--accent2);font-weight:700">${fmtUSD(r.saving_usd, 4)}</td>
+    <td class="num">${r.saving_pct == null ? "—" : fmtPct(r.saving_pct)}</td></tr>`).join("")}</tbody></table>`;
+}
+function renderBaBar() {
+  const el = $("baBar"), e = state.result;
+  if (!e || e.error) { el.innerHTML = unavail(e ? e.status : 0); return; }
+  const ms = (e.data.results || []).find((r) => r.scenario === "model-selection" && (r.baseline_cost_usd || 0) > 0);
+  if (!ms) { el.innerHTML = `<div class="empty">No measured model-selection before/after yet.</div>`; return; }
+  el.innerHTML = groupedBarSVG(ms.baseline_cost_usd, ms.actual_cost_usd) +
+    `<div class="pill-note">Gap = measured saving of ${fmtUSD(ms.saving_usd, 2)} (${fmtPct(ms.saving_pct)}) over ${fmtInt(ms.turns)} turns.</div>`;
+}
+
+function timelineChartSVG(buckets) {
+  const W = 900, H = 200, ml = 46, mb = 32, mt = 12, mr = 14, pw = W - ml - mr, ph = H - mt - mb;
+  const maxV = Math.max(...buckets.map((b) => b.turns), 1), n = buckets.length;
+  const sx = (i) => n === 1 ? ml + pw / 2 : ml + (i / (n - 1)) * pw;
+  const sy = (v) => mt + ph - (v / maxV) * ph;
+  const grid = [0, .5, 1].map((f) => { const y = mt + ph - f * ph; return `<line x1="${ml}" y1="${y}" x2="${W - mr}" y2="${y}" stroke="var(--line)"/><text x="${ml - 6}" y="${y + 4}" text-anchor="end" font-size="10" fill="var(--muted)">${Math.round(f * maxV)}</text>`; }).join("");
+  const pts = buckets.map((b, i) => `${sx(i)},${sy(b.turns)}`).join(" ");
+  const area = `${sx(0)},${mt + ph} ${pts} ${sx(n - 1)},${mt + ph}`;
+  const dots = buckets.map((b, i) => `<circle cx="${sx(i)}" cy="${sy(b.turns)}" r="3" fill="var(--accent)"/>`).join("");
+  const lab = (i) => new Date(buckets[i].t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  const idxs = [...new Set([0, Math.floor((n - 1) / 2), n - 1])];
+  const xlabels = idxs.map((i) => `<text x="${sx(i)}" y="${H - 8}" text-anchor="middle" font-size="10" fill="var(--muted)">${esc(lab(i))}</text>`).join("");
+  return `<svg width="100%" viewBox="0 0 ${W} ${H}" style="max-width:100%">${grid}
+    <polygon points="${area}" fill="var(--accent)" opacity="0.13"/>
+    <polyline points="${pts}" fill="none" stroke="var(--accent)" stroke-width="2"/>${dots}
+    <line x1="${ml}" y1="${mt + ph}" x2="${W - mr}" y2="${mt + ph}" stroke="var(--muted)"/>${xlabels}</svg>`;
+}
+function renderTimeline() {
+  const el = $("turnsTimeline"), e = state.timeline;
+  if (!e || e.error) { el.innerHTML = unavail(e ? e.status : 0); return; }
+  const buckets = (e.data.buckets || []);
+  if (!buckets.length) { el.innerHTML = `<div class="empty">No turn timestamps for <b>${esc(tenant())}</b>.</div>`; return; }
+  el.innerHTML = timelineChartSVG(buckets) + `<div class="pill-note">${fmtInt(e.data.total_turns)} turns across ${buckets.length} one-minute bucket(s) — the captured-run window, computed live from raw turn timestamps.</div>`;
+}
+
+function renderAll() {
+  renderKPIs(); renderOppBand(); renderModelsDonut("ovModels"); renderTimeline();
+  renderOpps(); renderRecs();
+  renderModelsDonut("models"); renderTrivialGauge(); renderByTier(); renderBaselineActual(); renderProjection();
+  renderMemory();
+  renderScorecard(); renderAgentCost(); renderDimDetail(); renderAgentPaths();
+  renderBusiness();
+  renderPolicies(); renderSlo(); renderResult(); renderBaBar(); renderDecisions();
+  updateEmptyNote();
+}
+/* Onboarding notice: the portal never fabricates data, so on a fresh deploy (before the
+   workshop's Modules 07–09 have produced any telemetry) it would just show zeros. Detect
+   that and explain what to run, instead of leaving the user staring at empty panels. */
+function updateEmptyNote() {
+  const el = $("analyticsNote"); if (!el) return;
+  const m = state.metrics;
+  const unreachable = !m || (m.error && m.status === 0);
+  const turns = (m && m.data && Number(m.data.total_turns)) || 0;
+  const noData = m && m.data && !m.error && turns === 0;
+  if (unreachable) {
+    el.className = "analytics-note err";
+    el.innerHTML = `<b>Can't reach the Travel API.</b> Running locally? Start it on <code>:8000</code> (Module 06). When hosted, the portal proxies the API at <code>/api</code> — make sure the app (API container) was deployed.`;
+    el.hidden = false;
+  } else if (noData) {
+    el.className = "analytics-note";
+    el.innerHTML = (src() === "auto")
+      ? `<b>No notebook snapshot yet for “${esc(tenant())}”.</b> The <b>Reverse-ETL (notebook)</b> source reads what the <b>Module 09</b> analytics notebook writes — run it first. To see live activity now, drive some traffic (<b>Modules 07–08</b>) and switch <b>Source → Live (recompute)</b>.`
+      : `<b>No telemetry yet for “${esc(tenant())}”.</b> This portal reads live agent activity — drive some traffic through the travel app (<b>Modules 07–08</b>) to populate it, then <b>Refresh</b>.`;
+    el.hidden = false;
+  } else {
+    el.hidden = true;
+  }
+}
+function updateStatus() {
+  const keys = Object.keys(state);
+  const haveData = keys.filter((k) => state[k].data).length;
+  const notFound = keys.filter((k) => state[k].error && state[k].status === 404).length;
+  const otherErr = keys.filter((k) => state[k].error && state[k].status !== 0 && state[k].status !== 404).length;
+  const netFail = keys.filter((k) => state[k].error && state[k].status === 0).length;
+  const t = new Date().toLocaleTimeString();
+  if (haveData === 0) setStatus("err", "cannot reach API at " + api());
+  else if (otherErr) setStatus("err", `updated ${t} · ${otherErr} error(s)`);
+  else if (notFound) setStatus("warn", `updated ${t} · ${notFound} section(s) need the 02_completed API`);
+  else if (netFail) setStatus("warn", `updated ${t} · ${netFail} unreachable`);
+  else setStatus("ok", "updated " + t);
+}
+
+let loading = false;
+async function refresh() {
+  if (loading) return;
+  loading = true;
+  setStatus("load", "loading " + tenant() + "…");
+  const t = encodeURIComponent(tenant());
+  const s = encodeURIComponent(src());
+  await Promise.all([
+    fetchInto("metrics", `/optimizations/${t}/metrics?source=${s}`),
+    fetchInto("scorecard", `/optimizations/agent/${t}/scorecard`),
+    fetchInto("recs", `/optimizations/${t}?source=${s}`),
+    fetchInto("result", `/optimizations/${t}/result`),
+    fetchInto("opps", `/optimizations/agent/${t}/opportunities`),
+    fetchInto("policies", `/optimizations/policies`),
+    fetchInto("decisions", `/optimizations/agent/${t}/decisions`),
+    fetchInto("slo", `/optimizations/agent/${t}/slo`),
+    fetchInto("timeline", `/optimizations/${t}/turns_timeline?bucket_seconds=60`),
+    fetchInto("confirmedTrips", `/optimizations/${t}/confirmed_trips`),
+    fetchInto("conversion", `/optimizations/${t}/conversion`),
+    fetchInto("memoryIns", `/optimizations/${t}/memory`),
+    fetchInto("agentPaths", `/optimizations/${t}/agent_paths`),
+  ]);
+  renderAll();
+  applyCapabilities();
+  updateStatus();
+  loading = false;
+}
+
+/* ---------- tabs ---------- */
+$("tabs").addEventListener("click", (ev) => {
+  const btn = ev.target.closest(".tab"); if (!btn) return;
+  document.querySelectorAll(".tab").forEach((t) => t.classList.remove("active"));
+  document.querySelectorAll(".pane").forEach((p) => p.classList.remove("active"));
+  btn.classList.add("active");
+  $("pane-" + btn.dataset.tab).classList.add("active");
+});
+
+/* ---------- wiring ---------- */
+$("recs").addEventListener("click", onRecAction);
+$("recs").addEventListener("click", (ev) => { const b = ev.target.closest(".reviewbtn"); if (b) openDiff(b.dataset.oid); });
+$("recs").addEventListener("click", (ev) => { const g = ev.target.closest("button[data-govoid]"); if (g && !g.disabled) govAction(g.dataset.kind, g.dataset.govoid); });
+$("opps").addEventListener("click", (ev) => { const b = ev.target.closest(".reviewbtn"); if (b) openDiff(b.dataset.oid); });
+$("diffClose").addEventListener("click", closeDiff);
+$("diffModal").addEventListener("click", (ev) => { if (ev.target.id === "diffModal") closeDiff(); });
+$("diffCopy").addEventListener("click", async () => {
+  try { await navigator.clipboard.writeText(_diffAfter); toast("Copied the updated prompt to your clipboard."); }
+  catch (e) { toast("Copy failed — clipboard blocked. Try over http://localhost.", true); }
+});
+document.addEventListener("keydown", (ev) => { if (ev.key === "Escape") closeDiff(); });
+async function freshenTimes() {
+  const btn = $("freshenTimes");
+  toggleTools(false);
+  btn.disabled = true;
+  setStatus("load", "freshening turn times…");
+  try {
+    const res = await fetch(`${api()}/optimizations/demo/refresh-times`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+    });
+    const txt = await res.text();
+    if (!res.ok) throw new Error(`${res.status} — ${txt.slice(0, 200)}`);
+    let n = "";
+    try { const j = JSON.parse(txt); if (j.updated != null) n = ` · re-stamped ${j.updated} turns`; } catch (e) {}
+    if ($("source")) $("source").value = "live";  // the re-stamp affects raw turns (Live), not the reverse-ETL snapshot
+    toast(`Turn times freshened into the last 2 hours${n}. Showing Live so the Turns-by-minute timeline reads current.`);
+    await refresh();
+  } catch (e) {
+    toast(`Freshen times failed: ${e.message}`, true);
+    setStatus("err", "freshen failed");
+  } finally {
+    btn.disabled = false;
+  }
+}
+$("refresh").addEventListener("click", refresh);
+$("freshenTimes").addEventListener("click", freshenTimes);
+$("tenant").addEventListener("change", refresh);
+$("source").addEventListener("change", refresh);
+
+/* ---------- demo tools (discreet gear menu) ---------- */
+function toggleTools(show) {
+  const m = $("toolsMenu"); if (!m) return;
+  m.hidden = (show === undefined) ? !m.hidden : !show;
+}
+// Feature-detect optional server actions from /policies so the menu items only appear
+// when the running API supports them (hidden against the 01_exercises workshop scaffold).
+function applyCapabilities() {
+  const caps = (state.policies && state.policies.data && state.policies.data.capabilities) || {};
+  if ($("recomputeInsights")) $("recomputeInsights").hidden = !caps.recompute_insights;
+  if ($("resetState")) $("resetState").hidden = !caps.reset_state;
+  if ($("generateTraffic")) $("generateTraffic").hidden = !caps.generate_traffic;
+}
+async function recomputeInsights() {
+  const btn = $("recomputeInsights"); toggleTools(false); btn.disabled = true;
+  setStatus("load", "recomputing insights…");
+  try {
+    const res = await fetch(`${api()}/optimizations/insights?tenant=${encodeURIComponent(tenant())}`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+    });
+    const txt = await res.text();
+    if (!res.ok) throw new Error(`${res.status} — ${txt.slice(0, 200)}`);
+    let n = ""; try { const j = JSON.parse(txt); if (j.rows_written != null) n = ` · ${j.rows_written} rows`; } catch (e) {}
+    if ($("source")) $("source").value = "auto";  // the snapshot feeds the Reverse-ETL (notebook) source
+    toast(`Insights recomputed for ${tenant()}${n}. Business, Memory & Governance now read the snapshot.`);
+    await refresh();
+  } catch (e) {
+    toast(`Recompute failed: ${e.message}`, true); setStatus("err", "recompute failed");
+  } finally { btn.disabled = false; }
+}
+async function resetState() {
+  toggleTools(false);
+  if (!confirm("Reset to baseline?\n\nClears governance + the insights snapshot AND normalizes every turn back to the single-premium baseline (all tenants). Tokens, the funnel signal, and app data are NOT touched. Recompute insights afterwards to repopulate.")) return;
+  const btn = $("resetState"); btn.disabled = true;
+  setStatus("load", "resetting to baseline…");
+  try {
+    const res = await fetch(`${api()}/optimizations/reset`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+    });
+    const txt = await res.text();
+    if (!res.ok) throw new Error(`${res.status} — ${txt.slice(0, 200)}`);
+    toast("Reset to baseline — governance/insights cleared and turns normalized to a single model. Recompute insights to repopulate Business / Memory / Governance.");
+    await refresh();
+  } catch (e) {
+    toast(`Reset failed: ${e.message}`, true); setStatus("err", "reset failed");
+  } finally { btn.disabled = false; }
+}
+$("toolsBtn") && $("toolsBtn").addEventListener("click", (e) => { e.stopPropagation(); toggleTools(); });
+$("toolsMenu") && $("toolsMenu").addEventListener("click", (e) => e.stopPropagation());
+document.addEventListener("click", () => toggleTools(false));
+$("recomputeInsights") && $("recomputeInsights").addEventListener("click", recomputeInsights);
+$("resetState") && $("resetState").addEventListener("click", resetState);
+async function generateTraffic() {
+  const btn = $("generateTraffic"); toggleTools(false); btn.disabled = true;
+  setStatus("load", "generating traffic…");
+  try {
+    const res = await fetch(`${api()}/optimizations/traffic?tenant=${encodeURIComponent(tenant())}&count=150&minutes=5`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+    });
+    const txt = await res.text();
+    if (!res.ok) throw new Error(`${res.status} — ${txt.slice(0, 200)}`);
+    let mode = "", n = ""; try { const j = JSON.parse(txt); if (j.mode) mode = j.mode; if (j.generated != null) n = ` · ${j.generated} turns`; } catch (e) {}
+    if ($("source")) $("source").value = "live";
+    const hint = mode === "tiered" ? "Model mix is now tiered (nano/mini/premium)." : "Baseline single model — apply model-selection, then generate again to see tiering.";
+    toast(`Generated traffic${n} (${mode}). ${hint} Watch the Model Selection tab.`);
+    await refresh();
+  } catch (e) {
+    toast(`Generate failed: ${e.message}`, true); setStatus("err", "generate failed");
+  } finally { btn.disabled = false; }
+}
+$("generateTraffic") && $("generateTraffic").addEventListener("click", generateTraffic);
+let autoTimer = null;
+$("auto").addEventListener("change", (e) => {
+  if (autoTimer) { clearInterval(autoTimer); autoTimer = null; }
+  if (e.target.checked) autoTimer = setInterval(refresh, 15000);
+});
+refresh();
+</script>
+</body>
+</html>

@@ -1,444 +1,330 @@
-# Travel Assistant — User Guide
+# Travel Multi-Agent — Run & Demo Guide
 
-This guide explains how to use the completed Travel Assistant application: what it can do, how to talk to it effectively, and how its memory and agent system work.
+How to **configure, run, and demo** the complete solution — a multi-agent travel
+assistant on **Azure Cosmos DB** (operational) with a **Microsoft Fabric** analytics +
+optimization loop (analytical), joined by mirroring, reverse-ETL, and a translytical
+write-back.
 
----
-
-## Table of Contents
-
-1. [Overview](#overview)
-2. [Starting the Application](#starting-the-application)
-3. [Navigating the Frontend](#navigating-the-frontend)
-4. [Talking to the Travel Assistant](#talking-to-the-travel-assistant)
-5. [How the Agent System Works](#how-the-agent-system-works)
-6. [Memory & Personalization](#memory--personalization)
-7. [Trip Planning & Itineraries](#trip-planning--itineraries)
-8. [Exploring Places Directly](#exploring-places-directly)
-9. [Supported Destinations](#supported-destinations)
-10. [Sample Users (Seed Data)](#sample-users-seed-data)
-11. [Tips for Best Results](#tips-for-best-results)
-12. [API Reference](#api-reference)
+> Want the deep API/architecture reference or to build these pieces step by step? See the
+> `README.md` and the workshop modules in `01_exercises/workshop/`. This guide is the
+> short path to running and demoing.
 
 ---
 
-## Overview
+## What to highlight (the key concepts)
 
-The Travel Assistant is a multi-agent AI application that helps you plan personalized trips. It combines:
+Keep the audience focused on these — everything below is in service of showing them:
 
-- **Specialized AI agents** that each handle a specific domain (hotels, dining, activities, itineraries)
-- **Persistent memory** that learns your preferences across conversations
-- **Semantic search** powered by Azure Cosmos DB vector search, so you can describe what you want in plain language rather than using filters
-- **Azure OpenAI** for natural language understanding and response generation
-
-The application has three running services:
-
-| Service | Default Port | Purpose |
-|---|---|---|
-| **Frontend** (Angular) | `4200` | Web UI |
-| **API Server** (FastAPI) | `8000` | Multi-agent backend |
-| **MCP Server** | `8080` | Tool server for agents |
+1. **Multi-agent orchestration** — an orchestrator routes to hotel / activity / dining / itinerary specialists that hand off to each other.
+2. **Persistent memory** — the assistant learns preferences across conversations (no "remember that…" needed).
+3. **Semantic search** — describe what you want in plain language; Cosmos DB vector search finds places by meaning.
+4. **Two planes** — **Cosmos = operational** (the live agent), **Fabric = analytical** (the brain), joined by **mirroring** + **reverse-ETL**.
+5. **The optimization apply-loop** — instrument → **detect** (Analytics Portal) → **analyze/measure** (Fabric) → **apply** a policy → **re-measure** the real saving.
+6. **Closed-loop apply / revert** — click **Apply** on a recommendation card in the **Analytics Portal**; a reversible policy flip lands in Cosmos and the agent honors it on its next turn. *(An optional Power BI **translytical** write-back performs the identical flip via a Fabric User Data Function — see Module 09.)*
 
 ---
 
-## Starting the Application
+## 1. Configure & deploy
 
-You need three terminals, each running one service.
-
-### 1. Start the MCP Tool Server
+From `02_completed/`:
 
 ```powershell
-cd 02_completed\mcp_server
-..\venv\Scripts\Activate.ps1
-$env:PYTHONPATH="..\python"
-python mcp_http_server.py
+azd auth login   # same work account/tenant as your az login
+azd up
 ```
 
-Wait until you see `Travel Assistant MCP server initialized` before starting the API server.
+`azd up` provisions Cosmos DB, Azure OpenAI (`gpt-5.1` / `gpt-5-mini` / `gpt-5-nano` +
+embeddings), the **Fabric F2 capacity**, and — because `deployHostedApp` defaults to
+**true** — the hosted frontend/API/MCP. The post-provision hook writes the `.env` files,
+creates the **`.venv-travel`** virtualenv, and **seeds Cosmos** (including the
+`analytics` tenant) and prints **`FRONTEND_URI`** when done. **`azd up` takes roughly 20–25 minutes** (Azure provisioning + data seed + container image builds).
 
-### 2. Start the API Server
+Two flags matter (set with `azd env set <NAME> <value>` before `azd up`):
+
+| Flag | Default | Keep for the demo? |
+|---|---|---|
+| `DEPLOY_ANALYTICS` | `true` | **Yes** — analytics containers + the Fabric capacity (Acts 2–7). |
+| `DEPLOY_HOSTED_APP` | `true` | Yes for a hosted URL; set `false` to run locally only. |
+
+**Stand up the Fabric analytics** (the workspace/mirror/notebook/UDF that `azd` doesn't
+create). Run it with **`-Solution`** (the completed notebook — no TODOs):
 
 ```powershell
-cd 02_completed\python
-..\venv\Scripts\Activate.ps1
-uvicorn src.app.travel_agents_api:app --reload --host 0.0.0.0 --port 8000
+cd ..\analytics\fabric
+.\Provision-Fabric.ps1 -Solution
 ```
 
-The API server will try to connect to the MCP server on startup with up to 5 retries, 10 seconds apart. Wait for `✅ Agents initialized successfully!` in the logs before using the application.
+It reads your `azd` environment, prompts for a workspace name and — for one portal step —
+a Cosmos connection id (**Manage connections and gateways → New → Azure Cosmos DB v2**, sign in with your
+**Organizational account**, copy the connection id). It then creates the mirror, uploads
+the completed `ConversionFunnelReverseETL` notebook, deploys the `optimization-apply-loop`
+**UDF**, and grants your account Cosmos write access. Details: `analytics/fabric/README.md`.
 
-### 3. Start the Frontend
+---
+
+## 2. Run
+
+### Hosted (the deployed apps) — nothing to start
+
+`azd up` already deployed the app — just open the URLs. Get `FRONTEND_URI` anytime with
+`azd env get-value FRONTEND_URI` (from `02_completed/`).
+
+| Open | URL | Notes |
+|---|---|---|
+| **Travel Assistant app** | `<FRONTEND_URI>` | Sign in as a seeded demo user — `tony`, `steve`, `bruce`, or `peter` (all under tenant **`marvel`**). |
+| **Analytics Portal** | `<FRONTEND_URI>/analytics/` | Served from the *same* container; reaches the deployed API via the `/api` proxy (nothing to configure). Set **Dataset = `marvel`**. |
+| **API docs (Swagger)** | `<FRONTEND_URI>/api/docs` | The API itself has **internal** ingress — you reach it through the frontend's `/api` proxy, not directly. |
+| **Analytics report** | your **Fabric workspace** → `TravelAssistantAnalyticsReport` | Auto-imported and pointed at your mirror (Section 1). |
+
+The **traffic simulator** (Acts 4/7) writes **straight to Cosmos** (`az login` + your deployment's
+`COSMOSDB_ENDPOINT`), so it drives the hosted demo from your machine with **no local servers running**.
+
+### Demo tools (the ⚙ menu) — drive the whole loop from the portal, no setup
+
+The Portal's **⚙** menu (top-right, next to **Refresh**) lets a reviewer run the entire
+optimization loop with **no CLI, no Fabric, no local servers** — everything computes in-process
+against Cosmos:
+
+| Action | What it does |
+|---|---|
+| **Generate traffic** | Writes a burst of synthetic turns. **Policy-aware:** a single premium model until you apply model-selection, then capability-tiered (nano/mini/premium) — this is how you *see the optimization take effect*. |
+| **Recompute insights** | Rebuilds the `OptimizationInsights` snapshot in-process, so **Business**, **Memory**, and **Governance** light up on **Source → Reverse-ETL (notebook)** without running the Fabric notebook. |
+| **Freshen turn times** | Re-stamps captured turns into the last 2 hours so **Turns-by-minute** reads current. Timestamps only — costs/KPIs unchanged. |
+| **Reset to baseline** | Clears governance + the insights snapshot **and** normalizes every turn back to the single-premium baseline (the clean "before-optimization" state). Tokens, the funnel, and app data are untouched. |
+
+**Reviewer quick loop (≈1 min, Dataset → `analytics`):**
+1. **⚙ → Reset to baseline** — Model Selection shows one model; the model-selection card reads *proposed*.
+2. **Optimizations** tab → **Apply** the *model-selection* card.
+3. **⚙ → Generate traffic** — the model-usage donut splits into nano / mini / premium.
+4. **⚙ → Recompute insights** — Business / Memory / Governance populate; **Governance** shows the measured saving.
+5. **Revert** on the card to show it return to baseline.
+
+*(The Acts below show the same loop via the CLI simulator + Fabric notebook — the "real" path. The ⚙ tools are the zero-setup equivalent for exploring the deployed site.)*
+
+### Local (for development)
+
+Run the stack yourself — from `02_completed/`, in separate terminals:
 
 ```powershell
-cd 02_completed\frontend
-npm install #only do first time
-npm start
+# MCP tool server
+.\.venv-travel\Scripts\Activate.ps1; cd mcp_server; $env:PYTHONPATH="..\python"; python mcp_http_server.py
+# Travel API  (wait for "Agents initialized successfully")
+.\.venv-travel\Scripts\Activate.ps1; cd python; uvicorn src.app.travel_agents_api:app --reload --host 0.0.0.0 --port 8000
+# Frontend
+cd frontend; npm install; npm start
+# Analytics Portal (static app — no venv)
+python -m http.server 8060 --directory ..\analytics\dashboard
 ```
 
-Open a browser and navigate to **http://localhost:4200**.
-
-### Verify Everything Is Running
-
-- **Frontend**: http://localhost:4200
-- **API Health Check**: http://localhost:8000/health
-- **API Documentation (Swagger)**: http://localhost:8000/docs
-- **API Readiness**: http://localhost:8000/health/ready — returns `"status": "ready"` when agents are fully initialized
+Frontend `:4200` · API docs `:8000/docs` · Analytics Portal `:8060`. Sign in as any of
+the seeded demo users (`tony`, `steve`, `bruce`, `peter`, all under tenant **`marvel`**).
 
 ---
 
-## Navigating the Frontend
+## 3. Demo script
 
-The web application has five main sections accessible from the navigation bar:
+The arc: **talk to the agent → see the signal → see the analytics → generate traffic →
+measure in Fabric → apply an optimization → re-measure the payoff.**
 
-### Home
-The landing page presents a **trip planning form** where you can specify:
-- **Destination** — type-ahead city search from the 49 supported cities
-- **Dates** — travel start and end dates
-- **Number of travelers**
+> Everything below works against your **deployed** apps — "the frontend" means `<FRONTEND_URI>` and
+> "the Portal" means `<FRONTEND_URI>/analytics/` — or your local servers from Section 2, whichever
+> you're running. The report + notebook always live in your **Fabric workspace**.
 
-Clicking "Start Planning" opens a chat session pre-loaded with your trip parameters.
+### Act 1 — Talk to the assistant *(multi-agent · memory · semantic search)*
+In the frontend, plan a trip: *"Plan a 3-day trip to Amsterdam for two."* Then ask for
+hotels, dining, and an itinerary. Call out:
+- the **orchestrator handing off** to specialists (watch the response build across agents);
+- **semantic search** — *"find a quiet boutique hotel near cultural sites"* returns by meaning, not filters;
+- **memory** — say *"I'm vegetarian and need wheelchair access,"* start a new chat, and see it personalize without you repeating yourself (Profile page shows learned memories).
 
-### Chat
-The primary interface for conversing with the travel assistant. Each conversation is a **session** that:
-- Remembers context within the conversation
-- Builds on your stored preferences from previous sessions
-- Can be renamed, browsed, or deleted from the sidebar
+Every turn is captured operationally in Cosmos under tenant `marvel`.
 
-### Explore
-A browse interface for discovering places without the chat interface. You can:
-- Select a city
-- Choose a place type (Hotels, Restaurants, Attractions)
-- Filter by price tier, dietary needs, and accessibility requirements
-- Enter a free-text theme (e.g. "romantic waterfront") to run a semantic search
+### Act 2 — See the signal *(Analytics Portal)*
+Open the **Analytics Portal** (`<FRONTEND_URI>/analytics/` when deployed, or locally
+`python -m http.server 8060 --directory ..\analytics\dashboard` → <http://localhost:8060>), set
+**Dataset = `marvel`** and **Source → Live (recompute)**, **Refresh**. Walk the tabs (Overview →
+Optimizations): turns & spend, trivial-turn waste, the **single-model** pattern, and the **recommendation
+cards** (e.g. *Capability-tiered model selection*). *Thousands of turns become a handful of
+decisions.*
 
-### Trips
-Shows all itineraries that have been generated for your user. Each trip record stores:
-- Destination and travel dates
-- Number of travelers
-- Day-by-day itinerary with places
+### Act 3 — See the analytics baseline *(Analytics Portal)*
+In the Portal, open the **Model Selection** tab (Dataset → `analytics`). Show **cost by
+complexity tier** and the **turns-by-model** breakdown on the single-model baseline — one
+premium model still serving every turn. *(An optional Power BI report over the same mirror
+shows the same baseline — see Module 09 — but the Portal is the recommended surface.)*
 
-### Profile
-Displays your user account details and stored memories. From here you can review — and delete — any preferences the system has learned about you.
+### Act 4 — Generate live traffic *(the simulator)*
+Make the numbers move. From `analytics/scripts/`:
 
----
-
-## Talking to the Travel Assistant
-
-The assistant uses natural language, so you can write conversationally. You do not need to use menus or forms — just describe what you want.
-
-### Example Conversations
-
-**Starting a new trip:**
-> "I want to plan a 5-day trip to Tokyo in April for two people."
-
-**Searching for hotels:**
-> "Find me a boutique hotel near the city center with a good spa."
-
-**Searching for restaurants:**
-> "Show me some great ramen spots that are open for dinner."
-
-**Searching for activities:**
-> "What are some good art museums I should visit?"
-
-**Sharing preferences (the system will remember these):**
-> "I'm vegetarian and I need wheelchair-accessible accommodations."
-
-**Building an itinerary:**
-> "Create a day-by-day itinerary using the hotel and restaurants we discussed."
-
-**Asking for a recap:**
-> "What restaurants did we find so far?"
-
-### What the Orchestrator Handles Directly
-
-Some requests are handled by the Orchestrator without routing to a specialist:
-
-- Greetings and general questions about the assistant
-- Clarifications about your preferences
-- Requests that span multiple domains (the Orchestrator routes to multiple specialists)
-
----
-
-## How the Agent System Works
-
-The application has six specialized agents that collaborate to plan your trip.
-
-```
-User message
-     │
-     ▼
-┌─────────────┐
-│ Orchestrator│  ◄── Entry point for all messages
-│             │       Extracts preferences, routes requests
-└──────┬──────┘
-       │
-   routes to
-       │
-  ┌────┴─────┬──────────┬──────────────────┐
-  ▼          ▼          ▼                  ▼
-Hotel     Activity    Dining        Itinerary
-Agent     Agent       Agent         Generator
-  │          │          │                  │
-  └──────────┴──────────┴───► synthesizes ─┘
-                                           │
-                                    Day-by-day plan
-                                    
-                    ┌─────────────┐
-                    │ Summarizer  │  ◄── Auto-triggered every ~10 turns
-                    └─────────────┘
+```powershell
+.\Run-TrafficSimulator.ps1 -Tenant analytics -Rate 120 -Minutes 10
 ```
 
-### Agent Responsibilities
+Turns stream into Cosmos; in the Portal (Dataset → `analytics`, **Source → Live (recompute)**,
+**Refresh**) the **Overview** and **Model Selection** tabs update live. No optimization applied
+yet, so it runs the **single-model baseline**.
 
-| Agent | What it does | When it's invoked |
-|---|---|---|
-| **Orchestrator** | Receives all messages, extracts preferences, routes to specialists | Always first |
-| **Hotel Agent** | Searches accommodations, stores lodging preferences | "Find hotels", "Where should I stay?" |
-| **Activity Agent** | Searches attractions and experiences, stores activity preferences | "Things to do", "Museums", "Tours" |
-| **Dining Agent** | Searches restaurants, stores dining preferences | "Restaurants", "Where to eat", "Food" |
-| **Itinerary Generator** | Creates day-by-day travel plans from gathered results | "Build an itinerary", "Plan my days" |
-| **Summarizer** | Compresses conversation history to prevent context window overflow | Auto-triggered every ~10 conversation turns |
+*Zero-setup alternative: **⚙ → Generate traffic** in the Portal — same policy-aware burst, no CLI or `az login`.*
 
-### Agent Routing Examples
+### Act 5 — Measure in Fabric *(the reverse-ETL loop)*
+Open the **`ConversionFunnelReverseETL`** notebook in your Fabric workspace (`TENANT =
+"analytics"`) and run the cells. It computes the **conversion funnel** and the **measured
+saving** over the mirror and **reverse-ETLs** them to Cosmos `OptimizationInsights`. Back in
+the Portal, switch **Source → Reverse-ETL (notebook)** and **Refresh**: the **Business** and
+**Governance** tabs **light up** from the snapshot — you never touched a report. *Cosmos →
+Fabric → reverse-ETL → Cosmos → Travel API → Portal.*
 
-| You say... | Routes to |
-|---|---|
-| "Find boutique hotels in Barcelona" | Hotel Agent |
-| "What are the best tapas restaurants?" | Dining Agent |
-| "Suggest museums and day trips" | Activity Agent |
-| "Make me an itinerary with all of this" | Itinerary Generator |
-| "What day trips did you suggest earlier?" | Orchestrator handles recap |
+*Zero-setup alternative: **⚙ → Recompute insights** — the same snapshot, computed in-process with no Fabric run.*
 
-### Transfer Behaviour
+### Act 6 — Apply an optimization
+- **From the Portal (recommended):** on the **Optimizations** tab, click **Apply** on the
+  **model-selection** card — a one-click, reversible policy flip. The agent honors
+  capability-tiered model selection on its **next turn**; click **Revert** to undo.
+- **From Power BI (optional translytical write-back):** if your Fabric tenant has translytical
+  task flows enabled, an **Apply Optimization** button in the report calls the Fabric **UDF**,
+  which performs the *identical* policy flip. *The analytical report just steered the operational
+  system.* The Portal and API perform the same flip, so this path is optional (see Module 09).
 
-Agents can hand off to each other. For example, after discovering hotels the Hotel Agent can transfer to the Itinerary Generator to incorporate those hotels into a day plan. You can also explicitly ask the assistant to do this:
+### Act 7 — Re-measure the payoff
+Re-run the simulator — now **policy-aware**, it serves the **tiered** mix:
 
-> "Use the Ritz hotel we found and build a full itinerary around it."
-
----
-
-## Memory & Personalization
-
-The Travel Assistant maintains three types of memory for each user. These persist across sessions — the system remembers you the next time you return.
-
-### Memory Types
-
-| Type | What it stores | Typical lifespan |
-|---|---|---|
-| **Declarative** | Hard facts: dietary restrictions, accessibility needs, languages spoken, travel companions | Permanent (never expires) |
-| **Procedural** | Behavioral patterns: budget preference, hotel style, activity types you enjoy | 90–180 days |
-| **Episodic** | Trip-specific history: places visited, hotels stayed, restaurants tried | 30–90 days |
-
-### How Preferences Are Captured
-
-You do **not** need to say "remember that…". The Orchestrator automatically extracts preferences from natural speech on every message. The following all result in stored memories:
-
-- "I'm vegan" → stores a declarative dietary restriction
-- "I usually prefer boutique hotels" → stores a procedural lodging preference
-- "We stayed at the Hotel Arts in Barcelona last year" → stores an episodic memory
-- "I need a quiet room away from the street" → stores a declarative accommodation requirement
-
-### Conflict Detection
-
-If you provide information that contradicts something already stored (e.g. you previously said you're vegetarian but now mention you love steak), the system detects the conflict and asks you to clarify before updating your profile:
-
-> "I noticed you previously mentioned you're vegetarian, but now you said you love steak. Has your preference changed, or is this specific to a particular occasion?"
-
-### Viewing Your Memories
-
-Your stored memories are visible in the **Profile** section of the frontend and can be deleted individually if you want to reset a preference.
-
-You can also query them via the API:
-```
-GET /tenant/{tenantId}/user/{userId}/memories
+```powershell
+.\Run-TrafficSimulator.ps1 -Tenant analytics -Rate 120 -Minutes 10
 ```
 
-### Conversation Summarization
-
-After approximately every 10 conversation turns, the Summarizer agent automatically compresses older messages into a summary. This happens silently in the background and keeps the conversation context manageable without losing important details. You will not notice any interruption.
-
----
-
-## Trip Planning & Itineraries
-
-### Creating an Itinerary via Chat
-
-The recommended workflow is:
-
-1. Tell the assistant your destination, dates, and number of travelers
-2. Ask the Hotel Agent to find accommodations matching your needs
-3. Ask the Activity Agent for things to do
-4. Ask the Dining Agent for restaurant recommendations
-5. Ask the Itinerary Generator to synthesize everything into a day-by-day plan
-
-**Example:**
-> "We've found the hotel and a few restaurants. Now create a 3-day itinerary that includes the Hotel Ritz on day 1, the Louvre and a Seine dinner cruise on day 2, and Montmartre with a Michelin dinner on day 3."
-
-### Trip Status
-
-Trips have a status field that moves through: `planning` → `booked` → `completed` → `cancelled`. This can be updated from the Trips page or via the API.
-
-### Viewing Saved Trips
-
-All generated itineraries appear in the **Trips** section of the frontend, organized by travel date. Each trip shows the destination, dates, travelers, and the full day-by-day plan.
+Re-run the notebook, then in the Portal's **Governance** tab (**Source → Reverse-ETL
+(notebook)**) watch the **measured-saving** table: cost per turn drops and the saving %
+climbs — a **measured** before/after, not an estimate. Revert to show it return to baseline.
 
 ---
 
-## Exploring Places Directly
+## Reading the portal
 
-The **Explore** page lets you browse places without the chat interface, useful when you want to browse options visually.
+The **web Analytics Portal** (`<FRONTEND_URI>/analytics/`, or locally
+`python -m http.server 8060 --directory ..\analytics\dashboard`) is the recommended surface for
+reading and acting on the optimization loop. It reads the Travel API's `/optimizations/*`
+endpoints live; the **Source** toggle picks **Live (recompute)** (straight from raw turns) or
+**Reverse-ETL (notebook)** (the `OptimizationInsights` snapshot the Module 09 notebook writes).
+Seven tabs, front to back:
 
-### Search Modes
+### 1. Overview — the portfolio picture
+![Overview tab](../analytics/media/portal/portal-01-overview.png)
 
-**With a theme (semantic search):**
-Enter a descriptive theme like `"romantic candlelit"` or `"family-friendly outdoor"` and the system uses vector similarity to find matching places. This finds places by *meaning*, not just keyword matching.
+Top-line **Portfolio KPIs** (turns, estimated cost, trivial-turn share, models used, cache hit,
+confirmed trips, and **Cost per Outcome** = cost ÷ confirmed trips — the number to actually
+optimize), an **Optimization band** (open optimizations, estimated vs measured saving, active
+policies), and a **turn breakdown** (turns-by-model donut + a turns-per-minute timeline). The
+"before" at a glance — one premium model serving everything, with a big slice of trivial turns.
 
-**Without a theme (filter search):**
-Browse by city, place type, price tier, dietary options, and accessibility requirements. Results are sorted by rating.
+### 2. Optimizations — the action hub
+![Optimizations tab](../analytics/media/portal/portal-02-optimizations.png)
 
-### Place Types
+The analyst-ranked **Discovered optimizations** table (agent · dimension · fix seam→target ·
+projected saving · **Apply mode** · autonomy · clears-SLO · **State**), plus a scenario card per
+optimization. **Apply mode** tells you *who acts* — **Automatic** (a config policy the app flips,
+carrying **Apply / Revert**) vs **Manual** (a prompt/code edit with a **Review change** diff and
+**Approve → Deploy → Roll back / Dismiss** governance). This is where you apply model-selection.
 
-| Type | Examples |
-|---|---|
-| **Hotels** | Luxury resorts, boutique hotels, business hotels, bed & breakfasts |
-| **Restaurants** | Fine dining, casual, street food, cafes, bars |
-| **Attractions** | Museums, landmarks, tours, parks, entertainment venues |
+### 3. Model Selection — quantify and project the tiering saving
+![Model Selection tab](../analytics/media/portal/portal-03-model-selection.png)
 
-### Price Tiers
+The model-distribution donut, a trivial-turn gauge, **cost by complexity tier**, baseline-vs-actual
+bars, and a **turns-per-day projection slider** → monthly/annual saving. The measured cards and
+bars are *facts*; the slider + line are a *projection* — drag it to your daily volume and only
+**Projected Monthly Saving** moves.
 
-| Tier | Description |
-|---|---|
-| `budget` | Economy options |
-| `moderate` | Mid-range |
-| `luxury` | Premium and high-end |
+### 4. Memory — the prune opportunity
+![Memory tab](../analytics/media/portal/portal-04-memory.png)
+
+Memory KPIs (total, scored, average salience, **supersession %**), memories-by-type and
+memory-health donuts, and a salience histogram. A high stale share is the evidence behind the
+"prune stale memories" card on the Optimizations tab. *Unscored* procedural rules appear in the
+type/health views but are excluded from the salience-strength chart, so they don't look like weak
+memories.
+
+### 5. Agents — per-agent × dimension health
+![Agents tab](../analytics/media/portal/portal-05-agents.png)
+
+The **scorecard matrix** (each agent scored OK / Watch / Opportunity on cost efficiency, model
+selection, workflow efficiency), **cost by agent**, and an **agent-path cost concentration** table —
+find the agent/path flagged **Opportunity**; that's where tiering and tool-call fixes pay off most.
+
+### 6. Business — from cost to conversion
+![Business tab](../analytics/media/portal/portal-06-business.png)
+
+**Conversion rate** and **biggest leak** KPIs, the **conversion funnel** (engaged → searched →
+planned → confirmed), and **why sessions don't convert**. Everything else cuts cost; this answers
+*are we converting?* Empty until the reverse-ETL notebook runs (Act 5) — then it lights up.
+
+### 7. Governance — prove it's safe, measured, reversible
+![Governance tab](../analytics/media/portal/portal-07-governance.png)
+
+Applied **policies**, the **SLO gate**, a **measured-saving** table, baseline-vs-actual bars, and
+the **decision audit trail**. A policy only counts if it **clears the SLO**, and the saving shown is
+**measured** (before/after), not projected — every governed action is audited and reversible.
+
+> **Optional: the Power BI report.** A `TravelAssistantAnalyticsReport` is auto-imported to your
+> Fabric workspace over the same mirror. It's kept as an **optional, secondary** surface (its
+> translytical write-back is still WIP), so the Portal above is the recommended one for this
+> workshop. If you do open it, use **Transform data → Manage Parameters** to point
+> `MirrorSQLEndpoint` / `MirrorDatabase` at your mirror.
+
+### How to read the headline metrics
+
+| Metric | What it is | How to read it |
+|---|---|---|
+| **Cost per Outcome** | Est. cost ÷ confirmed trips | The real efficiency number — a cheap turn that never books isn't efficient. Lower is better, but only while confirmed trips hold steady. |
+| **Trivial %** | Share of turns that need no reasoning (greetings, acks, confirmations) | The size of the model-selection prize: those turns pay premium rates for nothing. Higher = bigger opportunity. |
+| **Est Cost USD** | List-price estimate of token spend | Directional, not a bill — reasoning-model "reasoning tokens" make projections rough, so trust the *measured* before/after over this. |
+| **Conversion Rate %** | Sessions that reach a confirmed trip | The business outcome. The funnel shows *where* the rest drop off; **biggest leak** names the fix (e.g. `city_friction` identifies the destination-clarification leak). |
+| **Avg Salience** | Mean strength of *scored* memories (0–1) | How confident the agent's long-term memory is. Computed over scored memories only — procedural rules are unscored, not weak. |
+| **Supersession Rate %** | Share of memories overridden by newer ones | Conflict resolution at work: the agent correcting itself as a user's preferences change. |
+| **Saving USD / %** | Measured before/after per optimization | The *measured* payoff (a counterfactual for model-selection; telemetry for memory-retention once applied). Tool-call-dedup is a governed-path row at $0 here — its estimate is on Discovered Opportunities. |
 
 ---
 
-## Supported Destinations
+## Tenants used (cheat sheet)
 
-The application has pre-loaded data for **49 cities** worldwide:
-
-| Region | Cities |
-|---|---|
-| **Europe** | Amsterdam, Athens, Barcelona, Berlin, Brussels, Budapest, Copenhagen, Dublin, Edinburgh, Frankfurt, Glasgow, Istanbul, Lisbon, London, Madrid, Manchester, Milan, Oslo, Paris, Prague, Reykjavik, Rome, Stockholm, Vienna, Zurich |
-| **Asia-Pacific** | Auckland, Bangkok, Beijing, Christchurch, Delhi, Hong Kong, Kuala Lumpur, Melbourne, Mumbai, Osaka, Seoul, Singapore, Sydney, Tokyo |
-| **Americas** | Chicago, Los Angeles, Miami, New York, San Francisco, Seattle, Toronto, Vancouver |
-| **Middle East** | Abu Dhabi, Dubai |
-
-When specifying a destination to the assistant or in the Explore page, use the common city name (e.g. "Paris", "New York", "Tokyo"). The system normalizes these to the appropriate identifier.
-
----
-
-## Sample Users (Seed Data)
-
-The application is pre-seeded with four demo users, all under the `marvel` tenant. You can select any of these from the login screen or use them in API calls.
-
-| User ID | Name | Tenant ID |
+| Tenant | Comes from | Used in |
 |---|---|---|
-| `tony` | Tony Stark | `marvel` |
-| `steve` | Steve Rogers | `marvel` |
-| `bruce` | Bruce Banner | `marvel` |
-| `peter` | Peter Parker | `marvel` |
+| `marvel` | live chat from the frontend | Portal *detect* (Act 2) |
+| `analytics` | seeded by `azd up`, plus the traffic simulator | Fabric notebook → Portal **Business** + **Governance** tabs (Act 5); Portal Overview/Model-Selection before/after (Acts 4, 7) |
 
-Each user has an independent memory store, conversation history, and set of trips. You can also create new users via the API (`POST /users`).
+> **Reserved partitions aren't tenants.** In `OptimizationInsights` you'll also see the partition
+> keys **`_global_optimizations`** and **`_global_memory`**. These are **not** tenants — a *tenant*
+> is a customer with its own users (like `marvel`). They're reserved buckets for **global,
+> cross-tenant** rows (the measured-saving and memory-intelligence signals, which aren't scoped to
+> any one customer). Readers select by row `type`, so the partition value is just a container, not a
+> customer. (Same note lives in the build guide and the reverse-ETL notebook.)
 
----
+## Tear down / stop costs
 
-## Tips for Best Results
+**This deployment is provisioned, not serverless.** The three Container Apps, **Cosmos DB**, **Azure
+AI Foundry** (OpenAI), and the **Fabric capacity** all bill **continuously** — idle or not. There is
+no low-cost "idle" mode, so the only way to actually stop the charges is to **tear it down**.
 
-### Be descriptive with preferences
-The richer the description, the better the semantic search results:
+- **Delete everything (recommended when you're done):** from `02_completed/`, run
+  **`azd down --purge`** (add `--force` to skip prompts). This removes the resource group's Azure
+  resources — Container Apps, Cosmos, Foundry, and the Fabric capacity — and `--purge` frees
+  soft-deleted names (Key Vault / OpenAI) so you can cleanly redeploy later.
+- **Delete the Fabric workspace too.** The workspace, mirror, notebook, report, and UDF are **Fabric
+  artifacts** created by `Provision-Fabric.ps1` (not by `azd`), so `azd down` leaves them behind. In
+  the Fabric portal, open the workspace → **Workspace settings → Remove this workspace**. (They stop
+  working once the capacity is gone anyway — this just keeps your tenant tidy.)
+- **Only stepping away briefly?** You can **pause the Fabric capacity** (`POST
+  /optimizations/fabric/capacity/suspend` · or the Fabric portal) to stop the Fabric meter and
+  freeze analytics refresh. But that's a **small slice** of the total — Container Apps, Cosmos, and
+  Foundry keep billing — so it's a minor, temporary saving, **not** a substitute for tearing down.
 
-> ✅ "Find a quiet boutique hotel near cultural sites, not too expensive"  
-> vs  
-> ❌ "Find a hotel"
+> **Resetting the *demo* is not a cost action.** To return the agent to baseline behavior after
+> applying an optimization, **Revert** the policy (the Portal's **Optimizations** tab, the API, or
+> the optional Power BI translytical button). That flips a policy doc in Cosmos — it has nothing to
+> do with billing, and pausing/deleting the Fabric capacity does **not** revert it.
 
-### Share restrictions early
-State dietary restrictions, accessibility needs, or budget limits at the start of a conversation. The Orchestrator extracts and stores these so every subsequent specialist agent automatically filters for them:
+## Quick troubleshooting
 
-> "Before we start, I should mention I'm celiac and need gluten-free dining options, and I travel with a wheelchair user."
+- **Power BI (optional report) shows the wrong/old server** → **Transform data → Manage Parameters**, set `MirrorSQLEndpoint` / `MirrorDatabase`, **Close & Apply → Refresh**; clear cached creds under **Options → Data source settings**.
+- **Notebook read error / no rows** → the mirror's SQL endpoint is syncing: open the mirrored database → **SQL analytics endpoint → Refresh**, confirm the capacity isn't paused, wait ~1–2 min, re-run.
+- **Portal empty** → confirm the API is running and the **Dataset** matches where you drove traffic (case-sensitive `marvel`), with **Source → Live (recompute)**.
+- **Provisioning auth errors** → `az login` and `azd auth login` must be the **same work account** in the subscription's tenant.
 
-### Use the Itinerary Generator last
-First gather hotel, activity, and dining options by talking to each specialist. Then ask the Itinerary Generator to synthesize everything — this produces much richer day plans:
-
-> "We've found the Four Seasons hotel, the Louvre, Musée d'Orsay, and two restaurants. Build a 3-day Paris itinerary from all of this."
-
-### Let the memory system work for you
-The more you use the assistant across sessions, the more personalized it becomes. Returning users automatically get recommendations filtered by their stored preferences without needing to re-specify them each time.
-
-### Exploring before chatting
-Use the **Explore** page to browse and get a feel for what's available in a city before starting a planning conversation. This helps you frame more specific requests.
-
-### Session titles
-Sessions are auto-named "New Conversation" by default. You can rename them for easy reference, or let the system generate a descriptive title by clicking the rename option — it uses AI to summarize the conversation.
-
----
-
-## API Reference
-
-The full interactive API documentation is available at **http://localhost:8000/docs** when the API server is running.
-
-### Key Endpoint Groups
-
-#### Health & Status
-| Method | Path | Description |
-|---|---|---|
-| `GET` | `/health` | Basic liveness check |
-| `GET` | `/health/ready` | Readiness check (agents initialized?) |
-| `GET` | `/status` | Detailed service status |
-
-#### Session Management
-| Method | Path | Description |
-|---|---|---|
-| `POST` | `/tenant/{tenantId}/user/{userId}/sessions` | Create a new chat session |
-| `GET` | `/tenant/{tenantId}/user/{userId}/sessions` | List all sessions for user |
-| `GET` | `/tenant/{tenantId}/user/{userId}/sessions/{sessionId}/messages` | Get conversation history |
-| `POST` | `/tenant/{tenantId}/user/{userId}/sessions/{sessionId}/rename` | Rename a session |
-| `DELETE` | `/tenant/{tenantId}/user/{userId}/sessions/{sessionId}` | Delete a session |
-
-#### Chat
-| Method | Path | Description |
-|---|---|---|
-| `POST` | `/tenant/{tenantId}/user/{userId}/sessions/{sessionId}/completion` | Send a message, get agent response |
-| `POST` | `/tenant/{tenantId}/user/{userId}/sessions/{sessionId}/summarize-name` | Auto-generate a session title |
-
-#### Trip Management
-| Method | Path | Description |
-|---|---|---|
-| `GET` | `/tenant/{tenantId}/user/{userId}/trips` | List all trips |
-| `GET` | `/tenant/{tenantId}/user/{userId}/trips/{tripId}` | Get trip details |
-| `PUT` | `/tenant/{tenantId}/user/{userId}/trips/{tripId}` | Update trip |
-| `DELETE` | `/tenant/{tenantId}/user/{userId}/trips/{tripId}` | Delete trip |
-
-#### Memory Management
-| Method | Path | Description |
-|---|---|---|
-| `GET` | `/tenant/{tenantId}/user/{userId}/memories` | Get stored memories (filterable by type and salience) |
-| `DELETE` | `/tenant/{tenantId}/user/{userId}/memories/{memoryId}` | Delete a specific memory |
-
-#### Places Discovery
-| Method | Path | Description |
-|---|---|---|
-| `POST` | `/places/search` | Semantic vector search for places |
-| `POST` | `/tenant/{tenantId}/places/filter` | Filter places by city, type, price, dietary, accessibility |
-| `GET` | `/places/{placeId}` | Get details for a specific place |
-
-#### Debug & Analytics
-| Method | Path | Description |
-|---|---|---|
-| `GET` | `/tenant/{tenantId}/user/{userId}/sessions/{sessionId}/completiondetails/{debugLogId}` | Get token usage, model, agent routing details for a response |
-
-### Chat Completion Request Format
-
-The `/completion` endpoint accepts a plain text string as the request body (the user's message):
-
-```
-POST /tenant/marvel/user/tony/sessions/{sessionId}/completion
-Content-Type: application/json
-
-"Find me a luxury hotel in Paris with a spa"
-```
-
-The response is a list of messages representing the full conversation history for the session.
-
-### Multi-Tenancy
-
-All data is scoped by `tenantId` and `userId`. The `tenantId` is an organizational grouper (e.g. `marvel`), and `userId` is the individual user within that tenant. All API paths follow the pattern `/tenant/{tenantId}/user/{userId}/...`.

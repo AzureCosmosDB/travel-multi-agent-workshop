@@ -16,6 +16,27 @@
     },
     "owner": {
       "value": "${OWNER_EMAIL}"
+    },
+    "resourceGroupName": {
+      "value": "${AZURE_RESOURCE_GROUP=}"
+    },
+    "resourceGroupLocation": {
+      "value": "${AZURE_RG_LOCATION=}"
+    },
+    "deployAnalytics": {
+      "value": "${DEPLOY_ANALYTICS=true}"
+    },
+    "deployHostedApp": {
+      "value": "${DEPLOY_HOSTED_APP=true}"
+    },
+    "fabricCapacityLocation": {
+      "value": "${FABRIC_CAPACITY_LOCATION=}"
+    },
+    "fabricCapacitySku": {
+      "value": "${FABRIC_CAPACITY_SKU=F2}"
+    },
+    "deployGsi": {
+      "value": "${DEPLOY_GSI=false}"
     }
   }
 }

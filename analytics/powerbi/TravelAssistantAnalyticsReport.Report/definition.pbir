@@ -1,0 +1,9 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definitionProperties/2.0.0/schema.json",
+  "version": "4.0",
+  "datasetReference": {
+    "byConnection": {
+      "connectionString": "Data Source=\"powerbi://api.powerbi.com/v1.0/myorg/{{FABRIC_WORKSPACE_NAME}}\";initial catalog=\"TravelAssistantAnalyticsReport\";integrated security=ClaimsToken;semanticmodelid={{FABRIC_SEMANTIC_MODEL_ID}}"
+    }
+  }
+}

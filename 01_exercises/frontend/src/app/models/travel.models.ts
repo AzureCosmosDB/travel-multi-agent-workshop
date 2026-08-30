@@ -79,19 +79,32 @@ export interface TripActivity {
   place?: Place;
 }
 
+export type MemoryType = 'turn' | 'summary' | 'fact' | 'user_summary' | 'procedural' | 'episodic';
+export type MemoryRole = 'user' | 'agent' | 'tool' | 'system';
+
 export interface Memory {
   id: string;
-  memoryId: string;
-  tenantId: string;
-  userId: string;
-  memoryType: 'declarative' | 'procedural' | 'episodic';
-  text: string;
-  facets: Record<string, any>;  // {"category": "dining", "preference": "vegetarian"}
-  salience: number;
-  justification: string;
-  extractedAt: string;
-  lastUsedAt: string;
+  user_id: string;
+  thread_id?: string;
+  role?: MemoryRole;
+  type: MemoryType;
+  content: string;
+  metadata?: Record<string, any>;
+  agent_id?: string;
+  created_at?: string;
+  updated_at?: string;
+  tags?: string[];
   ttl?: number;
+  salience?: number;
+  content_hash?: string;
+  superseded_by?: string;
+  supersedes_ids?: string[];
+  source_memory_ids?: string[];
+  score?: number;
+}
+
+export interface UserSummary extends Memory {
+  type: 'user_summary';
 }
 
 export interface ChatCompletionResponse {

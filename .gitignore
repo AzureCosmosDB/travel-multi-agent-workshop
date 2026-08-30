@@ -1,0 +1,17 @@
+# Power BI working files — ignore ad-hoc .pbix saves...
+*.pbix
+# ...but DO track the report artifact the provisioning script auto-imports (this is what
+# removes the Power BI Desktop prerequisite — Provision-Fabric.ps1 imports it and points
+# it at each deployment's mirror).
+!analytics/powerbi/TravelAssistantAnalyticsReport.pbix
+
+# Provision-Fabric.ps1 remembered settings (workspace name / connection id)
+analytics/fabric/.provision-fabric.local.json
+
+# Python bytecode caches
+__pycache__/
+*.pyc
+
+# OS junk
+.DS_Store
+Thumbs.db

@@ -1,0 +1,31 @@
+FROM node:20-alpine AS build
+
+WORKDIR /app
+
+COPY frontend/package.json frontend/package-lock.json* ./
+RUN npm install
+
+COPY frontend/ ./
+RUN npm run build -- --configuration production
+
+FROM nginx:alpine
+
+# Copy the built Angular app (output path: dist/cosmos-voyager/browser)
+COPY --from=build /app/dist/cosmos-voyager/browser /usr/share/nginx/html
+
+# Serve the web Analytics Portal (static) at /analytics/. Its source of truth lives at
+# repo-root analytics/dashboard/; the azd `prepackage` hook stages it into ./analytics-portal/
+# (inside this build context) before the image is built. It calls /api, which nginx proxies to
+# the backend, so no API URL needs to be injected.
+COPY analytics-portal/index.html /usr/share/nginx/html/analytics/index.html
+
+# Copy nginx config template and entrypoint
+COPY frontend/nginx.conf.template /etc/nginx/nginx.conf.template
+COPY frontend/docker-entrypoint.sh /docker-entrypoint-custom.sh
+RUN chmod +x /docker-entrypoint-custom.sh
+
+EXPOSE 80
+
+ENTRYPOINT ["/docker-entrypoint-custom.sh"]
+CMD ["nginx", "-g", "daemon off;"]
+

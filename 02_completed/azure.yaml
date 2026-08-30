@@ -1,11 +1,54 @@
 name: TravelAssistant
 metadata:
   template: azd-init@1.5.1
+# Hosted app services (deployed by `azd up` when deployHostedApp=true, the default for
+# this complete/demo solution). To run locally instead, set DEPLOY_HOSTED_APP=false and
+# use `azd provision` + the three-terminal local dev flow (see README).
+services:
+  mcp-server:
+    host: containerapp
+    language: python
+    docker:
+      path: ./Dockerfile.mcp
+      context: .
+      remoteBuild: true
+  api:
+    host: containerapp
+    language: python
+    docker:
+      path: ./Dockerfile.api
+      context: .
+      remoteBuild: true
+  frontend:
+    host: containerapp
+    language: ts
+    docker:
+      path: ./Dockerfile.frontend
+      context: .
+      remoteBuild: true
 hooks:
+  prepackage:
+    posix:
+      shell: sh
+      continueOnError: false
+      run: |
+        # Stage the web analytics portal (repo-root analytics/dashboard) into the frontend
+        # build context so Dockerfile.frontend can bake it in and serve it at /analytics/.
+        # Source of truth stays in analytics/dashboard/; analytics-portal/ is gitignored.
+        mkdir -p analytics-portal
+        cp ../analytics/dashboard/index.html analytics-portal/index.html
+        echo "✅ Staged analytics portal for the frontend image."
+    windows:
+      shell: pwsh
+      continueOnError: false
+      run: |
+        New-Item -ItemType Directory -Force -Path analytics-portal | Out-Null
+        Copy-Item -Force ..\analytics\dashboard\index.html analytics-portal\index.html
+        Write-Host "✅ Staged analytics portal for the frontend image."
   preprovision:
     posix:
       shell: sh
-      interactive: false
+      interactive: true
       continueOnError: false
       run: |
         # Check if OWNER_EMAIL is already set in azd environment
@@ -17,9 +60,28 @@ hooks:
         else
           echo "OWNER_EMAIL already set to: $EXISTING_OWNER"
         fi
+        # When analytics is enabled, a Microsoft Fabric F2 capacity is deployed. Fabric
+        # capacity availability varies by region and can be governed per-tenant, so we let
+        # you place it independently of the app region (see analytics/fabric/README.md).
+        DEPLOY_ANALYTICS=$(azd env get-value DEPLOY_ANALYTICS 2>/dev/null || echo "true")
+        if [ "$DEPLOY_ANALYTICS" != "false" ]; then
+          EXISTING_FAB=$(azd env get-value FABRIC_CAPACITY_LOCATION 2>/dev/null || echo "")
+          if [ -z "$EXISTING_FAB" ]; then
+            echo ""
+            echo "Analytics is enabled (deployAnalytics=true) -> a Fabric F2 capacity will be deployed."
+            echo "Enter an Azure region that has Fabric capacity available on your tenant."
+            printf "Fabric capacity region [westcentralus]: "
+            read FAB_REGION
+            if [ -z "$FAB_REGION" ]; then FAB_REGION="westcentralus"; fi
+            azd env set FABRIC_CAPACITY_LOCATION "$FAB_REGION"
+            echo "Fabric capacity region set to: $FAB_REGION"
+          else
+            echo "FABRIC_CAPACITY_LOCATION already set to: $EXISTING_FAB"
+          fi
+        fi
     windows:
       shell: pwsh
-      interactive: false
+      interactive: true
       continueOnError: false
       run: |
         # Set OWNER_EMAIL from current Azure user
@@ -36,6 +98,24 @@ hooks:
           Write-Host "Could not get current user, setting default"
           azd env set OWNER_EMAIL "user@example.com"
         }
+        # When analytics is enabled, a Microsoft Fabric F2 capacity is deployed. Fabric
+        # capacity availability varies by region and can be governed per-tenant, so prompt
+        # for the Fabric region independently of the app region.
+        $deployAnalytics = (azd env get-value DEPLOY_ANALYTICS 2>$null)
+        if ($deployAnalytics -ne "false") {
+          $existingFab = (azd env get-value FABRIC_CAPACITY_LOCATION 2>$null)
+          if (-not $existingFab -or $existingFab.Trim() -eq "") {
+            Write-Host ""
+            Write-Host "Analytics is enabled (deployAnalytics=true) -> a Fabric F2 capacity will be deployed."
+            Write-Host "Enter an Azure region that has Fabric capacity available on your tenant."
+            $fabRegion = Read-Host "Fabric capacity region [westcentralus]"
+            if (-not $fabRegion -or $fabRegion.Trim() -eq "") { $fabRegion = "westcentralus" }
+            azd env set FABRIC_CAPACITY_LOCATION $fabRegion.Trim()
+            Write-Host "Fabric capacity region set to: $($fabRegion.Trim())"
+          } else {
+            Write-Host "FABRIC_CAPACITY_LOCATION already set to: $existingFab"
+          }
+        }
   postprovision:
     posix:
       shell: sh
@@ -44,14 +124,23 @@ hooks:
       run: |
         echo "
         COSMOSDB_ENDPOINT=\"$COSMOSDB_ENDPOINT\"
-        COSMOS_DB_DATABASE_NAME=\"TravelAssistant\"
+        COSMOSDB_DATABASE_NAME=\"TravelAssistant\"
         AZURE_OPENAI_ENDPOINT=\"$AZURE_OPENAI_ENDPOINT\"
         AZURE_OPENAI_EMBEDDING_DEPLOYMENT=\"$AZURE_OPENAI_EMBEDDINGDEPLOYMENTID\"
         AZURE_OPENAI_DEPLOYMENT=\"$AZURE_OPENAI_COMPLETIONSDEPLOYMENTID\"
-        AZURE_OPENAI_API_VERSION=\"2024-12-01-preview\"
+        AZURE_OPENAI_API_VERSION=\"2025-04-01-preview\"
         MCP_AUTH_SECRET_KEY=\"travel-mcp-server-jwt-secret-for-local-development\"
         MCP_AUTH_TOKEN=\"travel-server-dev-token-2024\"
         MCP_SERVER_BASE_URL=\"http://localhost:8080\"
+        FACT_EXTRACTION_EVERY_N=1
+        DEDUP_EVERY_N=1
+        THREAD_SUMMARY_EVERY_N=5
+        USER_SUMMARY_EVERY_N=5
+        FABRIC_CAPACITY_NAME=\"$FABRIC_CAPACITY_NAME\"
+        AZURE_SUBSCRIPTION_ID=\"$AZURE_SUBSCRIPTION_ID\"
+        AZURE_RESOURCE_GROUP=\"$RG_NAME\"
+        FABRIC_WORKSPACE_ID=\"$FABRIC_WORKSPACE_ID\"
+        FABRIC_MIRROR_ID=\"$FABRIC_MIRROR_ID\"
         " > ./python/.env
 
         echo "✅ Environment file created at ./python/.env"
@@ -59,14 +148,18 @@ hooks:
         # Create environment file for MCP server
         echo "
         COSMOSDB_ENDPOINT=\"$COSMOSDB_ENDPOINT\"
-        COSMOS_DB_DATABASE_NAME=\"TravelAssistant\"
+        COSMOSDB_DATABASE_NAME=\"TravelAssistant\"
         AZURE_OPENAI_ENDPOINT=\"$AZURE_OPENAI_ENDPOINT\"
         AZURE_OPENAI_EMBEDDING_DEPLOYMENT=\"$AZURE_OPENAI_EMBEDDINGDEPLOYMENTID\"
         AZURE_OPENAI_DEPLOYMENT=\"$AZURE_OPENAI_COMPLETIONSDEPLOYMENTID\"
-        AZURE_OPENAI_API_VERSION=\"2024-12-01-preview\"
+        AZURE_OPENAI_API_VERSION=\"2025-04-01-preview\"
         MCP_AUTH_SECRET_KEY=\"travel-mcp-server-jwt-secret-for-local-development\"
         MCP_AUTH_TOKEN=\"travel-server-dev-token-2024\"
         MCP_SERVER_BASE_URL=\"http://localhost:8080\"
+        FACT_EXTRACTION_EVERY_N=1
+        DEDUP_EVERY_N=1
+        THREAD_SUMMARY_EVERY_N=5
+        USER_SUMMARY_EVERY_N=5
         " > ./mcp_server/.env
 
         echo "✅ Environment file created at ./mcp_server/.env"
@@ -77,15 +170,21 @@ hooks:
         echo "═══════════════════════════════════════════════════════════════"
         echo ""
 
+        VENV_DIR=".venv-travel"
+
         # Check if virtual environment exists, create if not
-        if [ ! -d "venv" ]; then
-            echo "Creating Python virtual environment..."
-            python3 -m venv venv
+        if [ ! -d "$VENV_DIR" ]; then
+            echo "Creating Python virtual environment with python3.11..."
+            python3.11 -m venv "$VENV_DIR" 2>/dev/null || python3 -m venv "$VENV_DIR"
         fi
 
         # Activate virtual environment
         echo "Activating virtual environment..."
-        . venv/bin/activate
+        . "$VENV_DIR/bin/activate"
+
+        # Verify Python version
+        ACTIVE_PYTHON_VERSION=$(python --version 2>&1)
+        echo "Active Python version: $ACTIVE_PYTHON_VERSION"
 
         # Install requirements
         echo "Installing Python dependencies from requirements.txt..."
@@ -100,13 +199,38 @@ hooks:
 
         echo ""
         echo "═══════════════════════════════════════════════════════════════"
-        echo "� Loading data into Cosmos DB..."
+        echo "📥 Loading data into Cosmos DB..."
         echo "═══════════════════════════════════════════════════════════════"
         echo ""
 
         cd python
         # Load data into Cosmos DB (from python directory)
         python data/seed_data.py
+
+        # Seed the Configuration container (model pricing + selection defaults) from the
+        # models azd actually deployed. Prices come from data/model_pricing.json — if you
+        # swap a model in infra/main.bicep, add its price there (see analytics/docs/model-pricing.md).
+        python data/seed_configuration.py
+
+        # Seed the Module 09 conversion-funnel demo tenant (analytics) so the Fabric
+        # mirror + notebook have data. Only when analytics is deployed.
+        DEPLOY_ANALYTICS=$(azd env get-value DEPLOY_ANALYTICS 2>/dev/null || echo "true")
+        if [ "$DEPLOY_ANALYTICS" != "false" ]; then
+          echo ""
+          echo "Seeding the Module 09 analytics dataset..."
+          python ../../analytics/scripts/funnel_seed.py
+        fi
+
+        # If GSI mode is enabled, seed 25K trips and manage throughput
+        if [ "$DEPLOY_GSI" = "true" ]; then
+          echo ""
+          echo "═══════════════════════════════════════════════════════════════"
+          echo "🔧 GSI mode enabled — seeding 25K trips and scaling throughput..."
+          echo "═══════════════════════════════════════════════════════════════"
+          echo ""
+          python data/seed_gsi_trips.py
+        fi
+
         cd ..
 
         echo ""
@@ -121,15 +245,23 @@ hooks:
       run: |
         echo "
         COSMOSDB_ENDPOINT=""$env:COSMOSDB_ENDPOINT""
-        COSMOS_KEY=""$env:COSMOS_KEY""
-        COSMOS_DB_DATABASE_NAME=""TravelAssistant""
+        COSMOSDB_DATABASE_NAME=""TravelAssistant""
         AZURE_OPENAI_ENDPOINT=""$env:AZURE_OPENAI_ENDPOINT""
         AZURE_OPENAI_EMBEDDING_DEPLOYMENT=""$env:AZURE_OPENAI_EMBEDDINGDEPLOYMENTID""
         AZURE_OPENAI_DEPLOYMENT=""$env:AZURE_OPENAI_COMPLETIONSDEPLOYMENTID""
-        AZURE_OPENAI_API_VERSION=""2024-12-01-preview""
+        AZURE_OPENAI_API_VERSION=""2025-04-01-preview""
         MCP_AUTH_SECRET_KEY=""travel-mcp-server-jwt-secret-for-local-development""
         MCP_AUTH_TOKEN=""travel-server-dev-token-2024""
         MCP_SERVER_BASE_URL=""http://localhost:8080""
+        FACT_EXTRACTION_EVERY_N=1
+        DEDUP_EVERY_N=1
+        THREAD_SUMMARY_EVERY_N=5
+        USER_SUMMARY_EVERY_N=5
+        FABRIC_CAPACITY_NAME=""$env:FABRIC_CAPACITY_NAME""
+        AZURE_SUBSCRIPTION_ID=""$env:AZURE_SUBSCRIPTION_ID""
+        AZURE_RESOURCE_GROUP=""$env:RG_NAME""
+        FABRIC_WORKSPACE_ID=""$env:FABRIC_WORKSPACE_ID""
+        FABRIC_MIRROR_ID=""$env:FABRIC_MIRROR_ID""
         " > ./python/.env
 
         Write-Host "✅ Environment file created at ./python/.env"
@@ -137,15 +269,18 @@ hooks:
         # Create environment file for MCP server
         echo "
         COSMOSDB_ENDPOINT=""$env:COSMOSDB_ENDPOINT""
-        COSMOS_KEY=""$env:COSMOS_KEY""
-        COSMOS_DB_DATABASE_NAME=""TravelAssistant""
+        COSMOSDB_DATABASE_NAME=""TravelAssistant""
         AZURE_OPENAI_ENDPOINT=""$env:AZURE_OPENAI_ENDPOINT""
         AZURE_OPENAI_EMBEDDING_DEPLOYMENT=""$env:AZURE_OPENAI_EMBEDDINGDEPLOYMENTID""
         AZURE_OPENAI_DEPLOYMENT=""$env:AZURE_OPENAI_COMPLETIONSDEPLOYMENTID""
-        AZURE_OPENAI_API_VERSION=""2024-12-01-preview""
+        AZURE_OPENAI_API_VERSION=""2025-04-01-preview""
         MCP_AUTH_SECRET_KEY=""travel-mcp-server-jwt-secret-for-local-development""
         MCP_AUTH_TOKEN=""travel-server-dev-token-2024""
         MCP_SERVER_BASE_URL=""http://localhost:8080""
+        FACT_EXTRACTION_EVERY_N=1
+        DEDUP_EVERY_N=1
+        THREAD_SUMMARY_EVERY_N=5
+        USER_SUMMARY_EVERY_N=5
         " > ./mcp_server/.env
 
         Write-Host "✅ Environment file created at ./mcp_server/.env"
@@ -155,39 +290,96 @@ hooks:
         Write-Host "═══════════════════════════════════════════════════════════════"
         Write-Host ""
 
-        # Check if virtual environment exists, create if not
-        if (-not (Test-Path "venv")) {
+        $venvDir = ".venv-travel"
+
+        if (-not (Test-Path $venvDir)) {
             Write-Host "Creating Python virtual environment..."
-            python -m venv venv
+            py -3.11 -m venv $venvDir 2>$null
+            if ($LASTEXITCODE -ne 0) {
+                py -3 -m venv $venvDir
+            }
         }
 
-        # Activate virtual environment
         Write-Host "Activating virtual environment..."
-        & ".\venv\Scripts\Activate.ps1"
+        & ".\$venvDir\Scripts\Activate.ps1"
 
-        # Install requirements
+        $activePythonVersion = python --version 2>&1
+        Write-Host "Active Python version: $activePythonVersion"
+
         Write-Host "Installing Python dependencies from requirements.txt..."
         if (Test-Path "requirements.txt") {
             python -m pip install --upgrade pip setuptools wheel
             python -m pip install --prefer-binary -r requirements.txt
-        } else {
-            Write-Host "⚠️  requirements.txt not found, installing basic dependencies..."
-            python -m pip install --upgrade pip setuptools wheel
-            python -m pip install azure-cosmos azure-identity openai python-dotenv
         }
 
         Write-Host ""
         Write-Host "═══════════════════════════════════════════════════════════════"
-        Write-Host "� Loading data into Cosmos DB..."
+        Write-Host "📊 Loading data into Cosmos DB..."
         Write-Host "═══════════════════════════════════════════════════════════════"
         Write-Host ""
 
-        Set-Location python
-        # Load data into Cosmos DB (from python directory)
-        python data\seed_data.py
-        Set-Location ..
+        if (Test-Path "python\data\seed_data.py") {
+            Push-Location python
+            python data\seed_data.py
+
+            # Seed the Configuration container (model pricing + selection defaults) from the
+            # models azd actually deployed. Prices come from data/model_pricing.json — if you
+            # swap a model in infra/main.bicep, add its price there (see analytics/docs/model-pricing.md).
+            python data\seed_configuration.py
+
+            # Seed the Module 09 conversion-funnel demo tenant (analytics) so the Fabric
+            # mirror + notebook have data. Only when analytics is deployed.
+            $deployAnalytics = (azd env get-value DEPLOY_ANALYTICS 2>$null)
+            if ($deployAnalytics -ne "false") {
+                Write-Host ""
+                Write-Host "Seeding the Module 09 analytics dataset..."
+                python ..\..\analytics\scripts\funnel_seed.py
+            }
+
+            # If GSI mode is enabled, seed 25K trips and manage throughput
+            if ($env:DEPLOY_GSI -eq "true") {
+                Write-Host ""
+                Write-Host "═══════════════════════════════════════════════════════════════"
+                Write-Host "🔧 GSI mode enabled — seeding 25K trips and scaling throughput..."
+                Write-Host "═══════════════════════════════════════════════════════════════"
+                Write-Host ""
+                python data\seed_gsi_trips.py
+            }
+            Pop-Location
+        }
 
         Write-Host ""
         Write-Host "✅ Setup complete!"
         Write-Host ""
         Write-Host "═══════════════════════════════════════════════════════════════"
+  postdeploy:
+    posix:
+      shell: sh
+      interactive: false
+      continueOnError: true
+      run: |
+        echo "Restarting API container to establish a fresh MCP session..."
+        API_NAME=$(az containerapp list -g "$RG_NAME" --query "[?tags.\"azd-service-name\"=='api'].name" -o tsv)
+        if [ -n "$API_NAME" ]; then
+          API_REVISION=$(az containerapp show --name "$API_NAME" -g "$RG_NAME" --query "properties.latestRevisionName" -o tsv 2>/dev/null)
+          az containerapp revision restart --name "$API_NAME" -g "$RG_NAME" --revision "$API_REVISION"
+          echo "✅ API container restarted with fresh MCP session"
+        else
+          echo "⚠️  Could not find API container app to restart"
+        fi
+    windows:
+      shell: pwsh
+      interactive: false
+      continueOnError: true
+      run: |
+        Write-Host "Restarting API container to establish a fresh MCP session..."
+        $apiName = (az containerapp list -g "$env:RG_NAME" --query "[?tags.""azd-service-name""=='api'].name" -o tsv 2>$null)
+        if ($apiName) {
+          $revision = (az containerapp show --name $apiName -g "$env:RG_NAME" --query "properties.latestRevisionName" -o tsv 2>$null)
+          if ($revision) {
+            az containerapp revision restart --name $apiName -g "$env:RG_NAME" --revision $revision
+            Write-Host "✅ API container restarted with fresh MCP session"
+          }
+        } else {
+          Write-Host "⚠️  Could not find API container app to restart"
+        }

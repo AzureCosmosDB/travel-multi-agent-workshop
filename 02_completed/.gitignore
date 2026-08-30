@@ -122,6 +122,7 @@ celerybeat.pid
 # Environments
 .env
 .venv
+.venv-travel
 env/
 venv/
 ENV/
@@ -326,6 +327,7 @@ yarn-error.log*
 !**/abbreviations.json
 !**/*template*.json
 !**/package*.json
+!python/data/*.json
 
 # MacOS
 .DS_Store
@@ -345,3 +347,8 @@ secrets.json
 secrets.yaml
 secrets.yml
 appsettings.local.json
+# Analytics portal staged into the frontend image at package time (source of truth: ../analytics/dashboard/).
+# Track index.html so azd's remote build includes it — the remote build excludes gitignored files,
+# which otherwise bakes a stale portal. The prepackage hook keeps it in sync with the source of truth.
+analytics-portal/*
+!analytics-portal/index.html

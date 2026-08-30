@@ -1,27 +1,27 @@
 # Module 05 - Observability & Tracing
 
-**[< Making Memory Intelligent](./Module-04.md)** - **[Evaluating Your Multi-Agent Application >](./Module-06.md)**
+**[< Making Memory Intelligent](./Module-04.md#module-04---making-memory-intelligent-3-way-rrf-personalisation)** - **[Evaluating Your Multi-Agent Application >](./Module-06.md#module-06---evaluating-your-multi-agent-application-bonus-module)**
 
 ## Introduction
 
-In the previous modules you built a sophisticated multi-agent travel assistant with intelligent memory capabilities. Your system now automatically extracts preferences from conversations, resolves conflicts, routes requests to specialist agents, and auto-summarizes long conversations. However, with this complexity comes a critical challenge: **understanding what's happening inside your system**.
+In the previous modules you built a sophisticated travel assistant: a LangGraph supervisor that calls tool wrappers, an MCP server that exposes session/place/trip tools, and the Cosmos DB Agent Memory Toolkit that persists turns, extracts facts and summaries, and powers hybrid memory recall. However, with this complexity comes a critical challenge: **understanding what's happening inside your system**.
 
-When something goes wrong—preferences aren't stored, the wrong agent is called, or summarization doesn't trigger—you need visibility into the execution flow. In this module, you'll integrate **LangSmith**, a powerful observability and monitoring platform, into your multi-agent application. You'll learn how to trace agent interactions and monitor application behavior end-to-end.
+When something goes wrong - the wrong tool gets called, memories aren't recalled, or a Cosmos DB query returns nothing—you need visibility into the execution flow. In this module, you'll integrate **LangSmith**, a powerful observability and monitoring platform, into your travel assistant application. You'll learn how to trace tool calls and monitor application behavior end-to-end.
 
-By the end of this module, you'll be able to visualize the complete execution path from user message → memory extraction → agent routing → database queries, with timing data and token usage for every step.
+By the end of this module, you'll be able to visualize the complete execution path from user message → supervisor decision → tool invocation → MCP server → Cosmos DB queries, with timing data and token usage for every step.
 
 ## Learning Objectives and Activities
 
-- Understand why observability is critical for multi-agent systems
+- Understand why observability is critical for agentic systems
 - Set up LangSmith account and configure environment variables
-- Add tracing to MCP tools, agent nodes, and database functions
+- Add tracing to tool wrappers, MCP tools, and database functions
 - Debug your system using trace visualizations in LangSmith
 
 ## Module Exercises
 
 1. [Activity 1: Understanding LangSmith and Agent Tracing](#activity-1-understanding-langsmith-and-agent-tracing)
 2. [Activity 2: Setting Up LangSmith](#activity-2-setting-up-langsmith)
-3. [Activity 3: Adding Tracing to Agent Nodes](#activity-3-adding-tracing-to-agent-nodes)
+3. [Activity 3: Adding Tracing to Tool Wrappers](#activity-3-adding-tracing-to-tool-wrappers)
 4. [Activity 4: Adding Tracing to MCP Tools](#activity-4-adding-tracing-to-mcp-tools)
 5. [Activity 5: Adding Tracing to Database Calls](#activity-5-adding-tracing-to-database-calls)
 6. [Activity 6: Test Your Work and Viewing Traces in LangSmith](#activity-6-test-your-work-and-viewing-traces-in-langsmith)
@@ -32,24 +32,22 @@ By the end of this module, you'll be able to visualize the complete execution pa
 
 ### Why Observability is Critical for Multi-Agent Systems
 
-Your travel assistant has grown complex with multiple agents orchestrating sophisticated workflows:
+Your travel assistant has grown complex with several moving parts working together on every request:
 
-- **Orchestrator** extracts preferences, routes to specialists, coordinates responses
-- **Specialists** (Hotel/Dining/Activity) query memories and recommend options
-- **Itinerary Generator** creates day plans
-- **Summarizer** condenses conversation history
-- **Memory Tools** extract preferences, resolve conflicts, store in Cosmos DB
+- **Supervisor agent** in `travel_agents.py` decides when to call tools, when to recall memories, and when to respond directly
+- **Tool wrappers** bridge the LangGraph supervisor to MCP — `find_places`, `create_or_update_itinerary`, and `recall_memories`
+- **MCP server** exposes session management, place discovery, trip management, and memory-lifecycle tools
+- **Cosmos DB Agent Memory Toolkit** persists turns, extracts facts and summaries, and runs hybrid retrieval over a user's history
 
-When something goes wrong—preferences aren't stored, the wrong agent is called, or summarization doesn't trigger—you need visibility into:
-- Which agent made each decision and why
-- What memories were recalled at each step
-- How conflicts were resolved
-- How long each operation took
-- Where bottlenecks occur in your pipeline
+When something goes wrong—the wrong tool gets called, memories aren't recalled, or a Cosmos DB query returns nothing—you need visibility into:
+- Which tool the supervisor chose and with what arguments
+- What memories were recalled and how they were ranked
+- Which Cosmos DB queries ran and how long they took
+- How tokens, latency, and cost broke down across the request
 
-Traditional logging isn't sufficient for multi-agent systems because:
-- Agent interactions are **nested and hierarchical** (orchestrator → specialist → tool → database)
-- Execution paths are **non-deterministic** (LLMs make different routing decisions)
+Traditional logging isn't sufficient for agentic systems because:
+- Tool calls are **nested and hierarchical** (supervisor → tool wrapper → MCP tool → Cosmos DB)
+- Execution paths are **non-deterministic** (LLMs make different tool-calling decisions)
 - Context flows across **multiple asynchronous operations**
 - You need to correlate **timing, token usage, and costs** across the entire request
 
@@ -151,16 +149,16 @@ Your complete **.env** file should now look like this:
 ```bash
 COSMOSDB_ENDPOINT="<your_cosmos_db_uri>"
 AZURE_OPENAI_ENDPOINT="<your_azure_open_ai_uri>"
-AZURE_OPENAI_EMBEDDINGDEPLOYMENTID="text-embedding-3-small"
-AZURE_OPENAI_COMPLETIONSDEPLOYMENTID="gpt-4.1"
+AZURE_OPENAI_EMBEDDING_DEPLOYMENT="text-embedding-3-small"
+AZURE_OPENAI_DEPLOYMENT="gpt-5.1"
 LANGCHAIN_API_KEY="<your_langsmith_api_key>"
 LANGCHAIN_TRACING_V2="true"
 LANGCHAIN_PROJECT="multi-agent-travel-app"
 ```
 
-## Activity 3: Adding Tracing to Agent Nodes
+## Activity 3: Adding Tracing to Tool Wrappers
 
-Agent nodes are the core decision-makers in your multi-agent system. By adding **@traceable** to agent functions, you'll be able to see which agents are called, what decisions they make, and how they route requests to other agents.
+The supervisor in `travel_agents.py` calls three LangChain tool wrappers — one to discover places via hybrid search, one to persist itineraries to Cosmos DB, and one to recall personalized memories. Adding **@traceable** to each wrapper makes the tool's inputs, outputs, and latency visible in LangSmith alongside the supervisor's reasoning.
 
 ### Step 1: Import the traceable Decorator
 
@@ -172,62 +170,62 @@ Add this import at the top of the file with your other imports:
 from langsmith import traceable
 ```
 
-### Step 2: Add @traceable to Orchestrator Agent
+### Step 2: Add @traceable to the find_places Tool
 
-The orchestrator is the entry point for all user requests. Add **@traceable(run_type="llm")** above its function definition:
+`find_places_tool` is the supervisor's entry point for hybrid place discovery. Add **@traceable** between the existing `@tool(...)` decorator and the function definition:
 
 ```python
-@traceable(run_type="llm")
-async def call_orchestrator_agent(state: MessagesState):
-    """Orchestrator agent - coordinates all other agents."""
+@tool("find_places", args_schema=FindPlacesInput)
+@traceable
+async def find_places_tool(
+    city: str,
+    aspects: list[Literal["hotel", "activity", "dining"]],
+    constraints: dict[str, Any] | None = None,
+    ...
+) -> str:
+    """Find hotels, activities, and dining options for a city."""
     # Existing code...
 ```
 
-**Why `run_type="llm"`?**  
-The orchestrator uses an LLM to analyze user messages, extract preferences, and decide which specialist agent to route to. This run type shows the prompt, completion, and token usage in LangSmith.
+**Why below `@tool(...)`?**  
+`@tool(...)` wraps the function into a LangChain `Tool` first; `@traceable` then wraps the tool so LangSmith captures the actual tool invocation — not the bare Python function. The MCP-tool pattern in Activity 4 follows the same ordering.
 
-### Step 3: Add @traceable to Specialist Agents
+### Step 3: Add @traceable to the create_or_update_itinerary Tool
 
-Add the decorator to all three specialist agents:
+This tool persists itinerary edits to Cosmos DB:
 
 ```python
-@traceable(run_type="llm")
-async def call_hotel_agent(state: MessagesState):
-    """Hotel specialist agent."""
-    # Existing code...
-
-@traceable(run_type="llm")
-async def call_dining_agent(state: MessagesState):
-    """Dining specialist agent."""
-    # Existing code...
-
-@traceable(run_type="llm")
-async def call_activity_agent(state: MessagesState):
-    """Activity specialist agent."""
+@tool("create_or_update_itinerary", args_schema=ItineraryInput)
+@traceable
+async def create_or_update_itinerary_tool(
+    trip_id: str | None = None,
+    destination: str | None = None,
+    days: list[dict[str, Any]] | str | None = None,
+    ...
+) -> str:
+    """Create or update an itinerary in Cosmos DB."""
     # Existing code...
 ```
 
-### Step 4: Add @traceable to Itinerary Generator
+### Step 4: Add @traceable to the recall_memories Tool
+
+This tool pulls a user's stored preferences and past trips before recommendations are generated:
 
 ```python
-@traceable(run_type="llm")
-async def call_itinerary_generator(state: MessagesState):
-    """Generate day-by-day itinerary from selected options."""
-    # Existing code...
-```
-
-### Step 5: Add @traceable to Summarizer Agent
-
-```python
-@traceable(run_type="llm")
-async def call_summarizer(state: MessagesState):
-    """Summarize conversation history after 10 messages."""
+@tool("recall_memories", args_schema=RecallMemoriesInput)
+@traceable
+async def recall_memories_tool(
+    query: str,
+    top_k: int = 10,
+    config: RunnableConfig = None,
+) -> str:
+    """Recall personalized memories for the current user."""
     # Existing code...
 ```
 
 ## Activity 4: Adding Tracing to MCP Tools
 
-MCP tools are the actions your agents can perform—transferring between agents, discovering places, managing trips, handling sessions, extracting preferences, and managing summarization. By tracing tools, you'll see exactly which tools each agent calls and with what parameters.
+MCP tools are the actions your agents perform — managing sessions, discovering places, persisting trips, and reading/writing long-term memory. Tracing them shows exactly which tool each request hits and with what parameters.
 
 ### Step 1: Import the traceable Decorator
 
@@ -239,54 +237,78 @@ Add this import at the top of the file:
 from langsmith import traceable
 ```
 
-### Step 2: Add @traceable to Agent Transfer Tools
+### Step 2: Add @traceable to Session Management Tools
 
-These tools handle routing between specialist agents:
+These tools create sessions, fetch conversation context, persist turns, log outbound API metrics, and search across a user's past threads:
 
 ```python
 @mcp.tool()
 @traceable
-def transfer_to_orchestrator(reason: str) -> str:
-    """Transfer conversation back to the Orchestrator agent."""
+def create_session(
+    user_id: str,
+    tenant_id: str = "",
+    title: str = None,
+    activeAgent: str = "orchestrator"
+) -> Dict[str, Any]:
+    """Create a new conversation session with proper initialization."""
     # Existing code...
 
 @mcp.tool()
 @traceable
-def transfer_to_itinerary_generator(reason: str) -> str:
-    """Transfer conversation to the Itinerary Generator agent."""
+def get_session_context(
+    session_id: str,
+    tenant_id: str,
+    user_id: str,
+) -> Dict[str, Any]:
+    """Retrieve conversation context (recent messages)."""
     # Existing code...
 
 @mcp.tool()
 @traceable
-def transfer_to_hotel(reason: str) -> str:
-    """Transfer conversation to the Hotel Agent."""
+def append_turn(
+    session_id: str,
+    tenant_id: str,
+    user_id: str,
+    role: str,
+    content: str,
+    tool_call: Optional[Dict] = None,
+    keywords: Optional[List[str]] = None,
+) -> Dict[str, Any]:
+    """Append a single message to a session's transcript."""
     # Existing code...
 
 @mcp.tool()
 @traceable
-def transfer_to_activity(reason: str) -> str:
-    """Transfer conversation to the Activity Agent."""
+def record_api_call(
+    session_id: str,
+    tenant_id: str,
+    provider: str,
+    operation: str,
+    request: Dict[str, Any],
+    response: Dict[str, Any],
+    keywords: Optional[List[str]] = None,
+) -> Dict[str, Any]:
+    """Store API event with auto-extracted keywords."""
     # Existing code...
 
 @mcp.tool()
 @traceable
-def transfer_to_dining(reason: str) -> str:
-    """Transfer conversation to the Dining Agent."""
-    # Existing code...
-
-@mcp.tool()
-@traceable
-def transfer_to_summarizer(reason: str) -> str:
-    """
-    Transfer conversation to the Summarizer agent.
+def search_user_threads(
+    user_id: str,
+    tenant_id: str,
+    query: str,
+    mode: str = "hybrid",
+    since: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    """Hybrid search across a user's conversation history."""
     # Existing code...
 ```
 
-**Note**: We add **@traceable** **below** the **@mcp.tool()** decorator. The **@mcp.tool()** decorator already tells LangSmith this is a tool, so we don't need to specify **run_type="tool"**.
+**Note**: We add **@traceable** **below** the **@mcp.tool()** decorator. The **@mcp.tool()** decorator registers the function as an MCP-callable tool; the LangSmith decorator wraps it so traces show the actual tool invocation.
 
-### Step 3: Add @traceable to Place Discovery Tool
+### Step 3: Add @traceable to Place Discovery Tools
 
-This tool searches for hotels, restaurants, and activities using hybrid retrieval:
+These tools run hybrid place search and end-to-end itinerary discovery. Note that `discover_itinerary` is `async` because it parallelizes hybrid Cosmos DB queries across aspects:
 
 ```python
 @mcp.tool()
@@ -297,14 +319,32 @@ def discover_places(
     user_id: str,
     tenant_id: str = "",
     filters: Optional[Dict[str, Any]] = None,
+    user_preference_vector: list[float] | None = None,
 ) -> List[Dict[str, Any]]:
     """Memory-aware place search with hybrid RRF retrieval."""
+    # Existing code...
+
+@mcp.tool()
+@traceable
+async def discover_itinerary(
+    geo_scope: str,
+    query: str,
+    user_id: str,
+    tenant_id: str = "",
+    aspects: Optional[List[str]] = None,
+    dietary: Optional[List[str]] = None,
+    accessibility: Optional[List[str]] = None,
+    price_tier: Optional[str] = None,
+    per_aspect_limit: int = 5,
+    user_preference_vector: list[float] | None = None,
+) -> Dict[str, List[Dict[str, Any]]]:
+    """Multi-aspect place discovery in a single MCP round-trip."""
     # Existing code...
 ```
 
 ### Step 4: Add @traceable to Trip Management Tools
 
-These tools create and manage user trip itineraries:
+These tools create and mutate user trip itineraries in Cosmos DB:
 
 ```python
 @mcp.tool()
@@ -318,7 +358,16 @@ def create_new_trip(
     days: Optional[List[Dict[str, Any]]] = None,
     trip_duration: Optional[int] = None
 ) -> Dict[str, Any]:
-    """Create a new trip itinerary."""
+    """Create a new trip itinerary and save it to the traveller's profile.
+
+    ``days`` is the day-by-day plan: a list of day objects. Each day is
+    ``{"dayNumber": 1, "date": "YYYY-MM-DD", "morning": {...}, "lunch": {...},
+    "afternoon": {...}, "dinner": {...}, "accommodation": {...}}``. Every slot
+    (morning / lunch / afternoon / dinner / accommodation) is a SINGLE object of the
+    form ``{"activity": str, "time": "HH:MM-HH:MM", "placeId": str, "notes": str}``
+    -- never a list, and use only those slot names (no ``"evening"``). ``activity``
+    is the display name; include ``placeId`` (from ``find_places``) when available.
+    """
     # Existing code...
 
 @mcp.tool()
@@ -343,121 +392,32 @@ def update_trip(
     # Existing code...
 ```
 
-### Step 5: Add @traceable to Session Management Tools
+### Step 5: Add @traceable to Memory Lifecycle Tools
 
-These tools manage conversation sessions:
-
-```python
-@mcp.tool()
-@traceable
-def create_session(
-    user_id: str,
-    tenant_id: str = "",
-    title: str = None,
-    activeAgent: str = "orchestrator"
-) -> Dict[str, Any]:
-    """Create a new conversation session."""
-    # Existing code...
-
-@mcp.tool()
-@traceable
-def get_session_context(
-    session_id: str,
-    tenant_id: str,
-    user_id: str,
-    include_summaries: bool = True
-) -> Dict[str, Any]:
-    """Retrieve conversation context (recent messages + summaries)."""
-    # Existing code...
-```
-
-### Step 6: Add @traceable to Memory Lifecycle Tools
-
-These tools handle preference extraction, conflict resolution, and memory storage:
+These tools sit on top of the Cosmos DB Agent Memory Toolkit. `add_turn` pushes a conversational turn into the memory pipeline, `recall_memories` performs hybrid retrieval over stored memories, and `get_user_summary` returns the rolling user summary:
 
 ```python
 @mcp.tool()
 @traceable
-def recall_memories(
+async def add_turn(user_id: str, thread_id: str, role: str, text: str) -> Dict[str, Any]:
+    """Persist a single conversational turn to long-term memory."""
+    # Existing code...
+
+@mcp.tool()
+@traceable
+async def recall_memories(
     user_id: str,
-    tenant_id: str,
     query: str,
-    min_salience: float = 0.0
+    thread_id: Optional[str] = None,
+    top_k: int = 10,
 ) -> List[Dict[str, Any]]:
-    """Smart hybrid retrieval of relevant memories."""
+    """Hybrid retrieval of relevant memories for a user."""
     # Existing code...
 
 @mcp.tool()
 @traceable
-def extract_preferences_from_message(
-    message: str,
-    role: str,
-    user_id: str,
-    tenant_id: str
-) -> Dict[str, Any]:
-    """Extract travel preferences from a user or assistant message using LLM."""
-    # Existing code...
-
-@mcp.tool()
-@traceable
-def resolve_memory_conflicts(
-    new_preferences: List[Dict[str, Any]],
-    user_id: str,
-    tenant_id: str
-) -> Dict[str, Any]:
-    """Resolve conflicts between new preferences and existing memories using LLM."""
-    # Existing code...
-
-@mcp.tool()
-@traceable
-def store_resolved_preferences(
-    resolutions: List[Dict[str, Any]],
-    user_id: str,
-    tenant_id: str,
-    justification: str
-) -> Dict[str, Any]:
-    """Store preferences that have been auto-resolved."""
-    # Existing code...
-```
-
-### Step 7: Add @traceable to Summarization Tools
-
-These tools manage automatic conversation summarization:
-
-```python
-@mcp.tool()
-@traceable
-def mark_span_summarized(
-    session_id: str,
-    tenant_id: str,
-    user_id: str,
-    summary_text: str,
-    span: Dict[str, str],
-    supersedes: List[str],
-    generate_embedding_flag: bool = True
-) -> Dict[str, Any]:
-    """Atomically create summary and set TTL on source messages."""
-    # Existing code...
-
-@mcp.tool()
-@traceable
-def get_summarizable_span(
-    session_id: str,
-    tenant_id: str,
-    user_id: str,
-    min_messages: int = 20,
-    retention_window: int = 10
-) -> Dict[str, Any]:
-    """Return message range suitable for summarization."""
-    # Existing code...
-
-@mcp.tool()
-@traceable
-def get_all_user_summaries(
-    user_id: str,
-    tenant_id: str
-) -> List[Dict[str, Any]]:
-    """Retrieve all conversation summaries for a user across all sessions."""
+async def get_user_summary(user_id: str) -> Optional[Dict[str, Any]]:
+    """Return the latest rolling user summary for a user, or None if not yet generated."""
     # Existing code...
 ```
 
@@ -546,112 +506,7 @@ def count_active_messages(
     # Existing code...
 ```
 
-### Step 4: Add @traceable to Summary Management Functions
-
-These functions manage conversation summaries:
-
-```python
-@traceable
-def create_summary(
-    session_id: str,
-    tenant_id: str,
-    user_id: str,
-    summary_text: str,
-    span: Dict[str, str],
-    summary_timestamp: str,
-    supersedes: Optional[List[str]] = None
-) -> str:
-    """Create a summary and mark messages as superseded."""
-    # Existing code...
-
-@traceable(run_type="retriever")
-def get_session_summaries(
-    session_id: str,
-    tenant_id: str,
-    user_id: str,
-) -> List[Dict[str, Any]]:
-    """Get summaries for a session"""
-    # Existing code...
-
-@traceable(run_type="retriever")
-def get_user_summaries(
-    user_id: str,
-    tenant_id: str,
-) -> List[Dict[str, Any]]:
-    """Get all summaries for a user across all sessions"""
-    # Existing code...
-```
-
-### Step 5: Add @traceable to Memory Management Functions
-
-These functions handle user preference storage and retrieval:
-
-```python
-@traceable
-def store_memory(
-    user_id: str,
-    tenant_id: str,
-    memory_type: str,
-    text: str,
-    facets: Dict[str, Any],
-    salience: float,
-    justification: str,
-    embedding: Optional[List[float]] = None
-) -> str:
-    """Store a user memory"""
-    # Existing code...
-
-@traceable
-def update_memory_last_used(
-    memory_id: str,
-    user_id: str,
-    tenant_id: str
-) -> None:
-    """Update the lastUsedAt timestamp for a memory when it's recalled/used"""
-    # Existing code...
-
-@traceable
-def supersede_memory(
-    memory_id: str,
-    user_id: str,
-    tenant_id: str,
-    superseded_by: str
-) -> bool:
-    """Mark a memory as superseded by a newer memory."""
-    # Existing code...
-
-@traceable
-def boost_memory_salience(
-    memory_id: str,
-    user_id: str,
-    tenant_id: str,
-    boost_amount: float = 0.05
-) -> Dict[str, Any]:
-    """Increase salience when a preference is confirmed or reinforced."""
-    # Existing code...
-
-@traceable(run_type="retriever")
-def query_memories(
-    user_id: str,
-    tenant_id: str,
-    query: str,
-    min_salience: float = 0.0,
-    include_superseded: bool = False
-) -> List[Dict[str, Any]]:
-    """Query memories for a user using semantic search."""
-    # Existing code...
-
-@traceable(run_type="retriever")
-def get_all_user_memories(
-    user_id: str,
-    tenant_id: str,
-    include_superseded: bool = False
-) -> List[Dict[str, Any]]:
-    """Get all memories for a user without any filtering."""
-    # Existing code...
-```
-
-### Step 6: Add @traceable to Place Discovery Functions
+### Step 4: Add @traceable to Place Discovery Functions
 
 These functions query the Places container:
 
@@ -694,7 +549,7 @@ def query_places_filtered(
     # Existing code...
 ```
 
-### Step 7: Add @traceable to Trip and User Management Functions
+### Step 5: Add @traceable to Trip and User Management Functions
 
 These functions manage trips and user profiles:
 
@@ -747,11 +602,11 @@ def get_user_by_id(user_id: str, tenant_id: str) -> Optional[Dict[str, Any]]:
 With database calls traced, you can now:
 
 ✅ **Measure query performance**: See which Cosmos DB queries are slow  
-✅ **Understand data flow**: What memories are recalled before each recommendation?  
-✅ **Debug retrieval issues**: Why did query_memories return 0 results?  
-✅ **Track summarization pipeline**: Count → Get messages → Create summary → Mark as summarized  
+✅ **Understand data flow**: What sessions, messages, and places are read before each recommendation?  
+✅ **Debug retrieval issues**: Why did `query_places_hybrid` return 0 results?  
+✅ **Track the message pipeline**: Append → Get session messages → Count active messages  
 ✅ **Optimize indexes**: Identify queries that need performance tuning  
-✅ **Monitor memory operations**: See when memories are stored, superseded, or boosted
+✅ **Monitor trip & user CRUD**: See when trips, users, and sessions are created or updated
 
 ---
 
@@ -779,7 +634,7 @@ You must be in **multi-agent-workshop\01_exercises** folder and then use the bel
 
 ```powershell
 cd multi-agent-workshop\01_exercises
-.\venv\Scripts\Activate.ps1
+.\.venv-travel\Scripts\Activate.ps1
 ```
 
 **Terminal 2 (Backend API):**
@@ -796,7 +651,7 @@ You must be in **multi-agent-workshop\01_exercises** folder and then use the bel
 
 ```powershell
 cd multi-agent-workshop\01_exercises
-.\venv\Scripts\Activate.ps1
+.\.venv-travel\Scripts\Activate.ps1
 ```
 
 **Terminal 3 (Frontend):**
@@ -843,7 +698,7 @@ Now, let's copy the sessionId and navigate back to the **Runs** tab. Click on fi
 - Continue the previous conversation.
 - Send: **Find me some hotels.**
 
-You should see a new run/trace. You can see in the trace that the app starts with the orchestrator agent, which extracts preferences from the user message. Clicking on the agent nodes and tool calls, you can check the complete stack trace of the multi agent app.
+You should see a new run/trace. You can see in the trace that the app starts at the supervisor, which decides to call the `find_places` tool. Clicking on each step, you can follow the full stack from supervisor → tool wrapper → MCP tool → Cosmos DB query.
 
 ![Test4](./media/Module-05/Test4.png)
 
@@ -859,7 +714,7 @@ You should see a new run/trace. You can see in the trace that the app starts wit
 | No traces in LangSmith       | Environment variables | Verify `LANGCHAIN_TRACING_V2=true` and API key is correct in `.env`               |
 | `@traceable` not found       | Imports               | Add `from langsmith import traceable` at top of file                              |
 | Traces missing tool calls    | MCP server            | Ensure `mcp_http_server.py` has `@traceable` on all tool functions                |
-| Agent routing not visible    | Agent nodes           | Add `@traceable(run_type="llm")` to all agent functions in `travel_agents.py`     |
+| Tool calls not visible       | Tool wrappers         | Add `@traceable` to the wrappers in `travel_agents.py` (below `@tool(...)`)       |
 | Database queries not showing | Database functions    | Add `@traceable(run_type="retriever")` to query functions in `azure_cosmos_db.py` |
 | Incomplete trace tree        | Async functions       | Ensure all async functions use `await` correctly                                  |
 | API key errors               | LangSmith account     | Regenerate API key in LangSmith settings and update `.env`                        |
@@ -868,11 +723,11 @@ You should see a new run/trace. You can see in the trace that the app starts wit
 ## Key Takeaways
 
 1. **@traceable decorator** automatically captures inputs, outputs, timing, and errors without manual logging
-2. **Nested traces** show the complete execution path from orchestrator → specialist → tools → database
+2. **Nested traces** show the complete execution path from supervisor → tool wrapper → MCP tool → Cosmos DB
 3. **Run types** (LLM, Tool, Retriever) help LangSmith render different components appropriately
-4. **Memory extraction chain** is now fully visible (extract → resolve → store → database)
+4. **Memory lifecycle** is now fully visible (recall via `recall_memories` → hybrid Cosmos DB retrieval → ranked results)
 5. **Performance bottlenecks** are easy to identify with timing data for each operation
-6. **Debugging is faster** when you can see exactly which agent made what decision and why
+6. **Debugging is faster** when you can see exactly which tool the supervisor chose and why
 
 ## LangSmith Use cases
 
@@ -886,4 +741,4 @@ With observability in place, you can:
 
 ## What's Next?
 
-Proceed to Module 06: **[Evaluating Your Multi-Agent Application](./Module-06.md)**
+Proceed to Module 06: **[Evaluating Your Multi-Agent Application](./Module-06.md#module-06---evaluating-your-multi-agent-application-bonus-module)**

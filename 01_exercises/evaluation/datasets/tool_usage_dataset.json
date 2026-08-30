@@ -1,36 +1,12 @@
 [
     {
         "inputs": {
-            "question": "I prefer budget hotels"
-        },
-        "outputs": {
-            "required_tools": [
-                "extract_preferences_from_message",
-                "resolve_memory_conflicts",
-                "store_resolved_preferences",
-                "transfer_to_hotel"
-            ]
-        }
-    },
-    {
-        "inputs": {
             "question": "Find hotels in Barcelona"
         },
         "outputs": {
             "required_tools": [
-                "transfer_to_hotel",
-                "recall_memories"
-            ]
-        }
-    },
-    {
-        "inputs": {
-            "question": "What are my dining preferences?"
-        },
-        "outputs": {
-            "required_tools": [
-                "transfer_to_dining",
-                "recall_memories"
+                "find_places",
+                "discover_places"
             ]
         }
     },
@@ -40,8 +16,34 @@
         },
         "outputs": {
             "required_tools": [
-                "transfer_to_itinerary_generator",
+                "create_or_update_itinerary",
                 "create_new_trip"
+            ]
+        }
+    },
+    {
+        "inputs": {
+            "question": "What are my hotel preferences?"
+        },
+        "outputs": {
+            "required_tools": [
+                "recall_memories"
+            ]
+        }
+    },
+    {
+        "inputs": {
+            "question": "Plan a Paris weekend with vegetarian dining options"
+        },
+        "outputs": {
+            "required_tools": [
+                "recall_memories",
+                "find_places"
+            ],
+            "optional_tools": [
+                "discover_places",
+                "discover_itinerary",
+                "create_or_update_itinerary"
             ]
         }
     }

@@ -1,0 +1,230 @@
+table 'TravelAssistant OptimizationPolicies'
+	lineageTag: da14a438-0029-494f-b4c0-3e65ba35efcb
+
+	measure 'Active Policies' = CALCULATE(COUNTROWS('TravelAssistant OptimizationPolicies'), 'TravelAssistant OptimizationPolicies'[status] = "active")
+		formatString: 0
+		lineageTag: ab879b63-cdef-4a56-ba55-2de44bf2c517
+
+	measure 'Latest Policy Change' = DATE(1970,1,1) + MAX('TravelAssistant OptimizationPolicies'[_ts]) / 86400.0
+		formatString: General Date
+		lineageTag: 5fe2d237-f65d-4c1c-8379-98d3847d65aa
+
+	measure 'Selected Apply Mode' = SELECTEDVALUE('TravelAssistant OptimizationPolicies'[apply_mode])
+
+	measure 'Apply Scenario' =
+			VAR _scenario = SELECTEDVALUE('TravelAssistant OptimizationPolicies'[scenario])
+			VAR _mode = [Selected Apply Mode]
+			RETURN IF(_scenario = "model-selection" || _mode IN {"policy", "auto"}, _scenario, BLANK())
+
+	measure 'Policy Status Display Measure' =
+			VAR _status = LOWER(MAX('TravelAssistant OptimizationPolicies'[status]))
+			RETURN
+			    SWITCH(
+			        _status,
+			        "active", "🟢 ACTIVE",
+			        "proposed", "🟡 PROPOSED",
+			        "reverted", "🟡 REVERTED",
+			        "deployed", "🟢 DEPLOYED",
+			        "dismissed", "⚪ DISMISSED",
+			        "⚪ " & UPPER(_status)
+			    )
+
+	measure 'Policy Version Label' = "v" & FORMAT(MAX('TravelAssistant OptimizationPolicies'[version]), "0")
+
+		annotation SummarizationSetBy = User
+
+	column _rid
+		dataType: string
+		isNullable: false
+		sourceProviderType: varchar(max)
+		lineageTag: 5c046875-ac08-4936-84d7-f9c150812e7c
+		summarizeBy: none
+		sourceColumn: _rid
+
+		annotation SummarizationSetBy = Automatic
+
+	column _ts
+		dataType: int64
+		formatString: 0
+		sourceProviderType: bigint
+		lineageTag: 66f79793-96d3-446f-bf3e-84fbb9be5a5a
+		summarizeBy: sum
+		sourceColumn: _ts
+
+		annotation SummarizationSetBy = Automatic
+
+	column 'Policy Updated' = ```
+			
+			VAR e    = 'TravelAssistant OptimizationPolicies'[updated_epoch]
+			VAR days = INT ( e / 86400 )
+			VAR sod  = e - days * 86400
+			RETURN ( DATE(1970,1,1) + days ) + TIME ( INT ( sod / 3600 ), INT ( MOD ( sod, 3600 ) / 60 ), MOD ( sod, 60 ) )
+			```
+		formatString: General Date
+		lineageTag: ccd7e3ee-fba0-4cbd-a7d8-5b3844f721da
+		summarizeBy: none
+
+		annotation SummarizationSetBy = Automatic
+
+	column id
+		dataType: string
+		sourceProviderType: varchar(max)
+		lineageTag: 7bda3432-b30a-4e18-83b6-c7a3ace8e557
+		summarizeBy: none
+		sourceColumn: id
+
+		annotation SummarizationSetBy = Automatic
+
+	column scenario
+		dataType: string
+		sourceProviderType: varchar(max)
+		lineageTag: 9f100f28-8929-4470-8ae2-a5a92e9c561c
+		summarizeBy: none
+		sourceColumn: scenario
+
+		annotation SummarizationSetBy = Automatic
+
+	column scenario_id
+		dataType: string
+		sourceProviderType: varchar(max)
+		lineageTag: 8c74872a-e8bd-46e2-b54e-3e7f4f4a4db6
+		summarizeBy: none
+		sourceColumn: scenario_id
+
+		annotation SummarizationSetBy = Automatic
+
+	column title
+		dataType: string
+		sourceProviderType: varchar(max)
+		lineageTag: 85ec6617-da01-4819-b7fe-4417e8eec0c8
+		summarizeBy: none
+		sourceColumn: title
+
+		annotation SummarizationSetBy = Automatic
+
+	column params
+		dataType: string
+		sourceProviderType: varchar(max)
+		lineageTag: 6cdaa3e1-309e-4e90-b485-a882253e38f2
+		summarizeBy: none
+		sourceColumn: params
+
+		annotation SummarizationSetBy = Automatic
+
+	column gate
+		dataType: string
+		sourceProviderType: varchar(max)
+		lineageTag: a3a04316-f8ff-49a8-9b8c-a6c6c6436259
+		summarizeBy: none
+		sourceColumn: gate
+
+		annotation SummarizationSetBy = Automatic
+
+	column proposed_by
+		dataType: string
+		sourceProviderType: varchar(max)
+		lineageTag: 31713fc1-b9d1-4463-813c-5e0c98c97077
+		summarizeBy: none
+		sourceColumn: proposed_by
+
+		annotation SummarizationSetBy = Automatic
+
+	column status
+		dataType: string
+		sourceProviderType: varchar(max)
+		lineageTag: 2e889c22-9714-4d2c-abc6-29635777943c
+		summarizeBy: none
+		sourceColumn: status
+
+		annotation SummarizationSetBy = Automatic
+
+	column version
+		dataType: double
+		sourceProviderType: float
+		lineageTag: d0ae4ef2-28db-49c3-aba2-c9cb701549b9
+		summarizeBy: sum
+		sourceColumn: version
+
+		annotation SummarizationSetBy = Automatic
+
+		annotation PBI_FormatHint = {"isGeneralNumber":true}
+
+	column audit
+		dataType: string
+		sourceProviderType: varchar(max)
+		lineageTag: d71aab7d-8d11-49ee-8c3b-0e0d8f854fdc
+		summarizeBy: none
+		sourceColumn: audit
+
+		annotation SummarizationSetBy = Automatic
+
+	column created_at
+		dataType: string
+		sourceProviderType: varchar(max)
+		lineageTag: db001139-50ed-4fe7-b09c-a67d96e327b4
+		summarizeBy: none
+		sourceColumn: created_at
+
+		annotation SummarizationSetBy = Automatic
+
+	column updated_at
+		dataType: string
+		sourceProviderType: varchar(max)
+		lineageTag: cccf370d-5f54-488a-8260-eaa96079e94b
+		summarizeBy: none
+		sourceColumn: updated_at
+
+		annotation SummarizationSetBy = Automatic
+
+	column created_epoch
+		dataType: double
+		sourceProviderType: float
+		lineageTag: 18e3c58a-b0db-4ae8-8218-5fa7db497a68
+		summarizeBy: sum
+		sourceColumn: created_epoch
+
+		annotation SummarizationSetBy = Automatic
+
+		annotation PBI_FormatHint = {"isGeneralNumber":true}
+
+	column updated_epoch
+		dataType: double
+		sourceProviderType: float
+		lineageTag: 8fd56c11-0585-437d-929b-e24df57d95e8
+		summarizeBy: sum
+		sourceColumn: updated_epoch
+
+		annotation SummarizationSetBy = Automatic
+
+		annotation PBI_FormatHint = {"isGeneralNumber":true}
+
+	column apply_mode
+		dataType: string
+		sourceProviderType: varchar(max)
+		lineageTag: 3b99a1c4-4c95-4405-a228-3cae69f4aa30
+		summarizeBy: none
+		sourceColumn: apply_mode
+
+		annotation SummarizationSetBy = Automatic
+
+	column proposed_change
+		dataType: string
+		sourceProviderType: varchar(max)
+		lineageTag: d9e3e0ad-c4c5-45c1-86dd-c9c720b1eb69
+		summarizeBy: none
+		sourceColumn: proposed_change
+
+		annotation SummarizationSetBy = Automatic
+
+	partition 'TravelAssistant OptimizationPolicies' = m
+		mode: directQuery
+		source =
+				let
+				    Source = Sql.Database(MirrorSQLEndpoint, MirrorDatabase),
+				    TravelAssistantV2_OptimizationPolicies = Source{[Schema="TravelAssistant",Item="OptimizationPolicies"]}[Data]
+				in
+				    TravelAssistantV2_OptimizationPolicies
+
+	annotation PBI_ResultType = Table
+
+	annotation PBI_NavigationStepName = Navigation

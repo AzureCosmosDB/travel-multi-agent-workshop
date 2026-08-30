@@ -1,0 +1,38 @@
+[
+  {
+    "id": "model-selection",
+    "scenario": "model-selection",
+    "scenario_id": "model-selection",
+    "title": "Capability-tiered model selection",
+    "params": {
+      "enabled": true,
+      "default_deployment": "gpt-5.1",
+      "complexity_tiers": {
+        "trivial": "gpt-5-nano",
+        "routine": "gpt-5-mini",
+        "complex": "gpt-5.1"
+      },
+      "classifier": {
+        "trivial_max_words": 6
+      }
+    },
+    "gate": {
+      "metric": "e2e_quality",
+      "threshold": 4.0
+    },
+    "proposed_by": "analytics",
+    "status": "proposed",
+    "version": 1,
+    "audit": [
+      {
+        "ts": "2026-07-11T19:17:44.144802+00:00",
+        "action": "proposed",
+        "by": "analytics"
+      }
+    ],
+    "created_at": "2026-07-11T19:17:44.144802+00:00",
+    "updated_at": "2026-07-11T19:17:44.144802+00:00",
+    "created_epoch": 1783797464,
+    "updated_epoch": 1783797464
+  }
+]

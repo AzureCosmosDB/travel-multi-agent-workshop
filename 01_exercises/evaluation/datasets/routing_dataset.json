@@ -4,7 +4,7 @@
             "question": "Find hotels in Barcelona"
         },
         "outputs": {
-            "expected_route": "hotel"
+            "expected_tool": "find_places"
         }
     },
     {
@@ -12,7 +12,23 @@
             "question": "Show me museums in London"
         },
         "outputs": {
-            "expected_route": "activity"
+            "expected_tool": "find_places"
+        }
+    },
+    {
+        "inputs": {
+            "question": "Where should I eat dinner in Rome?"
+        },
+        "outputs": {
+            "expected_tool": "find_places"
+        }
+    },
+    {
+        "inputs": {
+            "question": "Find me some activities in Tokyo"
+        },
+        "outputs": {
+            "expected_tool": "find_places"
         }
     },
     {
@@ -20,7 +36,7 @@
             "question": "Create a 3-day itinerary for Paris"
         },
         "outputs": {
-            "expected_route": "itinerary_generator"
+            "expected_tool": "create_or_update_itinerary"
         }
     },
     {
@@ -28,31 +44,23 @@
             "question": "What are my hotel preferences?"
         },
         "outputs": {
-            "expected_route": "hotel"
+            "expected_tool": "recall_memories"
         }
     },
     {
         "inputs": {
-            "question": "I prefer luxury hotels"
+            "question": "What are my dietary restrictions?"
         },
         "outputs": {
-            "expected_route": "orchestrator"
+            "expected_tool": "recall_memories"
         }
     },
     {
         "inputs": {
-            "question": "Find me some activities"
+            "question": "Hi, I'm planning a trip"
         },
         "outputs": {
-            "expected_route": "activity"
-        }
-    },
-    {
-        "inputs": {
-            "question": "Where should I eat dinner?"
-        },
-        "outputs": {
-            "expected_route": "dining"
+            "expected_tool": "none"
         }
     }
 ]

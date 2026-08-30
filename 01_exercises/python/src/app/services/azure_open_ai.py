@@ -2,22 +2,22 @@ import json
 import os
 import re
 import logging
-from typing import List
+from typing import List, Optional
 from azure.identity import DefaultAzureCredential, get_bearer_token_provider
 from langchain_openai import AzureChatOpenAI, AzureOpenAIEmbeddings
 from openai import AzureOpenAI
 from dotenv import load_dotenv
 
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 load_dotenv(override=False)
 
 # Azure OpenAI configuration
 AZURE_OPENAI_ENDPOINT = os.getenv("AZURE_OPENAI_ENDPOINT")
-AZURE_OPENAI_DEPLOYMENT = os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4o")
+AZURE_OPENAI_DEPLOYMENT = os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-5.1")
 AZURE_OPENAI_EMBEDDING_DEPLOYMENT = os.getenv("AZURE_OPENAI_EMBEDDING_DEPLOYMENT", "text-embedding-3-small")
-AZURE_OPENAI_API_VERSION = os.getenv("AZURE_OPENAI_API_VERSION", "2024-08-01-preview")
+AZURE_OPENAI_API_VERSION = os.getenv("AZURE_OPENAI_API_VERSION", "2025-04-01-preview")
 AZURE_OPENAI_API_KEY = os.getenv("AZURE_OPENAI_API_KEY")
 
 # Initialize Azure credential and token provider
@@ -31,16 +31,44 @@ token_provider = get_bearer_token_provider(
 # LangChain Models (for agents)
 # ============================================================================
 
-# Initialize LangChain Azure OpenAI chat model
-model = AzureChatOpenAI(
-    api_version=AZURE_OPENAI_API_VERSION,
-    azure_endpoint=AZURE_OPENAI_ENDPOINT,
-    azure_deployment=AZURE_OPENAI_DEPLOYMENT,
-    azure_ad_token_provider=token_provider,
-    temperature=0.7,
-    streaming=True,
-    max_retries=1
-)
+# gpt-5 / o-series are *reasoning* models: they reject a non-default
+# ``temperature`` and require a recent API version. gpt-5.1 is the default chat
+# model; we run it at reasoning_effort="low" to keep chat turns responsive.
+_REASONING_API_VERSION = "2025-04-01-preview"
+
+
+def _is_reasoning_deployment(deployment_name: str) -> bool:
+    name = (deployment_name or "").lower()
+    return name.startswith("gpt-5") or name.startswith("o1") or name.startswith("o3") or name.startswith("o4")
+
+
+def _build_chat_model(deployment_name: str) -> AzureChatOpenAI:
+    """Build an AzureChatOpenAI, adapting kwargs for reasoning vs classic models."""
+    kwargs: dict = dict(
+        azure_endpoint=AZURE_OPENAI_ENDPOINT,
+        azure_deployment=deployment_name,
+        azure_ad_token_provider=token_provider,
+        streaming=True,
+        # Heavy turns (e.g. itinerary generation) fire many sequential model
+        # calls; a low retry count lets a single transient connection/DNS blip
+        # fail the whole turn. Retry a few times with backoff for resilience.
+        max_retries=4,
+        # Emit a final usage chunk while streaming so LangChain aggregates real token
+        # counts into AIMessage.usage_metadata (otherwise usage is lost under streaming,
+        # which zeroes out the analytics token/cost measures).
+        model_kwargs={"stream_options": {"include_usage": True}},
+    )
+    if _is_reasoning_deployment(deployment_name):
+        kwargs["api_version"] = _REASONING_API_VERSION
+        kwargs["reasoning_effort"] = "low"
+    else:
+        kwargs["api_version"] = AZURE_OPENAI_API_VERSION
+        kwargs["temperature"] = 0.7
+    return AzureChatOpenAI(**kwargs)
+
+
+# Initialize LangChain Azure OpenAI chat model (default deployment)
+model = _build_chat_model(AZURE_OPENAI_DEPLOYMENT)
 
 # Initialize LangChain embeddings model
 embeddings_model = AzureOpenAIEmbeddings(
@@ -61,7 +89,7 @@ openai_client = AzureOpenAI(
     azure_ad_token_provider=token_provider,
 )
 
-logger.info(f"Azure OpenAI initialized")
+logger.info(f"✅ Azure OpenAI initialized")
 logger.info(f"   Endpoint: {AZURE_OPENAI_ENDPOINT}")
 logger.info(f"   Chat Model: {AZURE_OPENAI_DEPLOYMENT}")
 logger.info(f"   Embedding Model: {AZURE_OPENAI_EMBEDDING_DEPLOYMENT}")
@@ -74,6 +102,37 @@ logger.info(f"   Embedding Model: {AZURE_OPENAI_EMBEDDING_DEPLOYMENT}")
 def get_model():
     """Return the initialized Azure OpenAI chat model (LangChain)"""
     return model
+
+
+# ============================================================================
+# Tiered model factory (for policy-driven, capability-tiered model selection)
+# ============================================================================
+# model selection: an active optimization policy can route a turn to a cheaper model
+# (trivial turns) or a more capable one (complex turns). Each distinct Azure
+# deployment gets one lazily-built, cached AzureChatOpenAI instance here.
+# Reasoning-model handling lives in ``_build_chat_model`` above.
+
+_chat_model_cache: dict[str, AzureChatOpenAI] = {}
+
+
+def get_chat_model(deployment_name: Optional[str] = None) -> AzureChatOpenAI:
+    """Return a cached AzureChatOpenAI bound to a specific Azure deployment.
+
+    Falls back to the default shared ``model`` when no deployment is given or it
+    matches the app default, so callers that don't opt into tiering are unchanged.
+    """
+    if not deployment_name or deployment_name == AZURE_OPENAI_DEPLOYMENT:
+        return model
+
+    cached = _chat_model_cache.get(deployment_name)
+    if cached is not None:
+        return cached
+
+    tiered = _build_chat_model(deployment_name)
+    _chat_model_cache[deployment_name] = tiered
+    logger.info(f"✅ Tiered chat model ready: deployment={deployment_name} "
+                f"reasoning={_is_reasoning_deployment(deployment_name)}")
+    return tiered
 
 
 def get_embeddings_model():
@@ -104,6 +163,13 @@ def extract_keywords(text: str, max_keywords: int = 5) -> List[str]:
     """
     Extract keywords from text using simple NLP (no LLM call).
     Filters stopwords and returns the most meaningful terms.
+    
+    Args:
+        text: Text to extract keywords from
+        max_keywords: Maximum number of keywords to extract
+        
+    Returns:
+        List of keyword strings
     """
     try:
         words = re.findall(r"[a-zA-Z\-]{3,}", text.lower())
@@ -141,7 +207,7 @@ def generate_embedding(text: str) -> List[float]:
         response = openai_client.embeddings.create(
             input=text,
             model=AZURE_OPENAI_EMBEDDING_DEPLOYMENT,
-            dimensions=1024,
+            dimensions=1536,
         )
         json_response = response.model_dump_json(indent=2)
         parsed_response = json.loads(json_response)

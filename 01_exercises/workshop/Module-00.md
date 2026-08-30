@@ -1,6 +1,6 @@
 # Module 00 - Deployment and Setup
 
-**[< Home](./Home.md)** - **[Creating Your First Agent >](./Module-01.md)**
+**[< Home](./Home.md#build-a-multi-agent-workshop)** - **[Creating Your First Agent >](./Module-01.md#module-01---creating-your-first-agent)**
 
 ## Introduction
 
@@ -36,9 +36,11 @@ Before you begin, ensure you have:
 
 - Azure subscription with appropriate permissions to create resources
 - Azure tenant ID and subscription ID
+- [Azure CLI (az)](https://learn.microsoft.com/cli/azure/install-azure-cli) installed
 - [Azure Developer CLI (azd)](https://learn.microsoft.com/azure/developer/azure-developer-cli/install-azd) installed
-- Python 3.11 or higher installed
-- Node.js 18 or higher installed
+- [Python 3.11 or higher](https://www.python.org/downloads/) installed
+- [Node.js 18 or higher](https://nodejs.org/en/download/) installed
+- **Power BI Desktop** — **not required.** The web analytics portal is the recommended optimization surface. Module 09 also auto-deploys an optional Power BI report to your Fabric workspace; Desktop is only needed if you want to *rebuild or customize* that optional report (see [`analytics/powerbi/PowerBI_Optimization_Build_Guide.md`](../../analytics/powerbi/PowerBI_Optimization_Build_Guide.md)).
 
 ### Step 1: Get the repository and Navigate to the Workshop Directory
 
@@ -62,22 +64,25 @@ cd ~\travel-multi-agent-workshop\01_exercises
 
 ### Step 2: Configure Azure Authentication
 
-First, ensure you're logged out of any previous Azure sessions, then log in with your workshop credentials:
+Log in to **both** the Azure Developer CLI (used to provision resources) and the Azure CLI (used by the app and data-seeding scripts for local authentication). The commands are identical on macOS, Linux, and Windows:
 
 ```bash
+# Azure Developer CLI — used by azd up to provision
 azd auth logout
 azd auth login --tenant-id <TENANT_ID>
+
+# Azure CLI — used locally by DefaultAzureCredential (app + seed scripts)
+az logout
+az login --tenant <TENANT_ID>
 ```
 
 Replace `<TENANT_ID>` with your Azure tenant ID.
 
-> **Note:** A browser window will open for authentication. Complete the sign-in process.
+> **Note:** A browser window will open for each sign-in. Complete the sign-in process.
 
 ### Step 3: Set Environment Variables
 
-**MacOS**
-
-Configure your Azure subscription and tenant ID:
+Configure your Azure subscription and tenant ID (the same on all platforms):
 
 ```bash
 azd env set AZURE_SUBSCRIPTION_ID <SUBSCRIPTION_ID>
@@ -94,29 +99,34 @@ You'll be prompted for:
    - Use lowercase letters, numbers, and hyphens only
    - Must be globally unique
 
-
-**Windows**
-
-```bash
-az logout
-az login --tenant <TENANT_ID>
-```
-
 ### Step 4: Navigate to Infrastructure Directory
 
 Navigate to the infrastructure directory:
 
-**macOS/Linux:**
 ```bash
 cd infra
 ```
 
-**Windows (PowerShell):**
+### Step 5: Provision Azure Resources
+
+#### (Optional) Configure deployment flags
+
+All deployment options have sensible defaults — you can skip this section and just run `azd up`. To change one, set it **before** provisioning with `azd env set <NAME> <value>`:
+
+| Flag (env var) | Default | Effect |
+|---|---|---|
+| `deployAnalytics` (`DEPLOY_ANALYTICS`) | **true** | Provisions the analytics/optimization Cosmos containers (`OptimizationPolicies`, `OptimizationTurns`, `OptimizationInsights`, `Configuration`) **and the Microsoft Fabric F2 capacity** used by **Modules 07 (Analytics)**, **08 (Optimization)**, and **09 (Fabric Analytics & Reverse-ETL)**. Set `false` if you are not doing those modules, for a leaner, cheaper base deployment. |
+| `deployGsi` (`DEPLOY_GSI`) | **false** | Provisions an alternative **provisioned-throughput** Cosmos DB account with a `TripsByDestination` **global secondary index** and seeds ~25K trips — an optional demonstration of the provisioned-throughput + GSI scaling pattern. Not required by any module; leave `false` for the standard deployment. |
+| `deployHostedApp` (`DEPLOY_HOSTED_APP`) | **false** | Off by default — the workshop runs the app **locally** (see Activities 3–4). To deploy a hosted instance on Azure Container Apps instead: `azd env set DEPLOY_HOSTED_APP true`, **uncomment the `services:` block in `azure.yaml`**, then `azd up`. (The complete solution in `02_completed` ships with hosting enabled by default.) |
+
 ```powershell
-cd infra
+# Example: skip the analytics containers (not doing Modules 07-09)
+azd env set DEPLOY_ANALYTICS false
 ```
 
-### Step 5: Provision Azure Resources
+> **AI models & pricing:** `azd up` deploys `gpt-5.1`, `gpt-5-mini`, and `gpt-5-nano`, and seeds their token prices into the Cosmos `Configuration` container so the app, the web analytics portal, the Fabric notebook, and the optional Power BI report all cost turns off the same numbers. **If you change the deployed models, add the new model's price** to `python/data/model_pricing.json` — see **[analytics/docs/model-pricing.md](../../analytics/docs/model-pricing.md)** for the models used by default, the price format, and how to find a model's price.
+
+#### Run `azd up`
 
 Now, provision all required Azure resources:
 
@@ -126,7 +136,7 @@ azd up
 
 You'll be prompted for:
 
-1cd ... **Azure location**: Select a region (e.g., `eastus`, `westus2`, `westeurope`)
+1. **Azure location**: Select a region (e.g., `eastus`, `westus2`, `westeurope`)
    - Choose a region close to you for better performance
 
 ### What Happens During Provisioning?
@@ -134,15 +144,23 @@ You'll be prompted for:
 The `azd up` command will:
 
 ✅ Create an Azure resource group: rg-`EnvironmentName`  
-✅ Deploy Azure Cosmos DB with three containers (Users, Places, Memories)  
-✅ Deploy Azure OpenAI with GPT-4 and text-embedding-ada-002 models  
+✅ Deploy an Azure Cosmos DB account (`TravelAssistant` database) with all app containers:
+   - Core: `Sessions`, `Messages`, `ApiEvents`, `Users`, `Places`, `Trips`, `Debug`, `Checkpoints`
+   - Memory: `memories`, `memories_turns`, `memories_summaries`, `counter`
+   - Analytics (with `deployAnalytics`, on by default): `OptimizationPolicies`, `OptimizationTurns`, `OptimizationInsights`, `Configuration`
+   - GSI (only with `deployGsi`): `TripsByDestination`
+✅ Deploy an Azure AI Foundry (AIServices) account with the `gpt-5.1` chat model, `gpt-5-mini` and `gpt-5-nano` (optimization tiers), and `text-embedding-3-small` (1536-dim) embeddings  
 ✅ Configure managed identity and role assignments  
 ✅ Create a Python virtual environment (`.venv-travel`)  
 ✅ Install all Python dependencies from `requirements.txt`  
 ✅ Seed Cosmos DB with initial data:
-   - 4 users (Tony Stark, Steve Rogers, Peter Parker, Bruce Banner)
-   - ~2,900 places (hotels, restaurants, activities across multiple cities)
-   - 10 pre-existing memories
+   - 4 app users (the Marvel profiles: Tony Stark, Steve Rogers, Peter Parker, Bruce Banner)
+   - ~2,900 places (490 hotels, 977 restaurants, 1,470 activities across many cities)
+   - 5 trips, 14 long-term memories, and 28 memory turns
+   - Conversation history: 40 sessions and 642 messages
+   - Analytics/optimization baseline: 321 `Debug` turn logs (`marvel` 4 users + `analytics` 12 personas), ~292 `OptimizationTurns` **under `analytics` only**, and 1 `OptimizationPolicy`. `marvel` intentionally ships with **no** `OptimizationTurns` — you generate those yourself when you wire the capture hook in **Module 07**, so the portal starts from *your own* traffic.
+   - Module 09 conversion-funnel dataset: ~120 additional `analytics` sessions with `OptimizationTurns`, `Messages`, and `Trips` (this is why your `OptimizationTurns` / `Messages` / `Trips` totals appear higher than the per-tenant figures above)
+   - Model pricing + selection defaults in the `Configuration` container
 
 ### Expected Output
 
@@ -178,7 +196,7 @@ Seeding memories...
 ✅ Setup complete!
 ```
 
-**Provisioning typically takes 10-15 minutes.** The process creates all Azure resources and configures your local development environment.
+**Provisioning typically takes about 20 minutes.** The process creates all Azure resources and configures your local development environment.
 
 > **Note:** The Python virtual environment (`.venv-travel`) and environment files (`.env`) are created in the parent `01_exercises` directory, not in the `infra` folder.
 
@@ -186,14 +204,7 @@ Seeding memories...
 
 Once provisioning is complete, navigate back to the exercises directory and open the project in VS Code:
 
-**macOS/Linux:**
 ```bash
-cd ..
-code .
-```
-
-**Windows (PowerShell):**
-```powershell
 cd ..
 code .
 ```
@@ -238,7 +249,7 @@ Your screen should look like this:
 In the **Overview** tab of your resource group, you should see the following resources:
 
 - **Azure Cosmos DB account** (starts with `cosmos-`)
-- **Azure OpenAI service** (starts with `aoai-`)
+- **Azure AI Foundry (AIServices) account** (starts with `foundry-`)
 - **User Assigned Managed Identity** (starts with `id-`)
 - **Application Insights** (optional, starts with `appi-`)
 
@@ -599,28 +610,19 @@ Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
 1. Activate the virtual environment (see above)
 2. Navigate to the python directory and run the seed script:
 
-   **macOS/Linux:**
    ```bash
    cd python
    python data/seed_data.py
    cd ..
    ```
-   
-   **Windows:**
-   ```powershell
-   cd python
-   python data\seed_data.py
-   cd ..
-   ```
 
 ### Issue: Authentication Error When Seeding Data
 
-**Solution**: Verify your `.env` file configuration:
+**Solution**: The workshop uses **keyless** authentication (Microsoft Entra ID via `DefaultAzureCredential`) — there is no Cosmos key to set. Check the following:
 
-- Check `python/.env` exists and contains `COSMOSDB_ENDPOINT`
-- On Windows, verify `COSMOS_KEY` is present
-- Ensure the values match your Azure Cosmos DB account
-- Try logging in to Azure again: `azd auth login`
+- `python/.env` exists and contains `COSMOSDB_ENDPOINT`, and the endpoint matches your Azure Cosmos DB account
+- You're signed in with `az login` — the seed script authenticates through the Azure CLI credential (re-run `azd auth login` too if needed)
+- Your account has data-plane access — the deployment grants the **Cosmos DB Built-in Data Contributor** role to the deploying user
 
 ### Issue: API Server Won't Start
 
@@ -688,7 +690,7 @@ Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
 Congratulations! You've successfully:
 
 - Configured Azure authentication using Azure Developer CLI
-- Provisioned Azure resources (Cosmos DB, Azure OpenAI, and supporting services)
+- Provisioned Azure resources (Cosmos DB, Azure AI Foundry, and supporting services)
 - Verified resources in the Azure Portal
 - Automatically created a Python virtual environment (`.venv-travel`)
 - Installed dependencies and seeded Cosmos DB with users, places, and memories
@@ -699,4 +701,4 @@ Congratulations! You've successfully:
 
 With your environment set up and verified, you're ready to start building your first agent!
 
-**Next**: [Module 01 - Creating Your First Agent](./Module-01.md)
+**Next**: [Module 01 - Creating Your First Agent](./Module-01.md#module-01---creating-your-first-agent)

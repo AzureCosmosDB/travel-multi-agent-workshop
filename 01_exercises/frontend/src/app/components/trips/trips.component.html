@@ -48,6 +48,13 @@
         >
           View Details
         </button>
+        <button
+          *ngIf="trip.status === 'planning'"
+          (click)="confirmTrip(trip); $event.stopPropagation()"
+          class="px-3 py-2 rounded-xl border border-green-300 text-green-700 hover:bg-green-50 transition text-sm"
+        >
+          Confirm
+        </button>
         <button 
           (click)="deleteTrip(trip); $event.stopPropagation()"
           class="px-3 py-2 rounded-xl border border-red-300 text-red-600 hover:bg-red-50 transition text-sm"

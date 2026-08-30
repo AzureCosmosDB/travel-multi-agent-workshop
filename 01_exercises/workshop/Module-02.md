@@ -1,619 +1,747 @@
-# Module 02 - Agent Specialization
+# Module 02 - Specialized Sub-Agent Tools
 
-**[< Creating Your First Agent](./Module-01.md)** - **[Adding Memory to our Agents >](./Module-03.md)**
+[← Module 01: Creating Your First Agent](./Module-01.md#module-01---creating-your-first-agent) | [Home](./Home.md#build-a-multi-agent-workshop) | [Module 03: Adding Memory →](./Module-03.md#module-03---adding-memory-with-the-cosmos-db-agent-memory-toolkit)
+
+---
 
 ## Introduction
 
-In Module 01, you built the foundation of your multi-agent system with an orchestrator and itinerary generator. Now it's time to add specialized domain experts that can help users discover specific types of travel recommendations.
+In Module 01 you built a supervisor that talks to the user, calls a few MCP tools directly, and writes turns back to the session container. That's enough for a chatty agent - but it's not enough for a travel agent.
 
-In this module, you'll implement three specialized agents, each with its own expertise, tools, and decision-making capabilities. The **Hotel Agent** will search accommodations, the **Dining Agent** will discover restaurants, and the **Activity Agent** will recommend attractions and experiences. Each agent will use Azure Cosmos DB's vector and hybrid search capabilities to find semantically relevant recommendations based on user preferences.
+The moment a traveller says *"Plan me a vegetarian 3-day trip to Tokyo with a hotel near Shinjuku, two activities a day, and dinner reservations,"* the supervisor needs to:
 
-By the end of this module, you'll have a complete multi-agent ecosystem where the orchestrator intelligently routes requests to the appropriate specialist, and the itinerary generator can synthesize all recommendations into comprehensive trip plans.
+- run a **multi-aspect place search** (hotel + activity + dining) using vector + full-text scores
+- compose a **structured itinerary** with day-by-day slots and place IDs
+- write the trip back to Cosmos DB through the existing MCP `create_new_trip` / `update_trip` tools
+
+You don't want the supervisor doing all of that in one giant prompt - each of those jobs needs its own focused instructions, its own model bind, and its own tool surface. So we'll add two **specialized sub-agents** that the supervisor invokes as if they were tools:
+
+1. **`find_places`** - a one-shot selector that wraps the MCP `discover_places` / `discover_itinerary` tools. It owns the prompt that tells the model how to translate constraints into a hybrid-search call.
+2. **`create_or_update_itinerary`** - a full ReAct sub-agent that owns the prompt for building/updating trip JSON, with access to the MCP `create_new_trip`, `update_trip`, and `get_trip_details` tools.
+
+This is the *agent-as-a-tool* pattern: the supervisor doesn't know about prompts or model bindings - it just knows it has two tools called `find_places` and `create_or_update_itinerary`, with typed Pydantic inputs.
+
+---
 
 ## Learning Objectives and Activities
 
-- Implement three specialized agents with domain-specific expertise
-- Distribute tools strategically across agents
-- Configure Azure Cosmos DB vector and hybrid search for semantic place discovery
-- Design agent-to-agent handoff patterns
-- Test the complete workflow from search to itinerary generation
+By the end of this module you will:
+
+- Understand the **sub-agent-as-tool** pattern and why it beats a single mega-prompt
+- Use **Pydantic schemas** as the contract between the supervisor and a sub-agent
+- Run a **hybrid RRF search** (vector + full-text) against the `places` container through MCP
+- Force a **single tool call per dispatch** with `bind_tools(..., tool_choice="required")`
+- Enable **parallel tool calls** on the supervisor so it can fan out searches for multiple aspects
+- Break `setup_agents()` into named helpers so the file stays readable as it grows
+
+---
 
 ## Module Exercises
 
-1. [Activity 1: Creating Specialized Agents](#activity-1-creating-specialized-agents)
-2. [Activity 2: Adding Agent MCP Tools](#activity-2-adding-agent-mcp-tools)
-3. [Activity 3: Integrating Tools With Agents](#activity-3-integrating-tools-with-agents)
-4. [Activity 4: Test Your Work](#activity-4-test-your-work)
+1. [Activity 1: Extend the agent file with the sub-agent toolkit](#activity-1-extend-the-agent-file-with-the-sub-agent-toolkit)
+2. [Activity 2: Build the `find_places` sub-agent (one-shot selector)](#activity-2-build-the-find_places-sub-agent-one-shot-selector)
+3. [Activity 3: Build the `create_or_update_itinerary` sub-agent](#activity-3-build-the-create_or_update_itinerary-sub-agent)
+4. [Activity 4: Author `itinerary_agent.prompty`](#activity-4-author-itinerary_agentprompty)
+5. [Activity 5: Plug both sub-agents into `setup_agents`](#activity-5-plug-both-sub-agents-into-setup_agents)
+6. [Activity 6: Update `supervisor.prompty` for the new tools](#activity-6-update-supervisorprompty-for-the-new-tools)
+7. [Activity 7: Add place discovery and trip management tools to the MCP server](#activity-7-add-place-discovery-and-trip-management-tools-to-the-mcp-server)
+8. [Activity 8: Test your work](#activity-8-test-your-work)
 
-## Activity 1: Creating Specialized Agents
+---
 
-### Why Specialization Matters
+## Activity 1: Extend the agent file with the sub-agent toolkit
 
-In a multi-agent system, specialization enables:
+Module 01 left you with a tidy `travel_agents.py` that wires the supervisor to the bookkeeping MCP tools. To build sub-agents you need a handful of new imports, two shared helpers, the Pydantic schemas the sub-agents will use as their contract, and a few new module-level variables.
 
-- **Domain Expertise**: Each agent focuses on one area and becomes highly effective at it
-- **Parallel Development**: Teams can work on different agents independently
-- **Maintainability**: Changes to hotel search logic don't affect restaurant recommendations
-- **Scalability**: Add new agent types without rewriting existing ones
-- **Clear Responsibility**: Users and developers know exactly what each agent does
+Open `01_exercises/python/src/app/travel_agents.py`.
 
-### Define the New Agents
+### Step 1: Extend the imports
 
-To begin, open the **travel_agents.py** file.
-
-Locate the below code:
+Find the import block near the top of the file. Replace the `from typing import Any` line and the LangChain / LangGraph block so the imports look like this:
 
 ```python
-# Global agent variables
-orchestrator_agent = None
-itinerary_generator_agent = None
+import inspect
+import json
+import logging
+import os
+import sys
+from contextvars import ContextVar
+from typing import Any, Literal
+
+from dotenv import load_dotenv
+
+# Make the project root importable so `from src.app.services...` works
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+
+load_dotenv(override=False)
+
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+from langchain_core.runnables import RunnableConfig
+from langchain_core.tools import tool
+from langchain_mcp_adapters.client import MultiServerMCPClient
+from langchain_mcp_adapters.tools import load_mcp_tools
+from langgraph.checkpoint.memory import MemorySaver
+from langgraph.prebuilt import create_react_agent
+from pydantic import BaseModel, Field
+
+from src.app.services.azure_open_ai import model
 ```
 
-Update it with the below code:
+### Step 2: Add the supervisor's "parallel tool calls" binding helper
+
+Below your existing helpers (next to `load_prompt` / `filter_tools_by_prefix` / `_create_agent`), add:
 
 ```python
-# Global agent variables
-orchestrator_agent = None
-hotel_agent = None
-activity_agent = None
-dining_agent = None
-itinerary_generator_agent = None
-```
-
-Locate the line **global orchestrator_agent**, and update it with the code below:
-
-```python
-global orchestrator_agent, hotel_agent, activity_agent, dining_agent
-```
-
-Locate the line that defines the **itinerary_generator_tools**, and paste the following code below.
-
-```python
-hotel_tools = []
-
-activity_tools = []
-
-dining_tools = []
-```
-
-Locate the line that defines the **itinerary_generator_agent**, and paste the following code below.
-
-```python
-hotel_agent = create_react_agent(
-        model,
-        hotel_tools,
-        state_modifier=load_prompt("hotel_agent")
-    )
-
-activity_agent = create_react_agent(
-    model,
-    activity_tools,
-    state_modifier=load_prompt("activity_agent")
-)
-
-dining_agent = create_react_agent(
-    model,
-    dining_tools,
-    state_modifier=load_prompt("dining_agent")
-)
-```
-
-### Define the New Functions
-
-We also need to add calling functions for the two new agents.
-
-First we will add the necessary imports required. Find this import **from langchain_core.messages import AIMessage** and update it with the code below.
-
-```python
-from langchain_core.messages import AIMessage, SystemMessage, ToolMessage
-from datetime import datetime, UTC
-```
-
-Now, find this line **PROMPT_DIR = os.path.join(os.path.dirname(__file__), 'prompts')** and add this import below it.
-
-```python
-from src.app.services.azure_cosmos_db import patch_active_agent, sessions_container, update_session_container
-```
-
-1. Locate the function, **async def call_itinerary_generator_agent**.
-2. Below this function, paste three new functions.
-
-```python
-async def call_hotel_agent(state: MessagesState, config) -> Command[
-    Literal["hotel", "itinerary_generator", "orchestrator", "human"]]:
-    """
-    Hotel Agent: Searches accommodations and stores hotel preferences.
-    """
-    thread_id = config["configurable"].get("thread_id", "UNKNOWN_THREAD_ID")
-    user_id = config["configurable"].get("userId", "UNKNOWN_USER_ID")
-    tenant_id = config["configurable"].get("tenantId", "UNKNOWN_TENANT_ID")
-
-    # Patch active agent in database
-    if local_interactive_mode:
-        patch_active_agent(tenant_id or "cli-test", user_id or "cli-test", thread_id, "hotel_agent")
-
-    # Add context about available parameters
-    state["messages"].append(SystemMessage(
-        content=f"If tool to be called requires tenantId='{tenant_id}', userId='{user_id}', session_id='{thread_id}', include these in the JSON parameters when invoking the tool. Do not ask the user for them."
-    ))
-
-    response = await hotel_agent.ainvoke(state, config)
-    return Command(update=response, goto="human")
-
-
-async def call_activity_agent(state: MessagesState, config) -> Command[
-    Literal["activity", "itinerary_generator", "orchestrator", "human"]]:
-    """
-    Activity Agent: Searches attractions and stores activity preferences.
-    """
-    thread_id = config["configurable"].get("thread_id", "UNKNOWN_THREAD_ID")
-    user_id = config["configurable"].get("userId", "UNKNOWN_USER_ID")
-    tenant_id = config["configurable"].get("tenantId", "UNKNOWN_TENANT_ID")
-
-    # Patch active agent in database
-    if local_interactive_mode:
-        patch_active_agent(tenant_id or "cli-test", user_id or "cli-test", thread_id, "activity_agent")
-
-    # Add context about available parameters
-    state["messages"].append(SystemMessage(
-        content=f"If tool to be called requires tenantId='{tenant_id}', userId='{user_id}', session_id='{thread_id}', include these in the JSON parameters when invoking the tool. Do not ask the user for them."
-    ))
-
-    response = await activity_agent.ainvoke(state, config)
-    return Command(update=response, goto="human")
-
-
-async def call_dining_agent(state: MessagesState, config) -> Command[
-    Literal["dining", "itinerary_generator", "orchestrator", "human"]]:
-    """
-    Dining Agent: Searches restaurants and stores dining preferences.
-    """
-    thread_id = config["configurable"].get("thread_id", "UNKNOWN_THREAD_ID")
-    user_id = config["configurable"].get("userId", "UNKNOWN_USER_ID")
-    tenant_id = config["configurable"].get("tenantId", "UNKNOWN_TENANT_ID")
-
-    # Patch active agent in database
-    if local_interactive_mode:
-        patch_active_agent(tenant_id or "cli-test", user_id or "cli-test", thread_id, "dining_agent")
-
-    # Add context about available parameters
-    state["messages"].append(SystemMessage(
-        content=f"If tool to be called requires tenantId='{tenant_id}', userId='{user_id}', session_id='{thread_id}', include these in the JSON parameters when invoking the tool. Do not ask the user for them."
-    ))
-
-    response = await dining_agent.ainvoke(state, config)
-    return Command(update=response, goto="human")
-```
-
-Now, let's update our previous two agents as well that we created in Module 1.
-
-Find **async def call_orchestrator_agent** and update the method with the below code.
-
-```python
-async def call_orchestrator_agent(state: MessagesState, config) -> Command[Literal["orchestrator", "human"]]:
-    """
-    Orchestrator agent: Routes requests using transfer_to_ tools.
-    Checks for active agent and routes directly if found.
-    Stores every message in database.
-    """
-    thread_id = config["configurable"].get("thread_id", "UNKNOWN_THREAD_ID")
-    user_id = config["configurable"].get("userId", "UNKNOWN_USER_ID")
-    tenant_id = config["configurable"].get("tenantId", "UNKNOWN_TENANT_ID")
-
-    # Add context about available parameters
-    state["messages"].append(SystemMessage(
-        content=f"If tool to be called requires tenantId='{tenant_id}', userId='{user_id}', session_id='{thread_id}', include these in the JSON parameters when invoking the tool. Do not ask the user for them."
-    ))
-
-    # Check for active agent in database
+def _bind_parallel_tool_calls(base_model: Any) -> Any:
+    """Allow the supervisor to fire multiple tool calls in one turn when supported."""
     try:
-        logging.info(f"Looking up active agent for thread {thread_id}")
-        session_doc = sessions_container.read_item(
-            item=thread_id,
-            partition_key=[tenant_id, user_id, thread_id]
-        )
-        activeAgent = session_doc.get('activeAgent', 'unknown')
-    except Exception as e:
-        logger.debug(f"No active agent found: {e}")
-        activeAgent = None
-
-    # Initialize session if needed (for local testing)
-    if activeAgent is None:
-        update_session_container({
-            "id": thread_id,
-            "sessionId": thread_id,
-            "tenantId": tenant_id,
-            "userId": user_id,
-            "title": "New Conversation",
-            "createdAt": datetime.now(UTC).isoformat(),
-            "lastActivityAt": datetime.now(UTC).isoformat(),
-            "status": "active",
-            "messageCount": 0
-        })
-
-    logger.info(f"Active agent from DB: {activeAgent}")
-
-    # Always call orchestrator to analyze the message and decide routing
-    # Don't blindly route to the last active agent - user's request may have changed
-    response = await orchestrator_agent.ainvoke(state, config)
-    return Command(update=response, goto="human")
+        return base_model.bind(parallel_tool_calls=True)
+    except Exception:
+        return base_model
 ```
 
-Find **async def call_itinerary_generator_agent**, and update the method with the code below.
+### Step 3: Add the shared sub-agent helpers
+
+Below `_bind_parallel_tool_calls`, add the two helpers every sub-agent will reuse:
 
 ```python
-async def call_itinerary_generator_agent(state: MessagesState, config) -> Command[
-    Literal["itinerary_generator", "orchestrator", "human"]]:
-    """
-    Itinerary Generator: Synthesizes all gathered info into day-by-day plan.
-    """
-    thread_id = config["configurable"].get("thread_id", "UNKNOWN_THREAD_ID")
-    user_id = config["configurable"].get("userId", "UNKNOWN_USER_ID")
-    tenant_id = config["configurable"].get("tenantId", "UNKNOWN_TENANT_ID")
+def _last_message_content(result: Any) -> str:
+    """Return compact text from the last message produced by a sub-agent."""
+    if isinstance(result, dict) and result.get("messages"):
+        content = getattr(result["messages"][-1], "content", None)
+        if content is not None:
+            return str(content)
+    return str(result)
 
-    logger.info("📋 Itinerary Generator synthesizing plan...")
 
-    # Patch active agent in database
-    if local_interactive_mode:
-        patch_active_agent(tenant_id or "cli-test", user_id or "cli-test", thread_id, "itinerary_generator_agent")
+def _subagent_config(config: RunnableConfig, agent_name: str) -> RunnableConfig:
+    """Preserve request configuration while tagging internal sub-agent calls."""
+    inherited = dict(config or {})
+    configurable = dict(inherited.get("configurable", {}) or {})
+    metadata = dict(inherited.get("metadata", {}) or {})
+    metadata["sub_agent"] = agent_name
+    inherited["configurable"] = configurable
+    inherited["metadata"] = metadata
+    return inherited
 
-    # Add context about available parameters
-    state["messages"].append(SystemMessage(
-        content=f"If tool to be called requires tenantId='{tenant_id}', userId='{user_id}', session_id='{thread_id}', include these in the JSON parameters when invoking the tool. Do not ask the user for them."
-    ))
 
-    response = await itinerary_generator_agent.ainvoke(state, config)
-    return Command(update=response, goto="human")
+# The itinerary sub-agent is a ReAct agent whose model fills in tool arguments.
+# Left to its own devices it guesses user_id / tenant_id (e.g. the literal
+# "user"), so trips would be saved under the wrong partition key. This ContextVar
+# plus the wrappers below force the real request identity onto the trip tools.
+_current_identity: ContextVar[dict[str, str] | None] = ContextVar(
+    "current_identity", default=None
+)
+
+_IDENTITY_TRIP_TOOLS = ("create_new_trip", "update_trip", "get_trip_details")
+
+
+def _wrap_trip_tool(mcp_tool: Any) -> Any:
+    """Force the request-scoped user_id / tenant_id onto a trip MCP call."""
+    description = getattr(mcp_tool, "description", None) or "Trip tool."
+    args_schema = getattr(mcp_tool, "args_schema", None)
+    tool_name = getattr(mcp_tool, "name", "trip_tool")
+
+    async def trip_tool_with_identity(config: RunnableConfig, **kwargs: Any) -> Any:
+        identity = _current_identity.get() or {}
+        if identity.get("user_id"):
+            kwargs["user_id"] = identity["user_id"]
+        if identity.get("tenant_id"):
+            kwargs["tenant_id"] = identity["tenant_id"]
+        return await mcp_tool.ainvoke(kwargs, config=config)
+
+    trip_tool_with_identity.__name__ = tool_name
+    trip_tool_with_identity.__doc__ = description
+    return tool(tool_name, args_schema=args_schema, description=description)(
+        trip_tool_with_identity
+    )
+
+
+def _with_identity_injection(tools: list[Any]) -> list[Any]:
+    """Wrap trip tools so they use the request identity, not an LLM-supplied one."""
+    return [
+        _wrap_trip_tool(mcp_tool)
+        if getattr(mcp_tool, "name", "") in _IDENTITY_TRIP_TOOLS
+        else mcp_tool
+        for mcp_tool in tools
+    ]
 ```
 
-### Update the Workflow
+`_last_message_content` pulls the human-readable response out of a LangGraph state dict - sub-agents return their final `AIMessage`, and the supervisor wants the string. `_subagent_config` forwards `user_id`, `thread_id`, and other request scoping into every nested invocation, and tags the run with a `sub_agent` metadata field so traces are easy to read.
 
-We need to add these agents as nodes in the graph with their calling functions.
+The `_current_identity` ContextVar and the `_wrap_trip_tool` / `_with_identity_injection` helpers solve a subtle but important problem. The itinerary sub-agent (Activity 3) is a ReAct agent, so **its model chooses the arguments** for the trip tools - including `user_id` and `tenant_id`. Left unconstrained it will guess, often sending a placeholder like `"user"`, and the trip is then saved under the wrong partition key (so the real user never sees it). Wrapping the trip tools lets us set the true identity once per request (in Activity 3) and have the wrapper overwrite whatever the model supplied. We plug these wrappers in during Activity 5.
 
-1. Locate the **def build_agent_graph** method further below in the file.
-2. Add these three lines to **StateGraph** builder after this line **builder.add_node("orchestrator", call_orchestrator_agent)**.
+### Step 4: Add the Pydantic input schemas
+
+`@tool` decorators use Pydantic models as their input schema. This gives the supervisor's model a strict contract: it sees exactly which fields are required and how they're shaped.
+
+Below the helpers, add both schemas:
 
 ```python
-builder.add_node("hotel", call_hotel_agent)
-builder.add_node("activity", call_activity_agent)
-builder.add_node("dining", call_dining_agent)
+class FindPlacesInput(BaseModel):
+    city: str = Field(..., description="City to search")
+    aspects: list[Literal["hotel", "activity", "dining"]] = Field(
+        ...,
+        description=(
+            "Which categories of places to search; pass all needed aspects at once "
+            "for parallel fan-out"
+        ),
+    )
+    constraints: dict[str, Any] | None = Field(
+        default=None,
+        description="Optional constraints, e.g., {'dietary':'vegan','budget':'moderate'}",
+    )
+    user_preference_vector: list[float] | None = Field(
+        default=None,
+        description=(
+            "Optional preference embedding for personalized RRF; usually injected by "
+            "runtime config rather than model-visible text"
+        ),
+    )
+
+
+class ItineraryInput(BaseModel):
+    trip_id: str | None = Field(
+        default=None,
+        description="Existing trip id to update; omit or null to create a new trip",
+    )
+    destination: str | None = Field(
+        default=None,
+        description="Destination city or region for the itinerary",
+    )
+    days: list[dict[str, Any]] | str | None = Field(
+        default=None,
+        description="Requested day plans, duration, or structured day-by-day content",
+    )
+    selected_places: dict[str, Any] | list[dict[str, Any]] | str | None = Field(
+        default=None,
+        description="Selected hotel, activity, and dining options to arrange",
+    )
+    constraints: dict[str, Any] | None = Field(
+        default=None,
+        description="Traveller constraints and planning preferences",
+    )
+    dates: dict[str, Any] | str | None = Field(
+        default=None,
+        description="Optional trip dates or date range",
+    )
+    notes: str | None = Field(
+        default=None,
+        description="Additional update instructions or planning notes",
+    )
 ```
 
-Next, we need to add conditional edges between nodes to enable dynamic agent routing based on tool responses.
+A few things to call out:
 
-Above the **def build_agent_graph** function, add the below funcion:
+- **`aspects` is a `Literal` union** - the model literally cannot send `"hotels"` (plural) or `"restaurants"`. It must send one of three exact strings.
+- **`constraints` is free-form `dict[str, Any]`** - the supervisor doesn't need to enumerate every possible filter. We document the supported keys and forward whatever it sends.
+- **`user_preference_vector` is the hook Module 04 uses for personalisation** - define it up front so we don't have to change the schema later.
+- **`ItineraryInput.days` is permissive** - it can be a number (e.g., `3` rendered as a string), a string description, or a fully structured list. The sub-agent's prompt teaches the model to normalise it.
+
+### Step 5: Extend the module-level state
+
+Find the module-level globals block from Module 01 (the one with `_mcp_client`, `_session_context`, `_persistent_session`, `_mcp_session_tools`, `supervisor_agent`).
+
+Replace it with this expanded version:
 
 ```python
-def get_active_agent(state: MessagesState, config) -> str:
+# Module-level state that is populated by setup_agents() below
+_mcp_client: MultiServerMCPClient | None = None
+_session_context = None
+_persistent_session = None
+
+# MCP tool subsets loaded once during startup
+_mcp_session_tools: list[Any] = []
+_mcp_find_places_tools: list[Any] = []
+_mcp_itinerary_tools: list[Any] = []
+
+# Global agent variables
+_find_places_agent: Any = None        # one-shot selector; no ReAct loop, stays None
+_itinerary_agent: Any = None          # ReAct sub-agent populated in _build_sub_agents()
+supervisor_agent: Any = None
+```
+
+The four new variables let each sub-agent keep its own subset of MCP tools, and let the supervisor's `@tool` wrappers reach the ReAct agents they delegate to.
+
+---
+
+## Activity 2: Build the `find_places` sub-agent (one-shot selector)
+
+The first sub-agent is intentionally lightweight: it does **one** model call with `tool_choice="required"`, executes whichever MCP tool the model picks, and returns the raw structured result. No ReAct loop, no "decide → format → answer" sequence - the supervisor handles all of the user-facing prose.
+
+### Step 1: Add the selector prompt
+
+Below the `ItineraryInput` schema you just added, add the inline selector prompt:
+
+```python
+_FIND_PLACES_SELECTOR_PROMPT = (
+    "You translate the supervisor's structured place-search request into ONE tool call. "
+    "Rules:\n"
+    "- For 2 or 3 aspects, call `discover_itinerary` once with `aspects` set to the requested aspects.\n"
+    "- For exactly 1 aspect, call `discover_places` with `filters={\"type\": <aspect>}`.\n"
+    "- Aspect names in tool args MUST be: 'hotel', 'activity', 'restaurant'. Map any 'dining' aspect to 'restaurant'.\n"
+    "- `geo_scope` = the city.\n"
+    "- Derive a short `query` (under 20 words) from the constraints: interests, vibe, dietary, budget, accessibility.\n"
+    "- Always pass `user_id` and `tenant_id` exactly as given.\n"
+    "- NEVER include `user_preference_vector` in tool args; the runtime injects it.\n"
+    "- Output ONLY the tool call. No prose."
+)
+```
+
+We inline this prompt instead of putting it in a `.prompty` file because it's pure plumbing - the user never sees it, nobody on the workshop floor will want to tweak it mid-demo, and keeping it next to the function it drives makes the code easier to follow.
+
+### Step 2: Add the one-shot worker
+
+Below the selector prompt, add:
+
+```python
+async def _oneshot_find_places(
+    city: str,
+    aspects: list[str],
+    constraints: dict[str, Any] | None,
+    user_id: str,
+    tenant_id: str,
+    vector: list[float] | None,
+    config: RunnableConfig,
+) -> str:
+    """Run one bounded model turn that emits a single discover_* call.
+
+    Replaces a ReAct sub-agent's 2-LLM-call loop (decide + format) with a single
+    forced tool-choice call. The tool output is returned verbatim to the supervisor,
+    which synthesizes the final user-facing response.
     """
-    Extract active agent from ToolMessage or fallback to Cosmos DB.
-    This is used by the router to determine which specialized agent to call.
-    Also checks if auto-summarization should be triggered.
-    """
-    thread_id = config["configurable"].get("thread_id", "UNKNOWN_THREAD_ID")
-    user_id = config["configurable"].get("userId", "UNKNOWN_USER_ID")
-    tenant_id = config["configurable"].get("tenantId", "UNKNOWN_TENANT_ID")
+    selector_tools = [
+        wrapped_tool
+        for wrapped_tool in _mcp_find_places_tools
+        if getattr(wrapped_tool, "name", "").startswith("discover_")
+    ]
+    if not selector_tools:
+        return json.dumps({"error": "no discover_* tools available"})
 
-    activeAgent = None
-
-    # Search for last ToolMessage and try to extract `goto`
-    for message in reversed(state['messages']):
-        if isinstance(message, ToolMessage):
-            try:
-                content_json = json.loads(message.content)
-                activeAgent = content_json.get("goto")
-                if activeAgent:
-                    logger.info(f"🎯 Extracted activeAgent from ToolMessage: {activeAgent}")
-                    break
-            except Exception as e:
-                logger.debug(f"Failed to parse ToolMessage content: {e}")
-
-    # Fallback: Cosmos DB lookup if needed
-    if not activeAgent:
-        try:
-            session_doc = sessions_container.read_item(
-                item=thread_id,
-                partition_key=[tenant_id, user_id, thread_id]
+    constraints_str = json.dumps(constraints or {}, ensure_ascii=False, default=str)
+    messages = [
+        SystemMessage(content=_FIND_PLACES_SELECTOR_PROMPT),
+        HumanMessage(
+            content=(
+                f"city={city!r}\n"
+                f"aspects={aspects!r}\n"
+                f"constraints={constraints_str}\n"
+                f"user_id={user_id!r}\n"
+                f"tenant_id={tenant_id!r}\n"
+                f"user_preference_vector={'runtime-injected' if vector else 'absent'}"
             )
-            activeAgent = session_doc.get('activeAgent', 'unknown')
-            logger.info(f"Active agent from DB: {activeAgent}")
-        except Exception as e:
-            logger.error(f"Error retrieving active agent from DB: {e}")
-            activeAgent = "unknown"
+        ),
+    ]
 
-    # If activeAgent is unknown or None, default to orchestrator
-    if activeAgent in [None, "unknown"]:
-        logger.info(f"🔀 activeAgent is '{activeAgent}', defaulting to Orchestrator")
-        activeAgent = "orchestrator"
+    bound = model.bind_tools(selector_tools, tool_choice="required")
+    ai_msg = await bound.ainvoke(messages, config=config)
 
-    return activeAgent
+    tool_calls = getattr(ai_msg, "tool_calls", None) or []
+    if not tool_calls:
+        return json.dumps(
+            {"error": "selector model emitted no tool call", "city": city, "aspects": aspects},
+            ensure_ascii=False,
+        )
+
+    tools_by_name = {wrapped_tool.name: wrapped_tool for wrapped_tool in selector_tools}
+    results: list[dict[str, Any]] = []
+    for call in tool_calls:
+        name = call.get("name")
+        args = dict(call.get("args") or {})
+        args.setdefault("user_id", user_id)
+        if tenant_id:
+            args.setdefault("tenant_id", tenant_id)
+        tool_fn = tools_by_name.get(name)
+        if tool_fn is None:
+            results.append({"tool": name, "error": "unknown tool"})
+            continue
+        try:
+            raw = await tool_fn.ainvoke(args, config=config)
+        except Exception as exc:
+            logger.warning("oneshot find_places tool=%s failed: %s", name, exc)
+            results.append({"tool": name, "error": str(exc)})
+            continue
+        loggable_args = {k: v for k, v in args.items() if k != "user_preference_vector"}
+        results.append({"tool": name, "args": loggable_args, "result": raw})
+
+    return json.dumps(results, ensure_ascii=False, default=str)
 ```
 
-Then, within the **def build_agent_graph** function, after the line **builder.add_edge(START, "orchestrator")** , add the following code:
+### Step 3: Wrap the worker as a `@tool` the supervisor can call
+
+Below `_oneshot_find_places`, add the supervisor-facing tool:
 
 ```python
-# Orchestrator routing - can route to any specialized agent
-    builder.add_conditional_edges(
-        "orchestrator",
-        get_active_agent,
-        {
-            "hotel": "hotel",
-            "activity": "activity",
-            "dining": "dining",
-            "itinerary_generator": "itinerary_generator",
-            "human": "human",  # Wait for user input
-            "orchestrator": "orchestrator",  # fallback
-        }
-    )
+@tool("find_places", args_schema=FindPlacesInput)
+async def find_places_tool(
+    city: str,
+    aspects: list[Literal["hotel", "activity", "dining"]],
+    constraints: dict[str, Any] | None = None,
+    user_preference_vector: list[float] | None = None,
+    config: RunnableConfig = None,
+) -> str:
+    """Search hotels, activities, or dining in a city. Returns raw structured place data."""
+    effective_config = config or {"configurable": {}, "metadata": {}}
+    configurable = effective_config.get("configurable", {}) or {}
+    user_id = configurable.get("user_id") or configurable.get("userId") or ""
+    tenant_id = configurable.get("tenant_id") or configurable.get("tenantId") or ""
 
-    # Hotel routing - can call itinerary_generator or orchestrator
-    builder.add_conditional_edges(
-        "hotel",
-        get_active_agent,
-        {
-            "itinerary_generator": "itinerary_generator",
-            "orchestrator": "orchestrator",
-            "hotel": "hotel",  # Can stay in hotel
-        }
+    return await _oneshot_find_places(
+        city=city,
+        aspects=list(aspects),
+        constraints=constraints,
+        user_id=str(user_id),
+        tenant_id=str(tenant_id),
+        vector=user_preference_vector,
+        config=_subagent_config(effective_config, "find_places"),
     )
-
-    # Activity routing - can call itinerary_generator or orchestrator
-    builder.add_conditional_edges(
-        "activity",
-        get_active_agent,
-        {
-            "itinerary_generator": "itinerary_generator",
-            "orchestrator": "orchestrator",
-            "activity": "activity",  # Can stay in activity
-        }
-    )
-
-    # Dining routing - can call itinerary_generator or orchestrator
-    builder.add_conditional_edges(
-        "dining",
-        get_active_agent,
-        {
-            "itinerary_generator": "itinerary_generator",
-            "orchestrator": "orchestrator",
-            "dining": "dining",  # Can stay in dining
-        }
-    )
-
-    # Itinerary Generator routing - can return to orchestrator or stay
-    builder.add_conditional_edges(
-        "itinerary_generator",
-        get_active_agent,
-        {
-            "orchestrator": "orchestrator",
-            "itinerary_generator": "itinerary_generator",  # Can stay to handle follow-ups
-        }
-    )
-
 ```
 
-## Activity 2: Adding Agent MCP Tools
+The supervisor doesn't know there's a model inside `find_places_tool` - from its perspective it's a regular function it can call.
 
-In this activity, you will add tools to your agents so they can perform searches and actions.
+> **Why a separate model call?** Because the supervisor's prompt is about *talking to the user*; the selector's prompt is about *filling in tool arguments*. Mixing them produces a worse model on both jobs.
 
-### What are Tools?
+---
 
-Tools are functions that agents can call to perform actions. Each tool has input parameters that the agent extracts from the conversation and uses when calling the tool.
+## Activity 3: Build the `create_or_update_itinerary` sub-agent
 
-We already added transfer tools in Module 1 that let agents hand off to each other. Now we'll add search tools that let agents query Azure Cosmos DB for hotels, restaurants, and activities.
+Trip composition is more complex than place search. The model needs to:
 
-**Learn more:**
+- accept either a brand-new request *or* an edit to an existing trip (`trip_id` optional)
+- decide whether to call `create_new_trip`, `update_trip`, or `get_trip_details`
+- compose a structured day-by-day itinerary with the place IDs from the previous `find_places` call
 
-- [LangGraph Tool Calling](https://langchain-ai.github.io/langgraph/how-tos/tool-calling/)
-- [Model Context Protocol (MCP)](https://modelcontextprotocol.io/)
-- [LangChain Tools Documentation](https://python.langchain.com/docs/modules/agents/tools/)
+That's a multi-step job, so this sub-agent is a **full ReAct loop** - it gets its own prompt, its own MCP tools, and runs until it produces a final response. We build the agent itself in Activity 5; here we just author the wrapper tool the supervisor sees.
 
-### Defining New Tools
+Below `find_places_tool`, add:
 
-Navigate to the file **mcp_server/mcp_http_server.py**.
+```python
+@tool("create_or_update_itinerary", args_schema=ItineraryInput)
+async def create_or_update_itinerary_tool(
+    trip_id: str | None = None,
+    destination: str | None = None,
+    days: list[dict[str, Any]] | str | None = None,
+    selected_places: dict[str, Any] | list[dict[str, Any]] | str | None = None,
+    constraints: dict[str, Any] | None = None,
+    dates: dict[str, Any] | str | None = None,
+    notes: str | None = None,
+    config: RunnableConfig = None,
+) -> str:
+    """Create a new saved itinerary or update an existing trip plan."""
+    if _itinerary_agent is None:
+        raise RuntimeError("Travel agents have not been initialized")
 
-### Adding **transfer_to** Tools
+    payload = {
+        "trip_id": trip_id,
+        "destination": destination,
+        "days": days,
+        "selected_places": selected_places,
+        "constraints": constraints,
+        "dates": dates,
+        "notes": notes,
+    }
+    compact_payload = {key: value for key, value in payload.items() if value is not None}
+    user_msg = (
+        "Create or update the itinerary using this structured request. "
+        "Persist changes with the trip tools before reporting success.\n"
+        f"{json.dumps(compact_payload, ensure_ascii=False, default=str)}"
+    )
+    state = {"messages": [HumanMessage(content=user_msg)]}
+    effective_config = config or {"configurable": {}, "metadata": {}}
+    configurable = effective_config.get("configurable", {}) or {}
+    identity = {
+        "user_id": configurable.get("user_id") or configurable.get("userId") or "",
+        "tenant_id": configurable.get("tenant_id") or configurable.get("tenantId") or "",
+    }
+    identity_token = _current_identity.set(identity)
+    try:
+        result = await _itinerary_agent.ainvoke(
+            state,
+            config=_subagent_config(effective_config, "itinerary"),
+        )
+    finally:
+        _current_identity.reset(identity_token)
+    return _last_message_content(result)
+```
 
-Locate this line of code **PROMPT_DIR = os.path.join(os.path.dirname(__file__), '..', 'python', 'src', 'app', 'prompts')**, and add the imports below this line.
+`_itinerary_agent` is a module-level variable populated in Activity 5 - we'll wire it next. Note the `_current_identity.set(...)` / `.reset(...)` around the sub-agent call: it publishes the real `user_id` / `tenant_id` for the duration of this request so the wrapped trip tools persist the trip under the correct user (see the helpers in Activity 1, Step 3). The `try/finally` guarantees the ContextVar is always reset, even if the sub-agent raises.
+
+---
+
+## Activity 4: Author `itinerary_agent.prompty`
+
+The empty file already exists at `01_exercises/python/src/app/prompts/itinerary_agent.prompty`.
+
+Open it and paste:
+
+```text
+---
+name: Itinerary Agent
+description: ReAct sub-agent that composes day-by-day trip itineraries and persists them via MCP.
+authors:
+  - Travel Assistant Team
+model:
+  api: chat
+  configuration:
+    type: azure_openai
+---
+
+system:
+You are the itinerary specialist for a travel-planning supervisor.
+
+You receive a single JSON payload that describes a destination, the requested length (days), the traveller's constraints, optional dates and notes, and (most importantly) a dictionary of `selected_places` that the supervisor already filtered for this trip.
+
+## Your job
+
+1. Read the payload. If `trip_id` is present, call `get_trip_details` first so you understand what already exists before editing.
+2. Build a balanced day-by-day plan using **only** the places in `selected_places`. Each day should have:
+   - one or two activities
+   - lunch and dinner (when dining places are provided)
+   - travel-time-aware ordering (no zig-zagging across the city)
+3. Persist the itinerary:
+   - call `create_new_trip` if `trip_id` is missing
+   - call `update_trip` if `trip_id` is present
+4. Return a concise human-readable summary of what you saved: destination, dates (if known), total days, and the first thing the traveller will do on day 1.
+
+## Rules
+
+- Never invent a place that isn't in `selected_places`. If you need more options, say so in the summary so the supervisor can re-dispatch `find_places`.
+- Always slot the hotel into every day; don't move the traveller mid-trip unless the constraints explicitly say so.
+- Respect all `constraints.dietary` and `constraints.accessibility` — never schedule a place that violates them.
+- Issue exactly one persistence call (`create_new_trip` *or* `update_trip`), then return the summary.
+
+user:
+{{input}}
+```
+
+The supervisor sees the wrapper tool's typed Pydantic schema; the model inside the wrapper reads this prompty file.
+
+---
+
+## Activity 5: Plug both sub-agents into `setup_agents`
+
+### Step 1: Replace `_partition_mcp_tools` placeholder by adding the helper
+
+Find the `_connect_to_mcp` helper you wrote in Module 01. Below it (and above `setup_agents`), add:
+
+```python
+def _partition_mcp_tools(all_tools: list[Any]) -> None:
+    """Slice all_tools into the per-agent buckets the rest of the file expects."""
+    global _mcp_session_tools, _mcp_find_places_tools, _mcp_itinerary_tools
+
+    _mcp_session_tools = filter_tools_by_prefix(
+        all_tools,
+        ["create_session", "get_session_context", "append_turn"],
+    )
+    _mcp_find_places_tools = filter_tools_by_prefix(
+        all_tools,
+        ["discover_places", "discover_itinerary"],
+    )
+    _mcp_itinerary_tools = _with_identity_injection(
+        filter_tools_by_prefix(
+            all_tools,
+            ["create_new_trip", "update_trip", "get_trip_details"],
+        )
+    )
+
+    logger.info("📊 Tool Distribution (Supervisor + 2 Sub-Agents):")
+    logger.info(f"   Supervisor session tools: {[t.name for t in _mcp_session_tools]}")
+    logger.info(f"   Find Places tools: {[t.name for t in _mcp_find_places_tools]}")
+    logger.info(f"   Itinerary tools: {[t.name for t in _mcp_itinerary_tools]}")
+```
+
+Each sub-agent only sees the subset it needs. The itinerary agent physically cannot call `discover_places`; the supervisor physically cannot call `create_new_trip`. The itinerary tools are additionally passed through `_with_identity_injection`, which wraps `create_new_trip` / `update_trip` / `get_trip_details` so they always run with the request's real `user_id` / `tenant_id` (set in Activity 3) rather than whatever the sub-agent's model guessed.
+
+### Step 2: Add `_build_sub_agents`
+
+Right below `_partition_mcp_tools`, add:
+
+```python
+def _build_sub_agents() -> None:
+    """Build the internal sub-agents the supervisor delegates to."""
+    global _find_places_agent, _itinerary_agent
+
+    # find_places is a one-shot selector — no ReAct loop, no compiled agent.
+    _find_places_agent = None
+    logger.info("   Find Places: one-shot tool-selector node (no ReAct loop)")
+
+    _itinerary_agent = _create_agent(
+        model,
+        _mcp_itinerary_tools,
+        load_prompt("itinerary_agent"),
+    )
+```
+
+`_find_places_agent` stays `None` - `_oneshot_find_places` is the entire sub-agent. `_itinerary_agent` is a compiled ReAct graph that the wrapper tool from Activity 3 calls into.
+
+### Step 3: Add `_build_supervisor_tools`
+
+Right below `_build_sub_agents`, add:
+
+```python
+def _build_supervisor_tools() -> list[Any]:
+    """Return the tool list the supervisor sees: 2 sub-agents-as-tools + bookkeeping."""
+    return [
+        find_places_tool,
+        create_or_update_itinerary_tool,
+        *_mcp_session_tools,
+    ]
+```
+
+### Step 4: Slim down `setup_agents`
+
+Search for `def setup_agents` — the function you wrote in Module 01. Replace its body so it orchestrates the helpers and accepts an optional `checkpointer` argument (you'll wire this up in Module 03):
+
+```python
+async def setup_agents(checkpointer=None) -> None:
+    """Initialize the supervisor and its internal sub-agents on a single MCP session.
+
+    Topology: user → supervisor ReAct agent → {find_places, create_or_update_itinerary}
+    tools, where find_places is a one-shot selector node and create_or_update_itinerary
+    invokes the itinerary ReAct sub-agent.
+    """
+    global supervisor_agent
+
+    if supervisor_agent is not None:
+        logger.info("✅ Travel agents already initialized")
+        return
+
+    all_tools = await _connect_to_mcp()
+    _partition_mcp_tools(all_tools)
+    _build_sub_agents()
+
+    supervisor_agent = _create_agent(
+        _bind_parallel_tool_calls(model),
+        tools=_build_supervisor_tools(),
+        prompt_text=load_prompt("supervisor"),
+        checkpointer=checkpointer or MemorySaver(),
+    )
+
+    logger.info("✅ Supervisor and sub-agents created successfully\n")
+```
+
+---
+
+## Activity 6: Update `supervisor.prompty` for the new tools
+
+Open `01_exercises/python/src/app/prompts/supervisor.prompty`, can update the whole prompt with below
+
+```text
+---
+name: Supervisor Agent
+description: Top-level traveller-facing supervisor agent
+authors:
+  - Travel Assistant Team
+model:
+  api: chat
+  configuration:
+    type: azure_openai
+---
+
+system:
+You are the Supervisor for a travel planning assistant. You are the only top-level traveller-facing assistant in this conversation. You decide when to answer directly and when to call the tools available to you.
+
+# Identity and Scope
+
+- You help travellers plan trips: hotels, restaurants, activities, and full day-by-day itineraries.
+- Stay on topic. If a traveller asks about something unrelated to travel (e.g. weather, news, coding), politely steer the conversation back to travel planning.
+
+# Available Tools
+
+You may call the following tools when appropriate. Never reveal tool names or internal implementation details to the traveller.
+
+- `create_session`, `get_session_context`, `append_turn` — Session bookkeeping. Use these when the runtime asks you to; otherwise keep bookkeeping invisible to the traveller.
+- `find_places(city, aspects, constraints)` — Multi-aspect place search (hotel / activity / dining). Use this whenever the traveller mentions a destination and wants suggestions. Pass all needed aspects in a single call so the search can fan out in parallel.
+- `create_or_update_itinerary(destination, days, selected_places, ...)` — Compose or edit a structured day-by-day trip. Call this **after** `find_places` has returned candidates and the traveller has confirmed direction (length, dates, anything to avoid).
+
+# Decision Rules
+
+1. **Greetings, thanks, and capability questions** — Respond directly with a brief, friendly reply. No tool calls.
+2. **Open-ended intent statements** (e.g. "I'm planning a trip to Tokyo") — Acknowledge warmly and ask ONE focused follow-up question to find out what they actually want help with (a place to stay, things to do, restaurants, or a full day-by-day plan).
+3. **Specific place searches** (e.g. "Find me a hotel in Shibuya", "Recommend dinner spots near the hotel") — Call `find_places(city=..., aspects=[...])` with the aspects the traveller mentioned. Group multiple aspects into a single call so the sub-agent can fan out in parallel.
+4. **Itinerary requests** (e.g. "Plan me a 5-day Kyoto trip") — First call `find_places` for hotels, activities, and dining together. Then call `create_or_update_itinerary` with the candidates the traveller liked.
+5. **Trip edits** (e.g. "Swap day 2's dinner for something cheaper") — Call `create_or_update_itinerary` with `trip_id` set so the sub-agent updates the existing record instead of starting a new one.
+
+# Response Style
+
+- Warm, concise, and practical.
+- Prefer short paragraphs over walls of text.
+- Use bullet points when listing options.
+- Never invent facts, places, or prices. When in doubt, ask a clarifying question.
+
+# Examples
+
+User: "Hi!"
+Reply: "Hi there! I help travellers plan trips — hotels, restaurants, activities, and full day-by-day itineraries. What can I help you plan today?"
+
+User: "Hi, I'm planning a trip to Tokyo."
+Reply: "Tokyo is a fantastic choice! What would you like to start with — a place to stay, things to do, restaurants, or a full day-by-day plan? And do you have dates in mind?"
+
+User: "Find me a boutique hotel in Shibuya for next month under $300 a night."
+Reply: "Got it — boutique hotel in Shibuya, around $300/night, for next month. A couple of quick questions before I dig in: roughly which dates, and is anything else high on your wish list (rooftop bar, walking distance to the station, design-forward, etc.)?"
+```
+
+---
+
+## Activity 7: Add place discovery and trip management tools to the MCP server
+
+The two sub-agents you just wired up call MCP tools that don't exist yet - `discover_places`, `discover_itinerary`, `create_new_trip`, `get_trip_details`, and `update_trip`. They live in the same `mcp_http_server.py` file you started in Module 01. In this activity you'll extend that file with two new sections and walk through the hybrid search query that powers them.
+
+### Step 1: Extend the imports
+
+Open `01_exercises/mcp_server/mcp_http_server.py` and update the `azure_cosmos_db` import block to pull in the additional helpers:
 
 ```python
 from src.app.services.azure_cosmos_db import (
     create_session_record,
     get_session_by_id,
+    append_message,
     get_session_messages,
-    get_session_summaries,
+    record_api_event,
     query_places_hybrid,
     create_trip,
     get_trip,
-    trips_container
 )
 ```
 
-Find the **def transfer_to_itinerary_generator** method, and paste the following code below it.
+### Step 2: Add the Place Discovery section
 
-```python
-@mcp.tool()
-def transfer_to_hotel(
-        reason: str
-) -> str:
-    """
-    Transfer conversation to the Hotel Agent.
-
-    Use this when:
-    - User wants to search for hotels or accommodations
-    - User is sharing hotel/lodging preferences (boutique, quiet, central, etc.)
-    - User asks about places to stay
-
-    Examples:
-    - "Find hotels in Paris"
-    - "I prefer quiet hotels away from tourist areas"
-    - "Where should I stay?"
-
-    Args:
-        reason: Why you're transferring to this agent
-
-    Returns:
-        JSON with goto field for routing
-    """
-
-    logger.info(f"🔄 Transfer to Hotel Agent: {reason}")
-
-    return json.dumps({
-        "goto": "hotel",
-        "reason": reason,
-        "message": "Transferring to Hotel Agent to find accommodations for you."
-    })
-
-
-@mcp.tool()
-def transfer_to_activity(
-        reason: str
-) -> str:
-    """
-    Transfer conversation to the Activity Agent.
-
-    Use this when:
-    - User wants to discover attractions, museums, landmarks
-    - User is sharing activity preferences (art, history, nature, etc.)
-    - User asks about things to do or see
-
-    Examples:
-    - "What should I do in Barcelona?"
-    - "Find art museums"
-    - "I love history and architecture"
-
-    Args:
-        reason: Why you're transferring to this agent
-
-    Returns:
-        JSON with goto field for routing
-    """
-
-    logger.info(f"🔄 Transfer to Activity Agent: {reason}")
-
-    return json.dumps({
-        "goto": "activity",
-        "reason": reason,
-        "message": "Transferring to Activity Agent to discover attractions for you."
-    })
-
-
-@mcp.tool()
-def transfer_to_dining(
-        reason: str
-) -> str:
-    """
-    Transfer conversation to the Dining Agent.
-
-    Use this when:
-    - User wants restaurant or cafe recommendations
-    - User is sharing dietary preferences or cuisine interests
-    - User asks where to eat
-
-    Examples:
-    - "Find vegetarian restaurants"
-    - "I'm pescatarian and like local bistros"
-    - "Where should I have dinner?"
-
-    Args:
-        reason: Why you're transferring to this agent
-
-    Returns:
-        JSON with goto field for routing
-    """
-
-    logger.info(f"🔄 Transfer to Dining Agent: {reason}")
-
-    return json.dumps({
-        "goto": "dining",
-        "reason": reason,
-        "message": "Transferring to Dining Agent to find restaurants for you."
-    })
-```
-
-### Adding the Hybrid Search Tool
-
-Now we'll add the main search tool that combines vector search and full-text search for better results.
-
-#### Understanding Search Types in Azure Cosmos DB
-
-**Vector Search**
-
-- Performs similarity search using vector embeddings stored in your documents
-- Finds semantically similar content based on meaning, not just keywords
-- Example: Searching "romantic dinner" finds restaurants with descriptions like "intimate atmosphere", "candlelit", "perfect for dates"
-- Uses the DiskANN algorithm for efficient approximate nearest neighbor (ANN) search
-- Measures similarity using cosine distance between embedding vectors
-
-**Full-Text Search**
-
-- Ranks documents based on relevance of search terms using BM25 algorithm
-- Supports linguistic features like tokenization, stemming, and stop word removal
-- Example: Searching "Eiffel Tower" precisely matches documents containing those exact terms
-- Ideal for keyword-based queries and known entity names
-- Built on the Lucene indexing engine
-
-**Hybrid Search**
-
-- Combines vector search and full-text search using Reciprocal Rank Fusion (RRF)
-- Vector search captures semantic meaning while full-text search ensures keyword precision
-- RRF merges ranked results from both methods to produce a unified ranking
-- Provides more comprehensive and accurate results than either method alone
-- Best practice for production search scenarios where both meaning and exact terms matter
-
-**Learn more:**
-
-- [Azure Cosmos DB Vector Search](https://learn.microsoft.com/en-us/azure/cosmos-db/nosql/vector-search)
-- [Full-Text Search in Cosmos DB](https://learn.microsoft.com/en-us/azure/cosmos-db/gen-ai/full-text-search?context=%2Fazure%2Fcosmos-db%2Fnosql%2Fcontext%2Fcontext)
-- [Hybrid Search in Cosmos DB](https://learn.microsoft.com/en-us/azure/cosmos-db/gen-ai/hybrid-search?context=%2Fazure%2Fcosmos-db%2Fnosql%2Fcontext%2Fcontext)
-
-#### Add the Discover Places Tool
-
-Below the transfer tools in **mcp_http_server.py**, add the hybrid search tool:
+At the bottom of `mcp_http_server.py`, **above** the `# Server Startup` block, paste the following two tools:
 
 ```python
 # ============================================================================
-# 2. Place Discovery Tools
+# 3. Place Discovery Tools
 # ============================================================================
 
 @mcp.tool()
 def discover_places(
-        geo_scope: str,
-        query: str,
-        user_id: str,
-        tenant_id: str = "",
-        filters: Optional[Dict[str, Any]] = None,
+    geo_scope: str,
+    query: str,
+    user_id: str,
+    tenant_id: str = "",
+    filters: Optional[Dict[str, Any]] = None,
 ) -> List[Dict[str, Any]]:
-    """
-    Memory-aware place search with hybrid RRF retrieval (for chat assistant).
+    """Memory-aware place search with hybrid RRF retrieval."""
+    geo_scope = (geo_scope or "").lower().strip()
+    logger.info(f"🗺️  ========== DISCOVER_PLACES TOOL CALLED ==========")
+    logger.info(f"     - geo_scope: {geo_scope}")
+    logger.info(f"     - query: {query}")
+    logger.info(f"     - user_id: {user_id}")
+    logger.info(f"     - filters: {filters}")
 
-    Args:
-        geo_scope: Geographic scope (e.g., "barcelona")
-        query: Natural language search query
-        user_id: User identifier (for memory alignment)
-        tenant_id: Tenant identifier
-        filters: Optional filters dict with:
-            - type: "hotel" | "restaurant" | "attraction" (optional)
-            - dietary: ["vegan", "seafood"] (optional)
-            - accessibility: ["wheelchair-friendly"] (optional)
-            - priceTier: "budget" | "moderate" | "luxury" (optional)
-
-    Returns:
-        List of places with match reasons and memory alignment scores
-    """
-    # Parse filters
     filters = filters or {}
     place_type = filters.get("type")
     dietary = filters.get("dietary", [])
     accessibility = filters.get("accessibility", [])
     price_tier = filters.get("priceTier")
 
-    # Convert single values to lists if needed
     if dietary and not isinstance(dietary, list):
         dietary = [dietary]
     if accessibility and not isinstance(accessibility, list):
         accessibility = [accessibility]
 
-    # Query places using hybrid RRF search
     try:
         places = query_places_hybrid(
             query=query,
@@ -621,7 +749,8 @@ def discover_places(
             place_type=place_type,
             dietary=dietary,
             accessibility=accessibility,
-            price_tier=price_tier
+            price_tier=price_tier,
+            limit=10,
         )
         logger.info(f"✅ Hybrid RRF returned {len(places)} results")
     except Exception as e:
@@ -630,43 +759,123 @@ def discover_places(
         logger.error(f"{traceback.format_exc()}")
         return []
 
-    logger.info(f"✅ Returning {len(places)} places with memory alignment")
+    for place in places:
+        alignment_score = 0.0
+        match_reasons = ["Hybrid search match (text + semantic)"]
+
+        if dietary:
+            place_dietary = place.get("dietary", [])
+            for d in dietary:
+                if d in place_dietary:
+                    alignment_score += 0.3
+                    match_reasons.append(f"Matches {d} dietary preference")
+
+        if price_tier:
+            place_price = place.get("priceTier")
+            if price_tier == place_price:
+                alignment_score += 0.2
+                match_reasons.append(f"Matches {place_price} price preference")
+
+        if accessibility:
+            place_access = place.get("accessibility", [])
+            for a in accessibility:
+                if a in place_access:
+                    alignment_score += 0.3
+                    match_reasons.append(f"Accessible: {a}")
+
+        place["memoryAlignment"] = min(alignment_score, 1.0)
+        place["matchReasons"] = match_reasons
+
     return places
+
+
+@mcp.tool()
+async def discover_itinerary(
+    geo_scope: str,
+    query: str,
+    user_id: str,
+    tenant_id: str = "",
+    aspects: Optional[List[str]] = None,
+    dietary: Optional[List[str]] = None,
+    accessibility: Optional[List[str]] = None,
+    price_tier: Optional[str] = None,
+    per_aspect_limit: int = 5,
+) -> Dict[str, List[Dict[str, Any]]]:
+    """Multi-aspect place discovery in a single MCP round-trip.
+
+    Runs hybrid RRF Cosmos queries for each requested aspect (hotel / activity /
+    restaurant) in parallel via ``asyncio.gather``.
+    """
+    import asyncio
+
+    geo_scope = (geo_scope or "").lower().strip()
+
+    aspect_aliases = {"dining": "restaurant", "attraction": "activity"}
+    canonical_aspects = [
+        aspect_aliases.get(a, a)
+        for a in (aspects or ["hotel", "activity", "restaurant"])
+    ]
+    canonical_aspects = [
+        a for a in dict.fromkeys(canonical_aspects)
+        if a in {"hotel", "activity", "restaurant"}
+    ]
+
+    logger.info(f"🗺️  ========== DISCOVER_ITINERARY TOOL CALLED ==========")
+    logger.info(f"     - geo_scope={geo_scope!r} aspects={canonical_aspects}")
+
+    if not canonical_aspects:
+        return {}
+
+    async def _one(place_type: str) -> tuple[str, List[Dict[str, Any]]]:
+        try:
+            results = await asyncio.to_thread(
+                query_places_hybrid,
+                query=query,
+                geo_scope_id=geo_scope,
+                place_type=place_type,
+                dietary=dietary,
+                accessibility=accessibility,
+                price_tier=price_tier,
+                limit=per_aspect_limit,
+            )
+        except Exception as exc:
+            logger.error(f"❌ discover_itinerary aspect {place_type!r} failed: {exc}")
+            results = []
+        return place_type, results
+
+    gathered = await asyncio.gather(*[_one(a) for a in canonical_aspects])
+    bucketed: Dict[str, List[Dict[str, Any]]] = {pt: items for pt, items in gathered}
+    return bucketed
 ```
 
-### Adding the Itinerary Generator Tools
+### Step 3: Add the Trip Management section
 
-Below the hybrid search tool, add the following tools:
+Immediately below the place discovery section, paste the three trip CRUD tools:
 
 ```python
 # ============================================================================
-# 3. Trip Management Tools
+# 4. Trip Management Tools
 # ============================================================================
 
 @mcp.tool()
 def create_new_trip(
-        user_id: str,
-        tenant_id: str,
-        destination: str,
-        start_date: str,
-        end_date: str,
-        days: Optional[List[Dict[str, Any]]] = None,
-        trip_duration: Optional[int] = None
+    user_id: str,
+    tenant_id: str,
+    destination: str,
+    start_date: str,
+    end_date: str,
+    days: Optional[List[Dict[str, Any]]] = None,
+    trip_duration: Optional[int] = None,
 ) -> Dict[str, Any]:
-    """
-    Create a new trip itinerary.
+    """Create a new trip itinerary and save it to the traveller's profile.
 
-    Args:
-        user_id: User identifier
-        tenant_id: Tenant identifier
-        destination: Trip destination (e.g. "Barcelona, Spain")
-        start_date: Trip start date in ISO format (e.g. "2026-03-10")
-        end_date: Trip end date in ISO format (e.g. "2026-03-11")
-        days: Optional list of day-by-day itinerary (dayNumber, date, morning, lunch, afternoon, dinner, accommodation)
-        trip_duration: Optional total number of days (calculated from days array if not provided)
-
-    Returns:
-        Dictionary with tripId and details
+    ``days`` is the day-by-day plan: a list of day objects. Each day is
+    ``{"dayNumber": 1, "date": "YYYY-MM-DD", "morning": {...}, "lunch": {...},
+    "afternoon": {...}, "dinner": {...}, "accommodation": {...}}``. Every slot
+    (morning / lunch / afternoon / dinner / accommodation) is a SINGLE object of the
+    form ``{"activity": str, "time": "HH:MM-HH:MM", "placeId": str, "notes": str}``
+    -- never a list, and use only those slot names (no ``"evening"``). ``activity``
+    is the display name; include ``placeId`` (from ``find_places``) when available.
     """
     logger.info(f"🎒 Creating trip for user: {user_id} with {len(days or [])} days")
 
@@ -677,7 +886,7 @@ def create_new_trip(
         start_date=start_date,
         end_date=end_date,
         days=days or [],
-        trip_duration=trip_duration
+        trip_duration=trip_duration,
     )
 
     return {
@@ -686,759 +895,48 @@ def create_new_trip(
         "startDate": start_date,
         "endDate": end_date,
         "tripDuration": trip_duration or len(days or []),
-        "daysCount": len(days or [])
+        "daysCount": len(days or []),
     }
 
 
 @mcp.tool()
 def get_trip_details(
-        trip_id: str,
-        user_id: str,
-        tenant_id: str = ""
+    trip_id: str,
+    user_id: str,
+    tenant_id: str = "",
 ) -> Optional[Dict[str, Any]]:
-    """
-    Get trip details by ID.
-
-    Args:
-        trip_id: Trip identifier
-        user_id: User identifier
-        tenant_id: Tenant identifier
-
-    Returns:
-        Trip dictionary or None if not found
-    """
+    """Get trip details by ID."""
     logger.info(f"📋 Getting trip: {trip_id}")
     return get_trip(trip_id, user_id, tenant_id)
 
 
 @mcp.tool()
 def update_trip(
-        trip_id: str,
-        user_id: str,
-        tenant_id: str,
-        updates: Dict[str, Any]
+    trip_id: str,
+    user_id: str,
+    tenant_id: str,
+    updates: Dict[str, Any],
 ) -> Dict[str, Any]:
-    """
-    Update trip details (add days, modify constraints, etc.).
-
-    Args:
-        trip_id: Trip identifier
-        user_id: User identifier
-        tenant_id: Tenant identifier
-        updates: Dictionary of fields to update
-
-    Returns:
-        Updated trip dictionary
-    """
+    """Update trip details (add days, modify constraints, etc.)."""
     logger.info(f"📝 Updating trip: {trip_id}")
 
-    # Get existing trip
     trip = get_trip(trip_id, user_id, tenant_id)
     if not trip:
         raise ValueError(f"Trip {trip_id} not found")
 
-    # Apply updates
     trip.update(updates)
 
-    # Save to Cosmos DB
+    from src.app.services.azure_cosmos_db import trips_container
     if trips_container:
         trips_container.upsert_item(trip)
 
     return trip
 ```
-
-### Adding the Session Management Tools
-
-Below the trip tools, add the following tools:
-
-```python
-# ============================================================================
-# 4. Session Management Tools
-# ============================================================================
-
-@mcp.tool()
-def create_session(
-        user_id: str,
-        tenant_id: str = "",
-        title: str = None,
-        activeAgent: str = "orchestrator"
-) -> Dict[str, Any]:
-    """
-    Create a new conversation session with proper initialization.
-
-    Args:
-        user_id: User identifier
-        tenant_id: Tenant identifier (default: empty string)
-        title: Optional session title
-        activeAgent: Active agent (default: empty string)
-
-    Returns:
-        Dictionary with session details including sessionId
-    """
-    logger.info(f"🆕 Creating session for user: {user_id}")
-    session = create_session_record(user_id, tenant_id, activeAgent, title)
-    return {
-        "sessionId": session["sessionId"],
-        "userId": user_id,
-        "title": session["title"],
-        "createdAt": session["createdAt"]
-    }
-
-
-@mcp.tool()
-def get_session_context(
-        session_id: str,
-        tenant_id: str,
-        user_id: str,
-        include_summaries: bool = True
-) -> Dict[str, Any]:
-    """
-    Retrieve conversation context (recent messages + summaries).
-
-    Args:
-        session_id: Session identifier
-        tenant_id: Tenant identifier
-        user_id: User identifier
-        include_summaries: Whether to include summaries (default: True)
-
-    Returns:
-        Dictionary with messages, summaries, and metadata
-    """
-    logger.info(f"📖 Getting context for session: {session_id}")
-
-    messages = get_session_messages(session_id, tenant_id, user_id)
-    session_info = get_session_by_id(session_id, tenant_id, user_id)
-
-    result = {
-        "messages": messages,
-        "sessionInfo": session_info,
-        "messageCount": len(messages)
-    }
-
-    if include_summaries:
-        summaries = get_session_summaries(session_id, tenant_id, user_id)
-        result["summaries"] = summaries
-        result["summaryCount"] = len(summaries)
-
-    return result
-```
-
-## Activity 3: Integrating Tools With Agents
-
-### Integrate These New Tools
-
-With the tools defined, we need to update the tool definitions for each agent.
-
-Navigate to the file **src/app/travel_agents.py**.
-
-Locate **orchestrator_tools**, and update it with the code below.
-
-```python
-orchestrator_tools = filter_tools_by_prefix(all_tools, [
-        "create_session", "get_session_context", "append_turn",
-        "transfer_to_"  # All transfer tools
-    ])
-```
-
-Locate **itinerary_generator_tools**, and update it with the code below.
-
-```python
-itinerary_generator_tools = filter_tools_by_prefix(all_tools, [
-        "create_new_trip", "update_trip", "get_trip_details",
-        "transfer_to_orchestrator"
-    ])
-```
-
-Locate **hotel_tools**, and update it with the code below.
-
-```python
-hotel_tools = filter_tools_by_prefix(all_tools, [
-        "discover_places",  # Search hotels
-        "transfer_to_orchestrator", "transfer_to_itinerary_generator"
-    ])
-```
-
-Locate **activity_tools**, and update it with the code below.
-
-```python
-activity_tools = filter_tools_by_prefix(all_tools, [
-        "discover_places",  # Search attractions
-        "transfer_to_orchestrator", "transfer_to_itinerary_generator"
-    ])
-```
-
-Locate **dining_tools**, and update it with the code below.
-
-```python
-dining_tools = filter_tools_by_prefix(all_tools, [
-    "discover_places",  # Search restaurants
-    "transfer_to_orchestrator", "transfer_to_itinerary_generator"
-])
-```
-
-Now that we've defined agent tools, let's update the agent prompts to guide when and how to use them.
-
-### Updating Agent Prompts
-
-Agent prompts define when and how to use tools. Let's update existing prompts and create new ones for our specialized agents.
-
-Navigate to the **src/app/prompts** folder.
-
-#### Update Orchestrator Prompt
-
-Open **orchestrator.prompty** and replace its content:
-
-```text
----
-name: Orchestrator Agent
-description: Routes user requests to appropriate specialized agents
-authors:
-  - Microsoft
-model:
-  api: chat
-  configuration:
-    type: azure_openai
 ---
 
-system:
-You are the Orchestrator for a multi-agent travel planning system. Your role is to understand user requests and route them to the appropriate specialized agent.
+## Activity 8: Test your work
 
-# Available Agents
-
-You can transfer conversations to these agents using the provided tools:
-
-1. **Hotel Agent** - Use when users want to find accommodations
-   - Queries: "Find hotels", "Where should I stay", "Book accommodation"
-   - Use `transfer_to_hotel` tool
-
-2. **Dining Agent** - Use when users want to find restaurants
-   - Queries: "Find restaurants", "Where can I eat", "Food recommendations"
-   - Use `transfer_to_dining` tool
-
-3. **Activity Agent** - Use when users want to find things to do
-   - Queries: "What can I do", "Find attractions", "Things to see"
-   - Use `transfer_to_activity` tool
-
-4. **Itinerary Generator** - Use when users want to create a complete trip plan
-   - Queries: "Create an itinerary", "Plan my trip", "Generate schedule"
-   - Use `transfer_to_itinerary_generator` tool
-
-# Your Responsibilities
-
-- **Understand Intent**: Analyze what the user is asking for
-- **Route Appropriately**: Transfer to the right agent using transfer tools
-- **Be Conversational**: Greet users, acknowledge requests, provide context
-- **Handle Sequential Requests**: If user asks for multiple things, route to first agent
-
-# Routing Guidelines
-
-**Route to Hotel Agent when:**
-- User mentions: hotels, accommodations, lodging, where to stay
-- User shares preferences: "I prefer boutique hotels", "Need quiet location"
-
-**Route to Dining Agent when:**
-- User mentions: restaurants, food, dining, where to eat, cuisine
-- User shares dietary info: "I'm vegetarian", "No seafood"
-
-**Route to Activity Agent when:**
-- User mentions: activities, attractions, things to do, sightseeing
-- User shares interests: "I love museums", "Outdoor activities"
-
-**Route to Itinerary Generator when:**
-- User wants complete trip plan or day-by-day schedule
-- After gathering hotels, restaurants, and activities
-
-# Examples
-
-User: "Hi, I'm planning a trip to Barcelona"
-You: "Hello! I'd be happy to help you plan your Barcelona trip. Would you like to start by finding hotels, restaurants, activities, or create a complete itinerary?"
-
-User: "Find hotels in Barcelona"
-You: "I'll connect you with our Hotel Agent to find perfect accommodations in Barcelona."
-[Use transfer_to_hotel tool with reason: "User wants hotel recommendations in Barcelona"]
-
-User: "Where should I eat?"
-You: "Let me transfer you to our Dining Agent for restaurant recommendations."
-[Use transfer_to_dining tool with reason: "User wants restaurant recommendations"]
-
-User: "Create a 3-day itinerary"
-You: "I'll transfer you to our Itinerary Generator to create your day-by-day plan."
-[Use transfer_to_itinerary_generator tool with reason: "User wants complete 3-day itinerary"]
-
-# Important Notes
-
-- Don't search for places yourself - route to specialized agents
-- Be friendly and acknowledge user requests before transferring
-- If request is ambiguous, ask clarifying questions
-- Keep track of conversation flow for smooth handoffs
-```
-
-#### Update Itinerary Generator Prompt
-
-Open **itinerary_generator.prompty** and replace its content:
-
-```text
----
-name: Itinerary Generator Agent
-description: Creates comprehensive day-by-day travel itineraries and manages trips
-authors:
-  - Microsoft
-model:
-  api: chat
-  configuration:
-    type: azure_openai
----
-
-system:
-You are the Itinerary Generator for a travel planning system. You create detailed, personalized day-by-day trip itineraries and save them using the trip management tools.
-
-# Your Tools
-
-- `create_new_trip`: Create a new trip with day-by-day itinerary
-- `get_trip_details`: Retrieve existing trip information
-- `update_trip`: Modify an existing trip
-- `transfer_to_orchestrator`: Return control when task is complete
-
-# Your Responsibilities
-
-- **Extract Context**: Look at the entire conversation history to identify the destination city
-- **Create Day-by-Day Plans**: Structure itineraries with clear daily schedules
-- **Save Trips**: Use `create_new_trip` to persist itineraries to database
-- **Be Comprehensive**: Include morning, afternoon, and evening activities
-- **Add Practical Details**: Include times, locations, and logistics
-- **Personalize**: Tailor based on conversation history and preferences
-
-# Important Context Rules
-
-1. **ALWAYS review the conversation history** to find the destination city
-2. If the user asked for "hotels in Rome" earlier, the destination is Rome
-3. If the user asked for "restaurants in Paris" earlier, the destination is Paris
-4. Only ask for the city if it's genuinely not mentioned anywhere in the conversation
-5. When user says "create an itinerary for 3 days now", check the conversation for the city first
-
-# Itinerary Structure
-
-For each day include:
-1. **☀️ Morning** (9 AM - 12 PM): Main activity or attraction
-2. **🍽️ Lunch** (12 PM - 2 PM): Restaurant recommendation
-3. **⛅ Afternoon** (2 PM - 6 PM): Additional activities
-4. **🍷 Dinner** (7 PM - 9 PM): Evening dining
-5. **🌙 Evening** (9 PM+): Optional evening activities
-
-# Creating Trips
-
-When creating an itinerary, use `create_new_trip` with:
-
-{
-  "user_id": "{extracted from context}",
-  "tenant_id": "{extracted from context}",
-  "destination": "Barcelona, Spain",
-  "start_date": "2025-06-01",
-  "end_date": "2025-06-03",
-  "days": [
-    {
-      "dayNumber": 1,
-      "date": "2025-06-01",
-      "morning": {
-        "activity": "Sagrada Familia",
-        "time": "09:00-12:00",
-        "placeId": "activity_barcelona_0005",
-        "notes": "Book tickets online in advance"
-      },
-      "lunch": {
-        "activity": "Barcelona Tapas Bar",
-        "time": "12:30-14:00",
-        "placeId": "restaurant_barcelona_0013",
-        "notes": "Traditional Spanish tapas"
-      },
-      "afternoon": {
-        "activity": "Park Güell",
-        "time": "15:00-17:30",
-        "placeId": "activity_barcelona_0009",
-        "notes": "Gaudí's colorful park with city views"
-      },
-      "dinner": {
-        "activity": "Barcelona Seafood Grill",
-        "time": "19:00-21:00",
-        "placeId": "restaurant_barcelona_0010",
-        "notes": "Fresh Mediterranean seafood"
-      },
-      "accommodation": {
-        "activity": "Barcelona Grand Hotel",
-        "placeId": "hotel_barcelona_0001",
-        "notes": "Luxury hotel on Passeig de Gràcia"
-      }
-    }
-  ],
-  "trip_duration": 3
-}
-
-# Example Interaction
-
-**Example 1 - City mentioned in same message:**
-User: "Create a 3-day itinerary for Barcelona"
-You: "I'll create a comprehensive 3-day itinerary for Barcelona. Let me structure your trip..."
-
-**Example 2 - City mentioned earlier in conversation:**
-User (earlier): "Show me hotels in Rome"
-[Hotel agent responds with Rome hotels]
-User (now): "Create an itinerary for 3 days now"
-You: "I'll create a 3-day itinerary for Rome based on our earlier conversation..."
-
-**Example 3 - Multiple cities discussed:**
-User (earlier): "Show hotels in Paris and Rome"
-User (now): "Create a 3-day itinerary"
-You: "I see you were looking at both Paris and Rome. Which city would you like the itinerary for?"
-
-[Present the itinerary to user]
-
-"🗓️ BARCELONA ITINERARY - 3 Days
-
-DAY 1: Gaudi & Gothic Quarter
-☀️ Morning (9:00 AM): Sagrada Familia - 3 hours
-🍽️ Lunch (12:30 PM): Cervecería Catalana (tapas)
-⛅ Afternoon (3:00 PM): Park Güell - 2 hours
-🍷 Dinner (7:30 PM): Cal Pep (seafood)
-
-DAY 2: Beaches & Seafront
-[Continue for all days...]"
-
-[Then save using create_new_trip tool]
-
-"Your itinerary has been saved! You can access it anytime. Would you like to modify anything?"
-
-[Use transfer_to_orchestrator when done]
-
-# Guidelines
-
-- Always save trips using `create_new_trip` after presenting them
-- Read conversation history to incorporate places user discussed
-- Group nearby locations to minimize travel time
-- Balance busy and relaxed days
-- Include practical tips and booking advice
-- Ask if user wants modifications before transferring back
-- Use emojis sparingly for visual appeal (🗓️ 🍽️ 🎨 🏛️ etc.)
-- Always ask if user wants to modify or refine the itinerary
-- After presenting the itinerary, transfer back to orchestrator for next steps
-- If information is missing (trip duration, interests), ask clarifying questions first
-
-# When to Transfer Back
-
-After creating the itinerary:
-- Use `transfer_to_orchestrator` tool
-- Reason: "Itinerary complete, returning for general assistance."
-```
-
-#### Update Hotel Agent Prompt
-
-Open the empty **hotel_agent.prompty** and paste the following content:
-
-```text
----
-name: Hotel Agent
-description: Searches accommodations using hybrid search
-authors:
-  - Microsoft
-model:
-  api: chat
-  configuration:
-    type: azure_openai
----
-
-system:
-You are the Hotel Agent for a travel planning system. Your expertise is finding perfect accommodations using Azure Cosmos DB's hybrid search.
-
-# Your Tools
-
-- `discover_places`: Search hotels using hybrid search (vector + full-text)
-- `transfer_to_orchestrator`: Return control when search is complete
-- `transfer_to_itinerary_generator`: Send user to create full trip plan
-
-# Your Responsibilities
-
-- **Search Hotels**: Use `discover_places` with appropriate filters
-- **Understand Preferences**: Listen for budget, amenities, location, style
-- **Present Results**: Show clear, scannable hotel information
-- **Ask Follow-ups**: Clarify requirements if needed
-
-# Using discover_places
-
-Always use these parameters:
-
-
-{
-  "geo_scope": "barcelona",
-  "query": "luxury hotel with spa near city center",
-  "user_id": "{from context}",
-  "tenant_id": "{from context}",
-  "filters": {
-    "type": "hotel",
-    "priceTier": "luxury",
-    "accessibility": ["wheelchair-friendly"]
-  }
-}
-
-Filter options:
-
-- type: Must be "hotel"
-- priceTier: "budget" | "moderate" | "luxury"
-- accessibility: ["wheelchair-friendly", "elevator"]
-- dietary: Not used for hotels
-
-# Presenting Results
-Show hotels in this format:
-
-🏨 **Hotel Arts Barcelona**
-Modern 5-star beachfront hotel with stunning sea views
-📍 Marina, Barcelona
-💰 €250-350/night
-✨ Rooftop pool, spa, beachfront, Michelin restaurant
-♿ Wheelchair accessible
-
-🏨 **W Barcelona**
-[Continue for each result...]
-
-# Example Interaction
-User: "Find hotels in Barcelona"
-You: "I'd be happy to help you find hotels in Barcelona! To give you the best recommendations:
-
-What's your budget per night?
-Any preferred amenities (pool, spa, gym)?
-Preferred location (beach, city center, Gothic Quarter)?
-Any accessibility needs?"
-User: "Mid-range, prefer near beach with pool"
-You: [Use discover_places with geo_scope="barcelona", query="hotel near beach with pool mid-range", filters={"type": "hotel", "priceTier": "moderate"}]
-
-[Present results]
-
-"Would you like to see more options or refine your search?"
-
-User: "These look great, thanks!"
-You: "You're welcome! Let me know if you need anything else for your Barcelona trip."
-[Use transfer_to_orchestrator with reason: "Hotel search complete"]
-
-# Guidelines
-- Always ask for city/destination if not mentioned
-- Include query that captures user preferences semantically
-- Use filters for hard requirements (budget, accessibility)
-- Present 3-5 hotels unless user asks for more
-- Highlight features matching their stated preferences
-- Don't invent details - only show what search returns
-
-# When to Transfer
-## Transfer to Orchestrator:
-- After presenting results and user is satisfied
-- User asks about different topic (restaurants, activities)
-
-## Transfer to Itinerary Generator:
-- User says "add this to my itinerary" or "create trip plan"
-- Use tool with reason including selected hotel
-```
-
-#### Create Dining Agent Prompt
-
-Open the empty **dining_agent.prompty** and paste the following content:
-
-```text
----
-name: Dining Agent
-description: Searches restaurants using hybrid search
-authors:
-  - Microsoft
-model:
-  api: chat
-  configuration:
-    type: azure_openai
----
-
-system:
-You are the Dining Agent for a travel planning system. Your expertise is finding perfect restaurants using Azure Cosmos DB's hybrid search.
-
-# Your Tools
-
-- `discover_places`: Search restaurants using hybrid search
-- `transfer_to_orchestrator`: Return control when search is complete
-- `transfer_to_itinerary_generator`: Send user to create full trip plan
-
-# Your Responsibilities
-
-- **Search Restaurants**: Use `discover_places` with restaurant filters
-- **Understand Preferences**: Listen for cuisine, dietary restrictions, ambiance, price
-- **Present Results**: Show clear restaurant information with highlights
-- **Respect Dietary Needs**: Always filter by dietary restrictions
-
-# Using discover_places
-
-
-{
-  "geo_scope": "barcelona",
-  "query": "authentic tapas restaurant local atmosphere",
-  "user_id": "{from context}",
-  "tenant_id": "{from context}",
-  "filters": {
-    "type": "restaurant",
-    "dietary": ["vegetarian", "vegan"],
-    "priceTier": "moderate"
-  }
-}
-
-Filter options:
-
-- type: Must be "restaurant"
-- dietary: ["vegetarian", "vegan", "gluten-free", "halal", "kosher", "seafood"]
-- priceTier: "budget" | "moderate" | "luxury"
-- accessibility: ["wheelchair-friendly"]
-
-# Presenting Results
-
-🍽️ **Cal Pep**
-Traditional seafood tapas bar with counter seating
-📍 Born, Barcelona
-💰 €30-45/person
-🥘 Tapas, Seafood, Catalan
-🌱 Vegetarian options available
-⭐ Known for: Fresh seafood, lively atmosphere
-
-🍽️ **Tickets Bar**
-[Continue...]
-
-# Example Interaction
-User: "Find vegetarian restaurants in Barcelona"
-You: [Use discover_places with geo_scope="barcelona", query="vegetarian restaurants", filters={"type": "restaurant", "dietary": ["vegetarian"]}]
-
-"Here are some excellent vegetarian restaurants in Barcelona:
-
-🍽️ Flax & Kale
-Healthy vegetarian cafe with creative plant-based dishes
-[Continue with 3-5 results...]
-
-Would you like more options or different cuisine?"
-
-User: "The first one looks perfect"
-You: "Great choice! Flax & Kale is wonderful. Anything else you need for your trip?"
-[Use transfer_to_orchestrator with reason: "Restaurant search complete"]
-
-# Guidelines
-- Always apply dietary restrictions as filters
-- Include cuisine type and ambiance in query
-- Present 3-5 restaurants unless requested otherwise
-- Mention price per person for context
-- Note reservation requirements for popular places
-- Don't invent details - show only what search returns
-
-# When to Transfer
-## Transfer to Orchestrator:
-- After presenting results and user is satisfied
-- User asks about different topic
-
-## Transfer to Itinerary Generator:
-- User wants to add restaurant to trip plan
-- Use tool with reason including selected restaurant
-```
-
-#### Create Activity Agent Prompt
-
-Open the empty **activity_agent.prompty** and paste the following content:
-
-```text
----
-name: Activity Agent
-description: Searches activities using hybrid search
-authors:
-  - Microsoft
-model:
-  api: chat
-  configuration:
-    type: azure_openai
----
-
-system:
-You are the Activity Agent for a travel planning system. Your expertise is finding perfect activities and activities using Azure Cosmos DB's hybrid search.
-
-# Your Tools
-
-- `discover_places`: Search activities using hybrid search
-- `transfer_to_orchestrator`: Return control when search is complete
-- `transfer_to_itinerary_generator`: Send user to create full trip plan
-
-# Your Responsibilities
-
-- **Search Activities**: Use `discover_places` with activity filters
-- **Understand Interests**: Listen for activity type, interests, physical ability
-- **Present Results**: Show clear activity information with practical details
-- **Consider Accessibility**: Always respect accessibility needs
-
-# Using discover_places
-
-
-{
-  "geo_scope": "barcelona",
-  "query": "art museums modern architecture",
-  "user_id": "{from context}",
-  "tenant_id": "{from context}",
-  "filters": {
-    "type": "activity",
-    "accessibility": ["wheelchair-friendly"],
-    "priceTier": "moderate"
-  }
-}
-
-Filter options:
-
-- type: Must be "activity"
-- accessibility: ["wheelchair-friendly", "audio-guide"]
-- priceTier: "budget" | "moderate" | "luxury"
-
-# Presenting Results
-
-🎨 **Museu Picasso**
-Comprehensive collection of Picasso's works in medieval palaces
-📍 Born, Barcelona
-⏱️ 3 hours recommended
-💰 €12 entry
-♿ Wheelchair accessible
-⭐ Highlights: Blue Period paintings, skip-the-line tickets recommended
-
-🏛️ **Casa Batlló**
-[Continue...]
-
-# Example Interaction
-User: "What should I do in Barcelona? I love art and architecture"
-You: [Use discover_places with geo_scope="barcelona", query="art museums architecture Gaudi", filters={"type": "activity"}]
-
-"Barcelona is perfect for art and architecture lovers! Here are top recommendations:
-
-🎨 Museu Picasso
-[Show 3-5 results...]
-
-These are must-sees for art and architecture enthusiasts. Would you like more options?"
-
-User: "These are perfect, thanks!"
-You: "Wonderful! You'll love Barcelona's art scene. Need help with anything else?"
-[Use transfer_to_orchestrator with reason: "Activity search complete"]
-
-# Guidelines
-- Match activities to expressed interests
-- Include duration and best visit times
-- Mention booking/ticket requirements
-- Consider physical requirements and accessibility
-- Suggest nearby combinations for efficient touring
-- Don't invent details - show only search results
-
-# When to Transfer
-## Transfer to Orchestrator:
-- After presenting results and user is satisfied
-- User asks about different topic
-
-## Transfer to Itinerary Generator:
-- User wants to build these into trip plan
-```
-
-## Activity 4: Test Your Work
-
-With the activities in this module complete, it is time to test your work!
-
-### Restart the MCP Server
+### Restart everything
 
 Since we added new tools to the MCP server, we need to restart it to load the changes. The backend API and frontend will automatically reload thanks to watchfiles.
 
@@ -1482,111 +980,47 @@ python mcp_http_server.py
 
 Open your browser to http://localhost:4200 and start a new conversation (you may need to log out and log back in to reset the session):
 
-```text
-Find hotels in Rome
-```
+### Test 1: Try a focused place search
 
-You should get an output like this:
-![Testing_1](./media/Module-02/hotels.png)
+> *"Find me 3 vegetarian restaurants in Barcelona."*
 
-Let's test for some restaurants now:
+![restaurants.png](media/Module-02/restaurants.png)
 
-```text
-Find vegetarian restaurants in Rome
-```
+### Test 2: Try a focused place search
 
-The output should look like this:
+> *"Show me some hotels for Barcelona."*
 
-![Testing_2](./media/Module-02/restaurants.png)
+![hotels.png](media/Module-02/hotels.png)
 
-Let's test for some activities now:
-
-```text
-What should I do in Rome? I love art and architecture
-```
-
-The output should look like this:
-
-![Testing_3](./media/Module-02/activities.png)
-
-Let's test the itinerary generator now:
-
-```text
-Create a 3-day itinerary now
-```
-
-The output should look like this:
-
-![Testing_4](./media/Module-02/itinerary.png)
+---
 
 ## Validation Checklist
 
-Check that all components are working:
+- [ ] ✅ `travel_agents.py` defines `FindPlacesInput` and `ItineraryInput` Pydantic schemas.
+- [ ] ✅ `find_places_tool` and `create_or_update_itinerary_tool` are registered as supervisor tools.
+- [ ] ✅ `_oneshot_find_places` uses `bind_tools(..., tool_choice="required")`.
+- [ ] ✅ The supervisor model is wrapped in `_bind_parallel_tool_calls(...)`.
+- [ ] ✅ `_partition_mcp_tools`, `_build_sub_agents`, `_build_supervisor_tools` are all in place and `setup_agents` calls them in order.
+- [ ] ✅ `prompts/itinerary_agent.prompty` is populated and the itinerary sub-agent loads it on startup.
+- [ ] ✅ A 3-day trip request fires `find_places` for hotel + activity + dining and then `create_or_update_itinerary`.
+- [ ] ✅ A new document appears in the `trips` container.
 
-| Component                | What to Check                         | Status |
-|--------------------------|---------------------------------------|--------|
-| **MCP Server**           | Shows all 10+ tools on startup        | ⬜      |
-| **Orchestrator**         | Routes to correct specialized agents  | ⬜      |
-| **Hotel Agent**          | Searches with type="hotel" filter     | ⬜      |
-| **Dining Agent**         | Applies dietary filters correctly     | ⬜      |
-| **Activity Agent**       | Returns attractions and activities    | ⬜      |
-| **Itinerary Generator**  | Creates and saves trips               | ⬜      |
-| **Hybrid Search**        | Returns semantically relevant results | ⬜      |
-| **Context Preservation** | Agents remember conversation history  | ⬜      |
+---
 
-### Common Issues and Troubleshooting
+## Common Issues
 
-**Issue: "Tool not found" error**
+| Symptom | Likely cause | Fix |
+| --- | --- | --- |
+| Supervisor responds with prose instead of calling `find_places` | `_bind_parallel_tool_calls` not applied, or `find_places_tool` not in the list returned by `_build_supervisor_tools` | Re-check Activity 5 Steps 3 and 4 — both must land in `create_react_agent(...)`. |
+| `find_places` returns `{"error": "no discover_* tools available"}` | `_mcp_find_places_tools` is empty — the partition step ran before `_connect_to_mcp()` finished | Verify `setup_agents` calls `_connect_to_mcp()` first and `_partition_mcp_tools(all_tools)` second. |
+| `discover_places` returns 0 results | The constraints over-filtered (e.g., `price_tier="$$$$"` in a city that has nothing at that tier) | Drop filters one at a time. The full-text fallback should still match on keywords. |
+| Itinerary agent calls `discover_places` instead of `create_new_trip` | Tool partitioning is off — `_mcp_itinerary_tools` accidentally included the search tools | Re-check the prefix list in `_partition_mcp_tools`. |
 
-**Solution:**
-
-- Restart MCP server (Terminal 1)
-- Check that all tools are decorated with **@mcp.tool()**
-- Verify tool names match in **travel_agents.py**
-
-**Issue: No search results returned**
-
-**Solution:**
-
-- Check Cosmos DB connection in **.env**
-- Verify container names: **places**, **sessions**, **trips**
-- Ensure seed data is loaded:
-
-**macOS/Linux:**
-```bash
-cd ~/travel-multi-agent-workshop/01_exercises
-source .venv-travel/bin/activate
-cd python
-python data/seed_data.py
-```
-
-**Windows (PowerShell):**
-```powershell
-cd ~\travel-multi-agent-workshop\01_exercises
-.\.venv-travel\Scripts\Activate.ps1
-cd python
-python data\seed_data.py
-```
-
-**Issue: Agent doesn't route correctly**
-
-**Solution:**
-
-- Check **get_active_agent** function in **travel_agents.py**
-- Verify conditional edges in **build_agent_graph**
-- Review orchestrator prompt for routing logic
-
-**Issue: Itinerary Generator asks for city even though it was mentioned**
-
-**Solution:**
-
-- Check that system message includes conversation context
-- Verify prompt instructs agent to review conversation history
-- Ensure **state["messages"]** contains all previous messages
+---
 
 ## Module Solution
 
-The following sections include the completed code for this Module. Copy and paste these into your project if you run into issues and cannot resolve.
+The following sections include the completed code for this module. Copy and paste these into your project if you run into issues and cannot resolve.
 
 <details>
     <summary>Completed code for <strong>src/app/travel_agents.py</strong></summary>
@@ -1594,532 +1028,526 @@ The following sections include the completed code for this Module. Copy and past
 <br>
 
 ```python
-import asyncio
+from __future__ import annotations
+
+import inspect
+import logging
+import os
+import sys
+import inspect
 import json
 import logging
 import os
-import uuid
-from typing import Literal
-from langchain_core.messages import AIMessage, SystemMessage, ToolMessage
-from datetime import datetime, UTC
+import sys
+from contextvars import ContextVar
+from typing import Any, Literal
+
+from dotenv import load_dotenv
+
+# Make the project root importable so `from src.app.services...` works
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+
+load_dotenv(override=False)
+
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+from langchain_core.runnables import RunnableConfig
+from langchain_core.tools import tool
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langchain_mcp_adapters.tools import load_mcp_tools
-from langgraph.graph import StateGraph, START, MessagesState
-from langgraph.prebuilt import create_react_agent
-from langgraph.types import Command, interrupt
 from langgraph.checkpoint.memory import MemorySaver
+from langgraph.prebuilt import create_react_agent
+from pydantic import BaseModel, Field
 
 from src.app.services.azure_open_ai import model
-
-local_interactive_mode = False
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Reduce noise from verbose libraries
-logging.getLogger("azure.core.pipeline.policies.http_logging_policy").setLevel(logging.WARNING)
-logging.getLogger("azure.identity").setLevel(logging.WARNING)
-logging.getLogger("httpx").setLevel(logging.WARNING)
-logging.getLogger("mcp").setLevel(logging.WARNING)
-logging.getLogger("azure.cosmos").setLevel(logging.WARNING)
+# Quiet down chatty libraries so the workshop logs stay readable
+for noisy in (
+    "azure.core.pipeline.policies.http_logging_policy",
+    "azure.identity",
+    "azure.cosmos",
+    "httpx",
+    "httpcore",
+    "mcp",
+    "sse_starlette.sse",
+    "openai._base_client",
+    "urllib3.connectionpool",
+    "langsmith.client",
+):
+    logging.getLogger(noisy).setLevel(logging.WARNING)
 
-PROMPT_DIR = os.path.join(os.path.dirname(__file__), 'prompts')
-
-from src.app.services.azure_cosmos_db import patch_active_agent, sessions_container, update_session_container
+PROMPT_DIR = os.path.join(os.path.dirname(__file__), "prompts")
 
 
+# helpers
 def load_prompt(agent_name: str) -> str:
-    """Load prompt from .prompty file"""
+    """Load a `.prompty` file from the prompts directory."""
     file_path = os.path.join(PROMPT_DIR, f"{agent_name}.prompty")
     logger.info(f"Loading prompt for {agent_name} from {file_path}")
     try:
-        with open(file_path, "r", encoding="utf-8") as file:
-            return file.read().strip()
+        with open(file_path, "r", encoding="utf-8") as fh:
+            return fh.read().strip()
     except FileNotFoundError:
         logger.error(f"Prompt file not found for {agent_name}")
-        return f"You are a {agent_name} agent in a travel planning system."
+        return f"You are a {agent_name} agent."
 
 
-def filter_tools_by_prefix(tools, prefixes):
-    """Filter tools by name prefix"""
-    return [tool for tool in tools if any(tool.name.startswith(prefix) for prefix in prefixes)]
+def filter_tools_by_prefix(tools: list[Any], prefixes: list[str]) -> list[Any]:
+    """Return only those MCP tools whose name starts with one of the prefixes."""
+    return [
+        t for t in tools
+        if any(getattr(t, "name", "").startswith(prefix) for prefix in prefixes)
+    ]
 
 
-# Global variables for MCP session management
-_mcp_client = None
+def _create_agent(agent_model: Any, tools: list[Any], prompt_text: str, **kwargs: Any) -> Any:
+    """Create a ReAct agent across LangGraph versions that renamed the prompt kwarg."""
+    signature = inspect.signature(create_react_agent)
+    prompt_kwarg = "state_modifier" if "state_modifier" in signature.parameters else "prompt"
+    return create_react_agent(agent_model, tools, **{prompt_kwarg: prompt_text}, **kwargs)
+
+
+def _bind_parallel_tool_calls(base_model: Any) -> Any:
+    """Allow the supervisor to fire multiple tool calls in one turn when supported."""
+    try:
+        return base_model.bind(parallel_tool_calls=True)
+    except Exception:
+        return base_model
+
+
+def _last_message_content(result: Any) -> str:
+    """Return compact text from the last message produced by a sub-agent."""
+    if isinstance(result, dict) and result.get("messages"):
+        content = getattr(result["messages"][-1], "content", None)
+        if content is not None:
+            return str(content)
+    return str(result)
+
+
+def _subagent_config(config: RunnableConfig, agent_name: str) -> RunnableConfig:
+    """Preserve request configuration while tagging internal sub-agent calls."""
+    inherited = dict(config or {})
+    configurable = dict(inherited.get("configurable", {}) or {})
+    metadata = dict(inherited.get("metadata", {}) or {})
+    metadata["sub_agent"] = agent_name
+    inherited["configurable"] = configurable
+    inherited["metadata"] = metadata
+    return inherited
+
+
+# Force the real request identity onto the itinerary sub-agent's trip tools so
+# saved trips persist under the right user (the ReAct model otherwise guesses
+# user_id / tenant_id and can send placeholders like "user").
+_current_identity: ContextVar[dict[str, str] | None] = ContextVar(
+    "current_identity", default=None
+)
+
+_IDENTITY_TRIP_TOOLS = ("create_new_trip", "update_trip", "get_trip_details")
+
+
+def _wrap_trip_tool(mcp_tool: Any) -> Any:
+    """Force the request-scoped user_id / tenant_id onto a trip MCP call."""
+    description = getattr(mcp_tool, "description", None) or "Trip tool."
+    args_schema = getattr(mcp_tool, "args_schema", None)
+    tool_name = getattr(mcp_tool, "name", "trip_tool")
+
+    async def trip_tool_with_identity(config: RunnableConfig, **kwargs: Any) -> Any:
+        identity = _current_identity.get() or {}
+        if identity.get("user_id"):
+            kwargs["user_id"] = identity["user_id"]
+        if identity.get("tenant_id"):
+            kwargs["tenant_id"] = identity["tenant_id"]
+        return await mcp_tool.ainvoke(kwargs, config=config)
+
+    trip_tool_with_identity.__name__ = tool_name
+    trip_tool_with_identity.__doc__ = description
+    return tool(tool_name, args_schema=args_schema, description=description)(
+        trip_tool_with_identity
+    )
+
+
+def _with_identity_injection(tools: list[Any]) -> list[Any]:
+    """Wrap trip tools so they use the request identity, not an LLM-supplied one."""
+    return [
+        _wrap_trip_tool(mcp_tool)
+        if getattr(mcp_tool, "name", "") in _IDENTITY_TRIP_TOOLS
+        else mcp_tool
+        for mcp_tool in tools
+    ]
+
+
+class FindPlacesInput(BaseModel):
+    city: str = Field(..., description="City to search")
+    aspects: list[Literal["hotel", "activity", "dining"]] = Field(
+        ...,
+        description=(
+            "Which categories of places to search; pass all needed aspects at once "
+            "for parallel fan-out"
+        ),
+    )
+    constraints: dict[str, Any] | None = Field(
+        default=None,
+        description="Optional constraints, e.g., {'dietary':'vegan','budget':'moderate'}",
+    )
+    user_preference_vector: list[float] | None = Field(
+        default=None,
+        description=(
+            "Optional preference embedding for personalized RRF; usually injected by "
+            "runtime config rather than model-visible text"
+        ),
+    )
+
+
+class ItineraryInput(BaseModel):
+    trip_id: str | None = Field(
+        default=None,
+        description="Existing trip id to update; omit or null to create a new trip",
+    )
+    destination: str | None = Field(
+        default=None,
+        description="Destination city or region for the itinerary",
+    )
+    days: list[dict[str, Any]] | str | None = Field(
+        default=None,
+        description="Requested day plans, duration, or structured day-by-day content",
+    )
+    selected_places: dict[str, Any] | list[dict[str, Any]] | str | None = Field(
+        default=None,
+        description="Selected hotel, activity, and dining options to arrange",
+    )
+    constraints: dict[str, Any] | None = Field(
+        default=None,
+        description="Traveller constraints and planning preferences",
+    )
+    dates: dict[str, Any] | str | None = Field(
+        default=None,
+        description="Optional trip dates or date range",
+    )
+    notes: str | None = Field(
+        default=None,
+        description="Additional update instructions or planning notes",
+    )
+
+
+_FIND_PLACES_SELECTOR_PROMPT = (
+    "You translate the supervisor's structured place-search request into ONE tool call. "
+    "Rules:\n"
+    "- For 2 or 3 aspects, call `discover_itinerary` once with `aspects` set to the requested aspects.\n"
+    "- For exactly 1 aspect, call `discover_places` with `filters={\"type\": <aspect>}`.\n"
+    "- Aspect names in tool args MUST be: 'hotel', 'activity', 'restaurant'. Map any 'dining' aspect to 'restaurant'.\n"
+    "- `geo_scope` = the city.\n"
+    "- Derive a short `query` (under 20 words) from the constraints: interests, vibe, dietary, budget, accessibility.\n"
+    "- Always pass `user_id` and `tenant_id` exactly as given.\n"
+    "- NEVER include `user_preference_vector` in tool args; the runtime injects it.\n"
+    "- Output ONLY the tool call. No prose."
+)
+
+
+async def _oneshot_find_places(
+    city: str,
+    aspects: list[str],
+    constraints: dict[str, Any] | None,
+    user_id: str,
+    tenant_id: str,
+    vector: list[float] | None,
+    config: RunnableConfig,
+) -> str:
+    """Run one bounded model turn that emits a single discover_* call.
+
+    Replaces a ReAct sub-agent's 2-LLM-call loop (decide + format) with a single
+    forced tool-choice call. The tool output is returned verbatim to the supervisor,
+    which synthesizes the final user-facing response.
+    """
+    selector_tools = [
+        wrapped_tool
+        for wrapped_tool in _mcp_find_places_tools
+        if getattr(wrapped_tool, "name", "").startswith("discover_")
+    ]
+    if not selector_tools:
+        return json.dumps({"error": "no discover_* tools available"})
+
+    constraints_str = json.dumps(constraints or {}, ensure_ascii=False, default=str)
+    messages = [
+        SystemMessage(content=_FIND_PLACES_SELECTOR_PROMPT),
+        HumanMessage(
+            content=(
+                f"city={city!r}\n"
+                f"aspects={aspects!r}\n"
+                f"constraints={constraints_str}\n"
+                f"user_id={user_id!r}\n"
+                f"tenant_id={tenant_id!r}\n"
+                f"user_preference_vector={'runtime-injected' if vector else 'absent'}"
+            )
+        ),
+    ]
+
+    bound = model.bind_tools(selector_tools, tool_choice="required")
+    ai_msg = await bound.ainvoke(messages, config=config)
+
+    tool_calls = getattr(ai_msg, "tool_calls", None) or []
+    if not tool_calls:
+        return json.dumps(
+            {"error": "selector model emitted no tool call", "city": city, "aspects": aspects},
+            ensure_ascii=False,
+        )
+
+    tools_by_name = {wrapped_tool.name: wrapped_tool for wrapped_tool in selector_tools}
+    results: list[dict[str, Any]] = []
+    for call in tool_calls:
+        name = call.get("name")
+        args = dict(call.get("args") or {})
+        args.setdefault("user_id", user_id)
+        if tenant_id:
+            args.setdefault("tenant_id", tenant_id)
+        tool_fn = tools_by_name.get(name)
+        if tool_fn is None:
+            results.append({"tool": name, "error": "unknown tool"})
+            continue
+        try:
+            raw = await tool_fn.ainvoke(args, config=config)
+        except Exception as exc:
+            logger.warning("oneshot find_places tool=%s failed: %s", name, exc)
+            results.append({"tool": name, "error": str(exc)})
+            continue
+        loggable_args = {k: v for k, v in args.items() if k != "user_preference_vector"}
+        results.append({"tool": name, "args": loggable_args, "result": raw})
+
+    return json.dumps(results, ensure_ascii=False, default=str)
+
+
+@tool("find_places", args_schema=FindPlacesInput)
+async def find_places_tool(
+    city: str,
+    aspects: list[Literal["hotel", "activity", "dining"]],
+    constraints: dict[str, Any] | None = None,
+    user_preference_vector: list[float] | None = None,
+    config: RunnableConfig = None,
+) -> str:
+    """Search hotels, activities, or dining in a city. Returns raw structured place data."""
+    effective_config = config or {"configurable": {}, "metadata": {}}
+    configurable = effective_config.get("configurable", {}) or {}
+    user_id = configurable.get("user_id") or configurable.get("userId") or ""
+    tenant_id = configurable.get("tenant_id") or configurable.get("tenantId") or ""
+
+    return await _oneshot_find_places(
+        city=city,
+        aspects=list(aspects),
+        constraints=constraints,
+        user_id=str(user_id),
+        tenant_id=str(tenant_id),
+        vector=user_preference_vector,
+        config=_subagent_config(effective_config, "find_places"),
+    )
+
+
+@tool("create_or_update_itinerary", args_schema=ItineraryInput)
+async def create_or_update_itinerary_tool(
+    trip_id: str | None = None,
+    destination: str | None = None,
+    days: list[dict[str, Any]] | str | None = None,
+    selected_places: dict[str, Any] | list[dict[str, Any]] | str | None = None,
+    constraints: dict[str, Any] | None = None,
+    dates: dict[str, Any] | str | None = None,
+    notes: str | None = None,
+    config: RunnableConfig = None,
+) -> str:
+    """Create a new saved itinerary or update an existing trip plan."""
+    if _itinerary_agent is None:
+        raise RuntimeError("Travel agents have not been initialized")
+
+    payload = {
+        "trip_id": trip_id,
+        "destination": destination,
+        "days": days,
+        "selected_places": selected_places,
+        "constraints": constraints,
+        "dates": dates,
+        "notes": notes,
+    }
+    compact_payload = {key: value for key, value in payload.items() if value is not None}
+    user_msg = (
+        "Create or update the itinerary using this structured request. "
+        "Persist changes with the trip tools before reporting success.\n"
+        f"{json.dumps(compact_payload, ensure_ascii=False, default=str)}"
+    )
+    state = {"messages": [HumanMessage(content=user_msg)]}
+    effective_config = config or {"configurable": {}, "metadata": {}}
+    configurable = effective_config.get("configurable", {}) or {}
+    identity = {
+        "user_id": configurable.get("user_id") or configurable.get("userId") or "",
+        "tenant_id": configurable.get("tenant_id") or configurable.get("tenantId") or "",
+    }
+    identity_token = _current_identity.set(identity)
+    try:
+        result = await _itinerary_agent.ainvoke(
+            state,
+            config=_subagent_config(effective_config, "itinerary"),
+        )
+    finally:
+        _current_identity.reset(identity_token)
+    return _last_message_content(result)
+
+
+# Module-level state that is populated by setup_agents() below
+_mcp_client: MultiServerMCPClient | None = None
 _session_context = None
 _persistent_session = None
 
+# MCP tool subsets loaded once during startup
+_mcp_session_tools: list[Any] = []
+_mcp_find_places_tools: list[Any] = []
+_mcp_itinerary_tools: list[Any] = []
+
 # Global agent variables
-orchestrator_agent = None
-hotel_agent = None
-activity_agent = None
-dining_agent = None
-itinerary_generator_agent = None
+_find_places_agent: Any = None        # one-shot selector; no ReAct loop, stays None
+_itinerary_agent: Any = None          # ReAct sub-agent populated in _build_sub_agents()
+supervisor_agent: Any = None
 
 
-async def setup_agents():
-    global orchestrator_agent, hotel_agent, activity_agent, dining_agent
-    global itinerary_generator_agent
+# connect to mcp
+async def _connect_to_mcp() -> list[Any]:
+    """Open the persistent MCP session and return every tool the server exposes."""
     global _mcp_client, _session_context, _persistent_session
 
     logger.info("🚀 Starting Travel Assistant MCP client...")
 
-    # Load authentication configuration
-    try:
-        simple_token = os.getenv("MCP_AUTH_TOKEN")
+    simple_token = os.getenv("MCP_AUTH_TOKEN")
+    mcp_url = os.getenv("MCP_SERVER_BASE_URL", "http://localhost:8080") + "/mcp/"
 
-        logger.info("🔐 Client Authentication Configuration:")
-        logger.info(f"   Simple Token: {'SET' if simple_token else 'NOT SET'}")
-
-        # Determine authentication mode
-        if simple_token:
-            auth_mode = "simple_token"
-            logger.info(f"   Mode: Simple Token (Development)")
-        else:
-            auth_mode = "none"
-            logger.info("   Mode: No Authentication")
-
-    except ImportError:
-        auth_mode = "none"
-        simple_token = None
-        logger.info("🔐 Client Authentication: Dependencies unavailable - no auth")
-
-    logger.info("   - Transport: streamable_http")
-    logger.info(f"   - Server URL: {os.getenv('MCP_SERVER_BASE_URL', 'http://localhost:8080')}/mcp/")
-    logger.info(f"   - Authentication: {auth_mode.upper()}")
-    logger.info("   - Status: Ready to connect\n")
-
-    # MCP Client configuration
-    client_config = {
+    client_config: dict[str, Any] = {
         "travel_tools": {
             "transport": "streamable_http",
-            "url": os.getenv("MCP_SERVER_BASE_URL", "http://localhost:8080") + "/mcp/",
+            "url": mcp_url,
         }
     }
-
-    # Add authentication if configured
-    client_config["travel_tools"]["headers"] = {
-        "Authorization": f"Bearer {simple_token}"
-    }
-    logger.info("🔐 Added Bearer token authentication to client")
+    if simple_token:
+        client_config["travel_tools"]["headers"] = {
+            "Authorization": f"Bearer {simple_token}"
+        }
 
     _mcp_client = MultiServerMCPClient(client_config)
-    logger.info("✅ MCP Client initialized successfully")
 
-    # Create persistent session
+    # Open ONE persistent MCP session for the lifetime of the process —
+    # re-opening it on every request adds tens to hundreds of milliseconds
+    # of latency for no benefit.
     _session_context = _mcp_client.session("travel_tools")
     _persistent_session = await _session_context.__aenter__()
 
-    # Load all MCP tools
     all_tools = await load_mcp_tools(_persistent_session)
+    logger.info(f"[DEBUG] Loaded {len(all_tools)} MCP tools")
+    return all_tools
 
-    logger.info("[DEBUG] All tools registered from Travel Assistant MCP server:")
-    for tool in all_tools:
-        logger.info(f"  - {tool.name}")
 
-    # ========================================================================
-    # Tool Distribution for Agents
-    # ========================================================================
+def _partition_mcp_tools(all_tools: list[Any]) -> None:
+    """Slice all_tools into the per-agent buckets the rest of the file expects."""
+    global _mcp_session_tools, _mcp_find_places_tools, _mcp_itinerary_tools
 
-    orchestrator_tools = filter_tools_by_prefix(all_tools, [
-        "create_session", "get_session_context", "append_turn",
-        "transfer_to_"  # All transfer tools
-    ])
-
-    itinerary_generator_tools = filter_tools_by_prefix(all_tools, [
-        "create_new_trip", "update_trip", "get_trip_details",
-        "transfer_to_orchestrator"
-    ])
-
-    hotel_tools = filter_tools_by_prefix(all_tools, [
-        "discover_places",  # Search hotels
-        "transfer_to_orchestrator", "transfer_to_itinerary_generator"
-    ])
-
-    activity_tools = filter_tools_by_prefix(all_tools, [
-        "discover_places",  # Search attractions
-        "transfer_to_orchestrator", "transfer_to_itinerary_generator"
-    ])
-
-    dining_tools = filter_tools_by_prefix(all_tools, [
-        "discover_places",  # Search restaurants
-        "transfer_to_orchestrator", "transfer_to_itinerary_generator"
-    ])
-
-    # Create agents with their tools
-    orchestrator_agent = create_react_agent(
-        model,
-        orchestrator_tools,
-        state_modifier=load_prompt("orchestrator")
+    _mcp_session_tools = filter_tools_by_prefix(
+        all_tools,
+        ["create_session", "get_session_context", "append_turn"],
     )
-
-    itinerary_generator_agent = create_react_agent(
-        model,
-        itinerary_generator_tools,
-        state_modifier=load_prompt("itinerary_generator")
+    _mcp_find_places_tools = filter_tools_by_prefix(
+        all_tools,
+        ["discover_places", "discover_itinerary"],
     )
-
-    hotel_agent = create_react_agent(
-        model,
-        hotel_tools,
-        state_modifier=load_prompt("hotel_agent")
-    )
-
-    activity_agent = create_react_agent(
-        model,
-        activity_tools,
-        state_modifier=load_prompt("activity_agent")
-    )
-
-    dining_agent = create_react_agent(
-        model,
-        dining_tools,
-        state_modifier=load_prompt("dining_agent")
-    )
-
-
-async def call_orchestrator_agent(state: MessagesState, config) -> Command[Literal["orchestrator", "human"]]:
-    """
-    Orchestrator agent: Routes requests using transfer_to_ tools.
-    Checks for active agent and routes directly if found.
-    Stores every message in database.
-    """
-    thread_id = config["configurable"].get("thread_id", "UNKNOWN_THREAD_ID")
-    user_id = config["configurable"].get("userId", "UNKNOWN_USER_ID")
-    tenant_id = config["configurable"].get("tenantId", "UNKNOWN_TENANT_ID")
-
-    # Add context about available parameters
-    state["messages"].append(SystemMessage(
-        content=f"If tool to be called requires tenantId='{tenant_id}', userId='{user_id}', session_id='{thread_id}', include these in the JSON parameters when invoking the tool. Do not ask the user for them."
-    ))
-
-    # Check for active agent in database
-    try:
-        logging.info(f"Looking up active agent for thread {thread_id}")
-        session_doc = sessions_container.read_item(
-            item=thread_id,
-            partition_key=[tenant_id, user_id, thread_id]
+    _mcp_itinerary_tools = _with_identity_injection(
+        filter_tools_by_prefix(
+            all_tools,
+            ["create_new_trip", "update_trip", "get_trip_details"],
         )
-        activeAgent = session_doc.get('activeAgent', 'unknown')
-    except Exception as e:
-        logger.debug(f"No active agent found: {e}")
-        activeAgent = None
+    )
 
-    # Initialize session if needed (for local testing)
-    if activeAgent is None:
-        update_session_container({
-            "id": thread_id,
-            "sessionId": thread_id,
-            "tenantId": tenant_id,
-            "userId": user_id,
-            "title": "New Conversation",
-            "createdAt": datetime.now(UTC).isoformat(),
-            "lastActivityAt": datetime.now(UTC).isoformat(),
-            "status": "active",
-            "messageCount": 0
-        })
-
-    logger.info(f"Active agent from DB: {activeAgent}")
-
-    # Always call orchestrator to analyze the message and decide routing
-    # Don't blindly route to the last active agent - user's request may have changed
-    response = await orchestrator_agent.ainvoke(state, config)
-    return Command(update=response, goto="human")
+    logger.info("📊 Tool Distribution (Supervisor + 2 Sub-Agents):")
+    logger.info(f"   Supervisor session tools: {[t.name for t in _mcp_session_tools]}")
+    logger.info(f"   Find Places tools: {[t.name for t in _mcp_find_places_tools]}")
+    logger.info(f"   Itinerary tools: {[t.name for t in _mcp_itinerary_tools]}")
 
 
-async def call_itinerary_generator_agent(state: MessagesState, config) -> Command[
-    Literal["itinerary_generator", "orchestrator", "human"]]:
+def _build_sub_agents() -> None:
+    """Build the internal sub-agents the supervisor delegates to."""
+    global _find_places_agent, _itinerary_agent
+
+    # find_places is a one-shot selector — no ReAct loop, no compiled agent.
+    _find_places_agent = None
+    logger.info("   Find Places: one-shot tool-selector node (no ReAct loop)")
+
+    _itinerary_agent = _create_agent(
+        model,
+        _mcp_itinerary_tools,
+        load_prompt("itinerary_agent"),
+    )
+
+
+def _build_supervisor_tools() -> list[Any]:
+    """Return the tool list the supervisor sees: 2 sub-agents-as-tools + bookkeeping."""
+    return [
+        find_places_tool,
+        create_or_update_itinerary_tool,
+        *_mcp_session_tools,
+    ]
+
+
+# setup the supervisor agent
+async def setup_agents(checkpointer=None) -> None:
+    """Initialize the supervisor and its internal sub-agents on a single MCP session.
+
+    Topology: user → supervisor ReAct agent → {find_places, create_or_update_itinerary}
+    tools, where find_places is a one-shot selector node and create_or_update_itinerary
+    invokes the itinerary ReAct sub-agent.
     """
-    Itinerary Generator: Synthesizes all gathered info into day-by-day plan.
-    """
-    thread_id = config["configurable"].get("thread_id", "UNKNOWN_THREAD_ID")
-    user_id = config["configurable"].get("userId", "UNKNOWN_USER_ID")
-    tenant_id = config["configurable"].get("tenantId", "UNKNOWN_TENANT_ID")
+    global supervisor_agent
 
-    logger.info("📋 Itinerary Generator synthesizing plan...")
+    if supervisor_agent is not None:
+        logger.info("✅ Travel agents already initialized")
+        return
 
-    # Patch active agent in database
-    if local_interactive_mode:
-        patch_active_agent(tenant_id or "cli-test", user_id or "cli-test", thread_id, "itinerary_generator_agent")
+    all_tools = await _connect_to_mcp()
+    _partition_mcp_tools(all_tools)
+    _build_sub_agents()
 
-    # Add context about available parameters
-    state["messages"].append(SystemMessage(
-        content=f"If tool to be called requires tenantId='{tenant_id}', userId='{user_id}', session_id='{thread_id}', include these in the JSON parameters when invoking the tool. Do not ask the user for them."
-    ))
+    supervisor_agent = _create_agent(
+        _bind_parallel_tool_calls(model),
+        tools=_build_supervisor_tools(),
+        prompt_text=load_prompt("supervisor"),
+        checkpointer=checkpointer or MemorySaver(),
+    )
 
-    response = await itinerary_generator_agent.ainvoke(state, config)
-    return Command(update=response, goto="human")
-
-
-async def call_hotel_agent(state: MessagesState, config) -> Command[
-    Literal["hotel", "itinerary_generator", "orchestrator", "human"]]:
-    """
-    Hotel Agent: Searches accommodations and stores hotel preferences.
-    """
-    thread_id = config["configurable"].get("thread_id", "UNKNOWN_THREAD_ID")
-    user_id = config["configurable"].get("userId", "UNKNOWN_USER_ID")
-    tenant_id = config["configurable"].get("tenantId", "UNKNOWN_TENANT_ID")
-
-    # Patch active agent in database
-    if local_interactive_mode:
-        patch_active_agent(tenant_id or "cli-test", user_id or "cli-test", thread_id, "hotel_agent")
-
-    # Add context about available parameters
-    state["messages"].append(SystemMessage(
-        content=f"If tool to be called requires tenantId='{tenant_id}', userId='{user_id}', session_id='{thread_id}', include these in the JSON parameters when invoking the tool. Do not ask the user for them."
-    ))
-
-    response = await hotel_agent.ainvoke(state, config)
-    return Command(update=response, goto="human")
+    logger.info("✅ Supervisor and sub-agents created successfully\n")
 
 
-async def call_activity_agent(state: MessagesState, config) -> Command[
-    Literal["activity", "itinerary_generator", "orchestrator", "human"]]:
-    """
-    Activity Agent: Searches attractions and stores activity preferences.
-    """
-    thread_id = config["configurable"].get("thread_id", "UNKNOWN_THREAD_ID")
-    user_id = config["configurable"].get("userId", "UNKNOWN_USER_ID")
-    tenant_id = config["configurable"].get("tenantId", "UNKNOWN_TENANT_ID")
-
-    # Patch active agent in database
-    if local_interactive_mode:
-        patch_active_agent(tenant_id or "cli-test", user_id or "cli-test", thread_id, "activity_agent")
-
-    # Add context about available parameters
-    state["messages"].append(SystemMessage(
-        content=f"If tool to be called requires tenantId='{tenant_id}', userId='{user_id}', session_id='{thread_id}', include these in the JSON parameters when invoking the tool. Do not ask the user for them."
-    ))
-
-    response = await activity_agent.ainvoke(state, config)
-    return Command(update=response, goto="human")
+# build the agent graph
+def build_agent_graph():
+    """Return the compiled supervisor graph for the API to invoke."""
+    if supervisor_agent is None:
+        raise RuntimeError(
+            "Travel agents have not been initialized; call setup_agents() first"
+        )
+    return supervisor_agent
 
 
-async def call_dining_agent(state: MessagesState, config) -> Command[
-    Literal["dining", "itinerary_generator", "orchestrator", "human"]]:
-    """
-    Dining Agent: Searches restaurants and stores dining preferences.
-    """
-    thread_id = config["configurable"].get("thread_id", "UNKNOWN_THREAD_ID")
-    user_id = config["configurable"].get("userId", "UNKNOWN_USER_ID")
-    tenant_id = config["configurable"].get("tenantId", "UNKNOWN_TENANT_ID")
-
-    # Patch active agent in database
-    if local_interactive_mode:
-        patch_active_agent(tenant_id or "cli-test", user_id or "cli-test", thread_id, "dining_agent")
-
-    # Add context about available parameters
-    state["messages"].append(SystemMessage(
-        content=f"If tool to be called requires tenantId='{tenant_id}', userId='{user_id}', session_id='{thread_id}', include these in the JSON parameters when invoking the tool. Do not ask the user for them."
-    ))
-
-    response = await dining_agent.ainvoke(state, config)
-    return Command(update=response, goto="human")
-
-
-def human_node(state: MessagesState, config) -> None:
-    """
-    Human node: Interrupts for user input in interactive mode.
-    """
-    interrupt(value="Ready for user input.")
-    return None
-
-
-async def cleanup_persistent_session():
-    """Clean up the persistent MCP session when the application shuts down"""
-    global _session_context, _persistent_session
-
-    if _session_context is not None and _persistent_session is not None:
+# cleanup the MCP session
+async def cleanup_persistent_session() -> None:
+    """Close the persistent MCP session on shutdown."""
+    global _session_context, _persistent_session, supervisor_agent
+    if _session_context is not None:
         try:
             await _session_context.__aexit__(None, None, None)
-            logger.info("✅ MCP persistent session cleaned up successfully")
-        except Exception as e:
-            logger.error(f"Error cleaning up MCP session: {e}")
-
-
-def build_agent_graph():
-    logger.info("🏗️  Building multi-agent graph...")
-
-    builder = StateGraph(MessagesState)
-    builder.add_node("orchestrator", call_orchestrator_agent)
-    builder.add_node("hotel", call_hotel_agent)
-    builder.add_node("activity", call_activity_agent)
-    builder.add_node("dining", call_dining_agent)
-    builder.add_node("itinerary_generator", call_itinerary_generator_agent)
-    builder.add_node("human", human_node)
-
-    builder.add_edge(START, "orchestrator")
-
-    # Orchestrator routing - can route to any specialized agent
-    builder.add_conditional_edges(
-        "orchestrator",
-        get_active_agent,
-        {
-            "hotel": "hotel",
-            "activity": "activity",
-            "dining": "dining",
-            "itinerary_generator": "itinerary_generator",
-            "human": "human",  # Wait for user input
-            "orchestrator": "orchestrator",  # fallback
-        }
-    )
-
-    # Hotel routing - can call itinerary_generator or orchestrator
-    builder.add_conditional_edges(
-        "hotel",
-        get_active_agent,
-        {
-            "itinerary_generator": "itinerary_generator",
-            "orchestrator": "orchestrator",
-            "hotel": "hotel",  # Can stay in hotel
-        }
-    )
-
-    # Activity routing - can call itinerary_generator or orchestrator
-    builder.add_conditional_edges(
-        "activity",
-        get_active_agent,
-        {
-            "itinerary_generator": "itinerary_generator",
-            "orchestrator": "orchestrator",
-            "activity": "activity",  # Can stay in activity
-        }
-    )
-
-    # Dining routing - can call itinerary_generator or orchestrator
-    builder.add_conditional_edges(
-        "dining",
-        get_active_agent,
-        {
-            "itinerary_generator": "itinerary_generator",
-            "orchestrator": "orchestrator",
-            "dining": "dining",  # Can stay in dining
-        }
-    )
-
-    # Itinerary Generator routing - can return to orchestrator or stay
-    builder.add_conditional_edges(
-        "itinerary_generator",
-        get_active_agent,
-        {
-            "orchestrator": "orchestrator",
-            "itinerary_generator": "itinerary_generator",  # Can stay to handle follow-ups
-        }
-    )
-
-    checkpointer = MemorySaver()
-    graph = builder.compile(checkpointer=checkpointer)
-    return graph
-
-
-async def interactive_chat():
-    """
-    Interactive CLI for testing the travel assistant.
-    Similar to banking app's interactive mode.
-    """
-    global local_interactive_mode
-    local_interactive_mode = True
-
-    thread_id = str(uuid.uuid4())
-    thread_config = {
-        "configurable": {
-            "thread_id": thread_id,
-            "userId": "Tony",
-            "tenantId": "Marvel"
-        }
-    }
-
-    print("\n" + "=" * 70)
-    print("🌍 Travel Assistant - Interactive Test Mode")
-    print("=" * 70)
-    print("Type 'exit' to end the conversation")
-    print("=" * 70 + "\n")
-
-    # Build graph
-    graph = build_agent_graph()
-
-    user_input = input("You: ")
-
-    while user_input.lower() != "exit":
-        input_message = {"messages": [{"role": "user", "content": user_input}]}
-        response_found = False
-
-        async for update in graph.astream(input_message, config=thread_config, stream_mode="updates"):
-            for node_id, value in update.items():
-                if isinstance(value, dict) and value.get("messages"):
-                    last_message = value["messages"][-1]
-                    if isinstance(last_message, AIMessage):
-                        print(f"{node_id}: {last_message.content}\n")
-                        response_found = True
-
-        if not response_found:
-            logger.debug("No AI response received.")
-
-        user_input = input("You: ")
-
-    print("\n👋 Goodbye!")
-
-
-def get_active_agent(state: MessagesState, config) -> str:
-    """
-    Extract active agent from ToolMessage or fallback to Cosmos DB.
-    This is used by the router to determine which specialized agent to call.
-    Also checks if auto-summarization should be triggered.
-    """
-    thread_id = config["configurable"].get("thread_id", "UNKNOWN_THREAD_ID")
-    user_id = config["configurable"].get("userId", "UNKNOWN_USER_ID")
-    tenant_id = config["configurable"].get("tenantId", "UNKNOWN_TENANT_ID")
-
-    activeAgent = None
-
-    # Search for last ToolMessage and try to extract `goto`
-    for message in reversed(state['messages']):
-        if isinstance(message, ToolMessage):
-            try:
-                content_json = json.loads(message.content)
-                activeAgent = content_json.get("goto")
-                if activeAgent:
-                    logger.info(f"🎯 Extracted activeAgent from ToolMessage: {activeAgent}")
-                    break
-            except Exception as e:
-                logger.debug(f"Failed to parse ToolMessage content: {e}")
-
-    # Fallback: Cosmos DB lookup if needed
-    if not activeAgent:
-        try:
-            session_doc = sessions_container.read_item(
-                item=thread_id,
-                partition_key=[tenant_id, user_id, thread_id]
-            )
-            activeAgent = session_doc.get('activeAgent', 'unknown')
-            logger.info(f"Active agent from DB: {activeAgent}")
-        except Exception as e:
-            logger.error(f"Error retrieving active agent from DB: {e}")
-            activeAgent = "unknown"
-
-    # If activeAgent is unknown or None, default to orchestrator
-    if activeAgent in [None, "unknown"]:
-        logger.info(f"� activeAgent is '{activeAgent}', defaulting to Orchestrator")
-        activeAgent = "orchestrator"
-
-    return activeAgent
-
-
-if __name__ == "__main__":
-    # Setup agents and run interactive chat
-    async def main():
-        await setup_agents()
-        await interactive_chat()
-
-
-    asyncio.run(main())
+        except Exception as exc:
+            logger.warning(f"Error closing MCP session: {exc}")
+    _session_context = None
+    _persistent_session = None
+    supervisor_agent = None
 ```
 
 </details>
 
+
 <details>
-    <summary>Completed code for <strong>mcp_server/mcp_http_server.py</strong></summary>
+   <summary>Completed code for <strong>mcp_server/mcp_http_server.py</strong></summary>
 
 <br>
 
@@ -2127,57 +1555,49 @@ if __name__ == "__main__":
 import sys
 import os
 import logging
-import json
 from typing import Any, Dict, List, Optional
-
 from dotenv import load_dotenv
 from mcp.server.fastmcp import FastMCP
 
-# Add python directory to path so we can import src modules
-current_dir = os.path.dirname(os.path.abspath(__file__))
-python_dir = os.path.join(current_dir, '..', 'python')
-sys.path.insert(0, python_dir)
+# Ensure stdout/stderr use UTF-8 so emoji in logs/prints don't crash on Windows,
+# where the console defaults to cp1252 and raises UnicodeEncodeError on emoji.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8")
+    except (AttributeError, ValueError):
+        pass
+
+from src.app.services.azure_open_ai import generate_embedding
+from src.app.services.azure_cosmos_db import (
+    create_session_record,
+    get_session_by_id,
+    append_message,
+    get_session_messages,
+    record_api_event,
+    query_places_hybrid,
+    create_trip,
+    get_trip,
+)
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Reduce noise from verbose libraries
-logging.getLogger("azure.core.pipeline.policies.http_logging_policy").setLevel(logging.WARNING)
-logging.getLogger("azure.identity").setLevel(logging.WARNING)
-logging.getLogger("azure.identity._credentials.environment").setLevel(logging.WARNING)
-logging.getLogger("azure.identity._credentials.managed_identity").setLevel(logging.WARNING)
-logging.getLogger("azure.identity._credentials.chained").setLevel(logging.WARNING)
-logging.getLogger("azure.cosmos").setLevel(logging.WARNING)
-logging.getLogger("azure.cosmos._cosmos_http_logging_policy").setLevel(logging.WARNING)
-logging.getLogger("httpx").setLevel(logging.WARNING)
-logging.getLogger("httpcore").setLevel(logging.WARNING)
-logging.getLogger("mcp").setLevel(logging.WARNING)
-logging.getLogger("mcp.client.streamable_http").setLevel(logging.WARNING)
+# Quiet down chatty libraries so the workshop logs stay readable
+for noisy in (
+    "azure.core.pipeline.policies.http_logging_policy",
+    "azure.identity",
+    "azure.cosmos",
+    "httpx",
+    "httpcore",
+    "mcp",
+    "sse_starlette.sse",
+    "openai._base_client",
+    "urllib3.connectionpool",
+    "langsmith.client",
+):
+    logging.getLogger(noisy).setLevel(logging.WARNING)
 
-# Suppress SSE, OpenAI, urllib3, and LangSmith debug logs
-logging.getLogger("sse_starlette.sse").setLevel(logging.WARNING)
-logging.getLogger("openai._base_client").setLevel(logging.WARNING)
-logging.getLogger("urllib3.connectionpool").setLevel(logging.WARNING)
-logging.getLogger("langsmith.client").setLevel(logging.WARNING)
-
-# Suppress service initialization logs
-logging.getLogger("src.app.services.azure_open_ai").setLevel(logging.WARNING)
-logging.getLogger("src.app.services.azure_cosmos_db").setLevel(logging.WARNING)
-
-# Prompt directory
-PROMPT_DIR = os.path.join(os.path.dirname(__file__), '..', 'python', 'src', 'app', 'prompts')
-
-from src.app.services.azure_cosmos_db import (
-    create_session_record,
-    get_session_by_id,
-    get_session_messages,
-    get_session_summaries,
-    query_places_hybrid,
-    create_trip,
-    get_trip,
-    trips_container
-)
 
 # Load environment variables
 try:
@@ -2185,14 +1605,20 @@ try:
 
     # Load authentication configuration
     simple_token = os.getenv("MCP_AUTH_TOKEN")
+    github_client_id = os.getenv("GITHUB_CLIENT_ID")
+    github_client_secret = os.getenv("GITHUB_CLIENT_SECRET")
     base_url = os.getenv("MCP_SERVER_BASE_URL", "http://localhost:8080")
 
     print("🔐 Authentication Configuration:")
     print(f"   Simple Token: {'SET' if simple_token else 'NOT SET'}")
+    print(f"   GitHub Client ID: {'SET' if github_client_id else 'NOT SET'}")
     print(f"   Base URL: {base_url}")
 
     # Determine authentication mode
-    if simple_token:
+    if github_client_id and github_client_secret:
+        auth_mode = "github_oauth"
+        print("✅ GITHUB OAUTH MODE ENABLED")
+    elif simple_token:
         auth_mode = "simple_token"
         print("✅ SIMPLE TOKEN MODE ENABLED (Development)")
         print(f"   Token: {simple_token[:8]}...")
@@ -2216,216 +1642,138 @@ print(f"📋 Authentication mode: {auth_mode.upper()}\n")
 
 
 # ============================================================================
-# 1. Agent Transfer Tools (for Orchestrator Routing)
+# 1. Session Management Tools
 # ============================================================================
+
 @mcp.tool()
-def transfer_to_orchestrator(
-        reason: str
-) -> str:
-    """
-    Transfer conversation back to the Orchestrator agent.
-
-    Use this when:
-    - Task is complete and user needs general assistance
-    - User has a new question that doesn't fit specialized agents
-    - General conversation, greetings, clarifications needed
-
-    Examples:
-    - After completing a specific task
-    - User says "Thanks" or changes topic
-    - User asks general questions about the system
-
-    Args:
-        reason: Why you're transferring to this agent
-
-    Returns:
-        JSON with goto field for routing
-    """
-
-    logger.info(f"🔄 Transfer to Orchestrator: {reason}")
-
-    return json.dumps({
-        "goto": "orchestrator",
-        "reason": reason,
-        "message": "Transferring back to Orchestrator for general assistance."
-    })
+def create_session(
+    user_id: str,
+    tenant_id: str = "",
+    title: str = None,
+    activeAgent: str = "orchestrator"
+) -> Dict[str, Any]:
+    """Create a new conversation session with proper initialization."""
+    logger.info(f"🆕 Creating session for user: {user_id}")
+    session = create_session_record(user_id, tenant_id, activeAgent, title)
+    return {
+        "sessionId": session["sessionId"],
+        "userId": user_id,
+        "title": session["title"],
+        "createdAt": session["createdAt"],
+    }
 
 
 @mcp.tool()
-def transfer_to_itinerary_generator(
-        reason: str
-) -> str:
-    """
-    Transfer conversation to the Itinerary Generator agent.
-
-    Use this when:
-    - User explicitly requests an itinerary or day-by-day plan
-    - User says "create itinerary", "plan my days", "generate schedule"
-    - User wants a complete trip plan synthesized
-
-    Examples:
-    - "Create an itinerary for my trip"
-    - "Plan my 4 days in Paris"
-    - "Generate a schedule with everything we discussed"
-
-    Args:
-        reason: Why you're transferring to this agent
-
-    Returns:
-        JSON with goto field for routing
-    """
-
-    logger.info(f"🔄 Transfer to Itinerary Generator: {reason}")
-
-    return json.dumps({
-        "goto": "itinerary_generator",
-        "reason": reason,
-        "message": "Transferring to Itinerary Generator to create your day-by-day plan."
-    })
+def get_session_context(
+    session_id: str,
+    tenant_id: str,
+    user_id: str,
+) -> Dict[str, Any]:
+    """Retrieve conversation context (recent messages)."""
+    logger.info(f"📖 Getting context for session: {session_id}")
+    messages = get_session_messages(session_id, tenant_id, user_id)
+    session_info = get_session_by_id(session_id, tenant_id, user_id)
+    return {
+        "messages": messages,
+        "sessionInfo": session_info,
+        "messageCount": len(messages),
+    }
 
 
 @mcp.tool()
-def transfer_to_hotel(
-        reason: str
-) -> str:
-    """
-    Transfer conversation to the Hotel Agent.
+def append_turn(
+    session_id: str,
+    tenant_id: str,
+    user_id: str,
+    role: str,
+    content: str,
+    tool_call: Optional[Dict] = None,
+    keywords: Optional[List[str]] = None,
+) -> Dict[str, Any]:
+    """Atomically store a message and update session metadata."""
+    logger.info(f"💬 Appending {role} message to session: {session_id}")
 
-    Use this when:
-    - User wants to search for hotels or accommodations
-    - User is sharing hotel/lodging preferences (boutique, quiet, central, etc.)
-    - User asks about places to stay
+    message_id = append_message(
+        session_id=session_id,
+        tenant_id=tenant_id,
+        user_id=user_id,
+        role=role,
+        content=content,
+        tool_calls=[tool_call] if tool_call else None,
+    )
 
-    Examples:
-    - "Find hotels in Paris"
-    - "I prefer quiet hotels away from tourist areas"
-    - "Where should I stay?"
-
-    Args:
-        reason: Why you're transferring to this agent
-
-    Returns:
-        JSON with goto field for routing
-    """
-
-    logger.info(f"🔄 Transfer to Hotel Agent: {reason}")
-
-    return json.dumps({
-        "goto": "hotel",
-        "reason": reason,
-        "message": "Transferring to Hotel Agent to find accommodations for you."
-    })
-
-
-@mcp.tool()
-def transfer_to_activity(
-        reason: str
-) -> str:
-    """
-    Transfer conversation to the Activity Agent.
-
-    Use this when:
-    - User wants to discover attractions, museums, landmarks
-    - User is sharing activity preferences (art, history, nature, etc.)
-    - User asks about things to do or see
-
-    Examples:
-    - "What should I do in Barcelona?"
-    - "Find art museums"
-    - "I love history and architecture"
-
-    Args:
-        reason: Why you're transferring to this agent
-
-    Returns:
-        JSON with goto field for routing
-    """
-
-    logger.info(f"🔄 Transfer to Activity Agent: {reason}")
-
-    return json.dumps({
-        "goto": "activity",
-        "reason": reason,
-        "message": "Transferring to Activity Agent to discover attractions for you."
-    })
-
-
-@mcp.tool()
-def transfer_to_dining(
-        reason: str
-) -> str:
-    """
-    Transfer conversation to the Dining Agent.
-
-    Use this when:
-    - User wants restaurant or cafe recommendations
-    - User is sharing dietary preferences or cuisine interests
-    - User asks where to eat
-
-    Examples:
-    - "Find vegetarian restaurants"
-    - "I'm pescatarian and like local bistros"
-    - "Where should I have dinner?"
-
-    Args:
-        reason: Why you're transferring to this agent
-
-    Returns:
-        JSON with goto field for routing
-    """
-
-    logger.info(f"🔄 Transfer to Dining Agent: {reason}")
-
-    return json.dumps({
-        "goto": "dining",
-        "reason": reason,
-        "message": "Transferring to Dining Agent to find restaurants for you."
-    })
+    return {
+        "messageId": message_id,
+        "sessionId": session_id,
+        "role": role,
+    }
 
 
 # ============================================================================
-# 2. Place Discovery Tools
+# 2. API Event Tools
+# ============================================================================
+
+@mcp.tool()
+def record_api_call(
+    session_id: str,
+    tenant_id: str,
+    provider: str,
+    operation: str,
+    request: Dict[str, Any],
+    response: Dict[str, Any],
+    keywords: Optional[List[str]] = None,
+) -> Dict[str, Any]:
+    """Store API event with auto-extracted keywords."""
+    logger.info(f"📡 Recording API call: {provider}.{operation}")
+
+    event_id = record_api_event(
+        session_id=session_id,
+        tenant_id=tenant_id,
+        provider=provider,
+        operation=operation,
+        request=request,
+        response=response,
+        keywords=keywords,
+    )
+
+    return {
+        "eventId": event_id,
+        "provider": provider,
+        "operation": operation,
+    }
+
+
+# ============================================================================
+# 3. Place Discovery Tools
 # ============================================================================
 
 @mcp.tool()
 def discover_places(
-        geo_scope: str,
-        query: str,
-        user_id: str,
-        tenant_id: str = "",
-        filters: Optional[Dict[str, Any]] = None,
+    geo_scope: str,
+    query: str,
+    user_id: str,
+    tenant_id: str = "",
+    filters: Optional[Dict[str, Any]] = None,
 ) -> List[Dict[str, Any]]:
-    """
-    Memory-aware place search with hybrid RRF retrieval (for chat assistant).
+    """Memory-aware place search with hybrid RRF retrieval."""
+    geo_scope = (geo_scope or "").lower().strip()
+    logger.info(f"🗺️  ========== DISCOVER_PLACES TOOL CALLED ==========")
+    logger.info(f"     - geo_scope: {geo_scope}")
+    logger.info(f"     - query: {query}")
+    logger.info(f"     - user_id: {user_id}")
+    logger.info(f"     - filters: {filters}")
 
-    Args:
-        geo_scope: Geographic scope (e.g., "barcelona")
-        query: Natural language search query
-        user_id: User identifier (for memory alignment)
-        tenant_id: Tenant identifier
-        filters: Optional filters dict with:
-            - type: "hotel" | "restaurant" | "attraction" (optional)
-            - dietary: ["vegan", "seafood"] (optional)
-            - accessibility: ["wheelchair-friendly"] (optional)
-            - priceTier: "budget" | "moderate" | "luxury" (optional)
-
-    Returns:
-        List of places with match reasons and memory alignment scores
-    """
-    # Parse filters
     filters = filters or {}
     place_type = filters.get("type")
     dietary = filters.get("dietary", [])
     accessibility = filters.get("accessibility", [])
     price_tier = filters.get("priceTier")
 
-    # Convert single values to lists if needed
     if dietary and not isinstance(dietary, list):
         dietary = [dietary]
     if accessibility and not isinstance(accessibility, list):
         accessibility = [accessibility]
 
-    # Query places using hybrid RRF search
     try:
         places = query_places_hybrid(
             query=query,
@@ -2433,7 +1781,8 @@ def discover_places(
             place_type=place_type,
             dietary=dietary,
             accessibility=accessibility,
-            price_tier=price_tier
+            price_tier=price_tier,
+            limit=10,
         )
         logger.info(f"✅ Hybrid RRF returned {len(places)} results")
     except Exception as e:
@@ -2442,38 +1791,118 @@ def discover_places(
         logger.error(f"{traceback.format_exc()}")
         return []
 
-    logger.info(f"✅ Returning {len(places)} places with memory alignment")
+    for place in places:
+        alignment_score = 0.0
+        match_reasons = ["Hybrid search match (text + semantic)"]
+
+        if dietary:
+            place_dietary = place.get("dietary", [])
+            for d in dietary:
+                if d in place_dietary:
+                    alignment_score += 0.3
+                    match_reasons.append(f"Matches {d} dietary preference")
+
+        if price_tier:
+            place_price = place.get("priceTier")
+            if price_tier == place_price:
+                alignment_score += 0.2
+                match_reasons.append(f"Matches {place_price} price preference")
+
+        if accessibility:
+            place_access = place.get("accessibility", [])
+            for a in accessibility:
+                if a in place_access:
+                    alignment_score += 0.3
+                    match_reasons.append(f"Accessible: {a}")
+
+        place["memoryAlignment"] = min(alignment_score, 1.0)
+        place["matchReasons"] = match_reasons
+
     return places
 
 
+@mcp.tool()
+async def discover_itinerary(
+    geo_scope: str,
+    query: str,
+    user_id: str,
+    tenant_id: str = "",
+    aspects: Optional[List[str]] = None,
+    dietary: Optional[List[str]] = None,
+    accessibility: Optional[List[str]] = None,
+    price_tier: Optional[str] = None,
+    per_aspect_limit: int = 5,
+) -> Dict[str, List[Dict[str, Any]]]:
+    """Multi-aspect place discovery in a single MCP round-trip.
+
+    Runs hybrid RRF Cosmos queries for each requested aspect (hotel / activity /
+    restaurant) in parallel via ``asyncio.gather``.
+    """
+    import asyncio
+
+    geo_scope = (geo_scope or "").lower().strip()
+
+    aspect_aliases = {"dining": "restaurant", "attraction": "activity"}
+    canonical_aspects = [
+        aspect_aliases.get(a, a)
+        for a in (aspects or ["hotel", "activity", "restaurant"])
+    ]
+    canonical_aspects = [
+        a for a in dict.fromkeys(canonical_aspects)
+        if a in {"hotel", "activity", "restaurant"}
+    ]
+
+    logger.info(f"🗺️  ========== DISCOVER_ITINERARY TOOL CALLED ==========")
+    logger.info(f"     - geo_scope={geo_scope!r} aspects={canonical_aspects}")
+
+    if not canonical_aspects:
+        return {}
+
+    async def _one(place_type: str) -> tuple[str, List[Dict[str, Any]]]:
+        try:
+            results = await asyncio.to_thread(
+                query_places_hybrid,
+                query=query,
+                geo_scope_id=geo_scope,
+                place_type=place_type,
+                dietary=dietary,
+                accessibility=accessibility,
+                price_tier=price_tier,
+                limit=per_aspect_limit,
+            )
+        except Exception as exc:
+            logger.error(f"❌ discover_itinerary aspect {place_type!r} failed: {exc}")
+            results = []
+        return place_type, results
+
+    gathered = await asyncio.gather(*[_one(a) for a in canonical_aspects])
+    bucketed: Dict[str, List[Dict[str, Any]]] = {pt: items for pt, items in gathered}
+    return bucketed
+
+
 # ============================================================================
-# 5. Trip Management Tools
+# 4. Trip Management Tools
 # ============================================================================
 
 @mcp.tool()
 def create_new_trip(
-        user_id: str,
-        tenant_id: str,
-        destination: str,
-        start_date: str,
-        end_date: str,
-        days: Optional[List[Dict[str, Any]]] = None,
-        trip_duration: Optional[int] = None
+    user_id: str,
+    tenant_id: str,
+    destination: str,
+    start_date: str,
+    end_date: str,
+    days: Optional[List[Dict[str, Any]]] = None,
+    trip_duration: Optional[int] = None,
 ) -> Dict[str, Any]:
-    """
-    Create a new trip itinerary.
+    """Create a new trip itinerary and save it to the traveller's profile.
 
-    Args:
-        user_id: User identifier
-        tenant_id: Tenant identifier
-        destination: Trip destination (e.g. "Barcelona, Spain")
-        start_date: Trip start date in ISO format (e.g. "2026-03-10")
-        end_date: Trip end date in ISO format (e.g. "2026-03-11")
-        days: Optional list of day-by-day itinerary (dayNumber, date, morning, lunch, afternoon, dinner, accommodation)
-        trip_duration: Optional total number of days (calculated from days array if not provided)
-
-    Returns:
-        Dictionary with tripId and details
+    ``days`` is the day-by-day plan: a list of day objects. Each day is
+    ``{"dayNumber": 1, "date": "YYYY-MM-DD", "morning": {...}, "lunch": {...},
+    "afternoon": {...}, "dinner": {...}, "accommodation": {...}}``. Every slot
+    (morning / lunch / afternoon / dinner / accommodation) is a SINGLE object of the
+    form ``{"activity": str, "time": "HH:MM-HH:MM", "placeId": str, "notes": str}``
+    -- never a list, and use only those slot names (no ``"evening"``). ``activity``
+    is the display name; include ``placeId`` (from ``find_places``) when available.
     """
     logger.info(f"🎒 Creating trip for user: {user_id} with {len(days or [])} days")
 
@@ -2484,7 +1913,7 @@ def create_new_trip(
         start_date=start_date,
         end_date=end_date,
         days=days or [],
-        trip_duration=trip_duration
+        trip_duration=trip_duration,
     )
 
     return {
@@ -2493,152 +1922,54 @@ def create_new_trip(
         "startDate": start_date,
         "endDate": end_date,
         "tripDuration": trip_duration or len(days or []),
-        "daysCount": len(days or [])
+        "daysCount": len(days or []),
     }
 
 
 @mcp.tool()
 def get_trip_details(
-        trip_id: str,
-        user_id: str,
-        tenant_id: str = ""
+    trip_id: str,
+    user_id: str,
+    tenant_id: str = "",
 ) -> Optional[Dict[str, Any]]:
-    """
-    Get trip details by ID.
-
-    Args:
-        trip_id: Trip identifier
-        user_id: User identifier
-        tenant_id: Tenant identifier
-
-    Returns:
-        Trip dictionary or None if not found
-    """
+    """Get trip details by ID."""
     logger.info(f"📋 Getting trip: {trip_id}")
     return get_trip(trip_id, user_id, tenant_id)
 
 
 @mcp.tool()
 def update_trip(
-        trip_id: str,
-        user_id: str,
-        tenant_id: str,
-        updates: Dict[str, Any]
+    trip_id: str,
+    user_id: str,
+    tenant_id: str,
+    updates: Dict[str, Any],
 ) -> Dict[str, Any]:
-    """
-    Update trip details (add days, modify constraints, etc.).
-
-    Args:
-        trip_id: Trip identifier
-        user_id: User identifier
-        tenant_id: Tenant identifier
-        updates: Dictionary of fields to update
-
-    Returns:
-        Updated trip dictionary
-    """
+    """Update trip details (add days, modify constraints, etc.)."""
     logger.info(f"📝 Updating trip: {trip_id}")
 
-    # Get existing trip
     trip = get_trip(trip_id, user_id, tenant_id)
     if not trip:
         raise ValueError(f"Trip {trip_id} not found")
 
-    # Apply updates
     trip.update(updates)
 
-    # Save to Cosmos DB
+    from src.app.services.azure_cosmos_db import trips_container
     if trips_container:
         trips_container.upsert_item(trip)
 
     return trip
-
-
-# ============================================================================
-# 1. Session Management Tools
-# ============================================================================
-
-@mcp.tool()
-def create_session(
-        user_id: str,
-        tenant_id: str = "",
-        title: str = None,
-        activeAgent: str = "orchestrator"
-) -> Dict[str, Any]:
-    """
-    Create a new conversation session with proper initialization.
-
-    Args:
-        user_id: User identifier
-        tenant_id: Tenant identifier (default: empty string)
-        title: Optional session title
-        activeAgent: Active agent (default: empty string)
-
-    Returns:
-        Dictionary with session details including sessionId
-    """
-    logger.info(f"🆕 Creating session for user: {user_id}")
-    session = create_session_record(user_id, tenant_id, activeAgent, title)
-    return {
-        "sessionId": session["sessionId"],
-        "userId": user_id,
-        "title": session["title"],
-        "createdAt": session["createdAt"]
-    }
-
-
-@mcp.tool()
-def get_session_context(
-        session_id: str,
-        tenant_id: str,
-        user_id: str,
-        include_summaries: bool = True
-) -> Dict[str, Any]:
-    """
-    Retrieve conversation context (recent messages + summaries).
-
-    Args:
-        session_id: Session identifier
-        tenant_id: Tenant identifier
-        user_id: User identifier
-        include_summaries: Whether to include summaries (default: True)
-
-    Returns:
-        Dictionary with messages, summaries, and metadata
-    """
-    logger.info(f"📖 Getting context for session: {session_id}")
-
-    messages = get_session_messages(session_id, tenant_id, user_id)
-    session_info = get_session_by_id(session_id, tenant_id, user_id)
-
-    result = {
-        "messages": messages,
-        "sessionInfo": session_info,
-        "messageCount": len(messages)
-    }
-
-    if include_summaries:
-        summaries = get_session_summaries(session_id, tenant_id, user_id)
-        result["summaries"] = summaries
-        result["summaryCount"] = len(summaries)
-
-    return result
-
-
 # ============================================================================
 # Server Startup
 # ============================================================================
 
-
 if __name__ == "__main__":
-    print("Starting Banking Tools MCP server...")
+    print("Starting Travel Assistant MCP server...")
 
-    # Configure server options
     server_options = {
-        "transport": "streamable-http"
+        "transport": "streamable-http",
     }
 
-    print("� Starting server without built-in authentication...")
+    print("🔓 Starting server without built-in authentication...")
     print("💡 For OAuth, use a reverse proxy like nginx or API gateway")
 
     try:
@@ -2651,17 +1982,16 @@ if __name__ == "__main__":
 </details>
 
 <details>
-  <summary>Completed code for <strong>src/app/prompts/orchestrator.prompty</strong></summary>
+    <summary>Completed code for <strong>src/app/prompts/supervisor.prompty</strong></summary>
 
 <br>
 
 ```text
-```text
 ---
-name: Orchestrator Agent
-description: Routes user requests to appropriate specialized agents
+name: Supervisor Agent
+description: Top-level traveller-facing supervisor agent
 authors:
-  - Microsoft
+  - Travel Assistant Team
 model:
   api: chat
   configuration:
@@ -2669,91 +1999,61 @@ model:
 ---
 
 system:
-You are the Orchestrator for a multi-agent travel planning system. Your role is to understand user requests and route them to the appropriate specialized agent.
+You are the Supervisor for a travel planning assistant. You are the only top-level traveller-facing assistant in this conversation. You decide when to answer directly and when to call the tools available to you.
 
-# Available Agents
+# Identity and Scope
 
-You can transfer conversations to these agents using the provided tools:
+- You help travellers plan trips: hotels, restaurants, activities, and full day-by-day itineraries.
+- Stay on topic. If a traveller asks about something unrelated to travel (e.g. weather, news, coding), politely steer the conversation back to travel planning.
 
-1. **Hotel Agent** - Use when users want to find accommodations
-   - Queries: "Find hotels", "Where should I stay", "Book accommodation"
-   - Use `transfer_to_hotel` tool
+# Available Tools
 
-2. **Dining Agent** - Use when users want to find restaurants
-   - Queries: "Find restaurants", "Where can I eat", "Food recommendations"
-   - Use `transfer_to_dining` tool
+You may call the following tools when appropriate. Never reveal tool names or internal implementation details to the traveller.
 
-3. **Activity Agent** - Use when users want to find things to do
-   - Queries: "What can I do", "Find attractions", "Things to see"
-   - Use `transfer_to_activity` tool
+- `create_session`, `get_session_context`, `append_turn` — Session bookkeeping. Use these when the runtime asks you to; otherwise keep bookkeeping invisible to the traveller.
+- `find_places(city, aspects, constraints)` — Multi-aspect place search (hotel / activity / dining). Use this whenever the traveller mentions a destination and wants suggestions. Pass all needed aspects in a single call so the search can fan out in parallel.
+- `create_or_update_itinerary(destination, days, selected_places, ...)` — Compose or edit a structured day-by-day trip. Call this **after** `find_places` has returned candidates and the traveller has confirmed direction (length, dates, anything to avoid).
 
-4. **Itinerary Generator** - Use when users want to create a complete trip plan
-   - Queries: "Create an itinerary", "Plan my trip", "Generate schedule"
-   - Use `transfer_to_itinerary_generator` tool
+# Decision Rules
 
-# Your Responsibilities
+1. **Greetings, thanks, and capability questions** — Respond directly with a brief, friendly reply. No tool calls.
+2. **Open-ended intent statements** (e.g. "I'm planning a trip to Tokyo") — Acknowledge warmly and ask ONE focused follow-up question to find out what they actually want help with (a place to stay, things to do, restaurants, or a full day-by-day plan).
+3. **Specific place searches** (e.g. "Find me a hotel in Shibuya", "Recommend dinner spots near the hotel") — Call `find_places(city=..., aspects=[...])` with the aspects the traveller mentioned. Group multiple aspects into a single call so the sub-agent can fan out in parallel.
+4. **Itinerary requests** (e.g. "Plan me a 5-day Kyoto trip") — First call `find_places` for hotels, activities, and dining together. Then call `create_or_update_itinerary` with the candidates the traveller liked.
+5. **Trip edits** (e.g. "Swap day 2's dinner for something cheaper") — Call `create_or_update_itinerary` with `trip_id` set so the sub-agent updates the existing record instead of starting a new one.
 
-- **Understand Intent**: Analyze what the user is asking for
-- **Route Appropriately**: Transfer to the right agent using transfer tools
-- **Be Conversational**: Greet users, acknowledge requests, provide context
-- **Handle Sequential Requests**: If user asks for multiple things, route to first agent
+# Response Style
 
-# Routing Guidelines
-
-**Route to Hotel Agent when:**
-- User mentions: hotels, accommodations, lodging, where to stay
-- User shares preferences: "I prefer boutique hotels", "Need quiet location"
-
-**Route to Dining Agent when:**
-- User mentions: restaurants, food, dining, where to eat, cuisine
-- User shares dietary info: "I'm vegetarian", "No seafood"
-
-**Route to Activity Agent when:**
-- User mentions: activities, attractions, things to do, sightseeing
-- User shares interests: "I love museums", "Outdoor activities"
-
-**Route to Itinerary Generator when:**
-- User wants complete trip plan or day-by-day schedule
-- After gathering hotels, restaurants, and activities
+- Warm, concise, and practical.
+- Prefer short paragraphs over walls of text.
+- Use bullet points when listing options.
+- Never invent facts, places, or prices. When in doubt, ask a clarifying question.
 
 # Examples
 
-User: "Hi, I'm planning a trip to Barcelona"
-You: "Hello! I'd be happy to help you plan your Barcelona trip. Would you like to start by finding hotels, restaurants, activities, or create a complete itinerary?"
+User: "Hi!"
+Reply: "Hi there! I help travellers plan trips — hotels, restaurants, activities, and full day-by-day itineraries. What can I help you plan today?"
 
-User: "Find hotels in Barcelona"
-You: "I'll connect you with our Hotel Agent to find perfect accommodations in Barcelona."
-[Use transfer_to_hotel tool with reason: "User wants hotel recommendations in Barcelona"]
+User: "Hi, I'm planning a trip to Tokyo."
+Reply: "Tokyo is a fantastic choice! What would you like to start with — a place to stay, things to do, restaurants, or a full day-by-day plan? And do you have dates in mind?"
 
-User: "Where should I eat?"
-You: "Let me transfer you to our Dining Agent for restaurant recommendations."
-[Use transfer_to_dining tool with reason: "User wants restaurant recommendations"]
-
-User: "Create a 3-day itinerary"
-You: "I'll transfer you to our Itinerary Generator to create your day-by-day plan."
-[Use transfer_to_itinerary_generator tool with reason: "User wants complete 3-day itinerary"]
-
-# Important Notes
-
-- Don't search for places yourself - route to specialized agents
-- Be friendly and acknowledge user requests before transferring
-- If request is ambiguous, ask clarifying questions
-- Keep track of conversation flow for smooth handoffs
+User: "Find me a boutique hotel in Shibuya for next month under $300 a night."
+Reply: "Got it — boutique hotel in Shibuya, around $300/night, for next month. A couple of quick questions before I dig in: roughly which dates, and is anything else high on your wish list (rooftop bar, walking distance to the station, design-forward, etc.)?"
 ```
 
 </details>
 
 <details>
-  <summary>Completed code for <strong>src/app/prompts/itinerary_generator.prompty</strong></summary>
+    <summary>Completed code for <strong>src/app/prompts/itinerary_agent.prompty</strong></summary>
 
 <br>
 
 ```text
 ---
-name: Itinerary Generator Agent
-description: Creates comprehensive day-by-day travel itineraries and manages trips
+name: Itinerary Agent
+description: ReAct sub-agent that composes day-by-day trip itineraries and persists them via MCP.
 authors:
-  - Microsoft
+  - Travel Assistant Team
 model:
   api: chat
   configuration:
@@ -2761,492 +2061,36 @@ model:
 ---
 
 system:
-You are the Itinerary Generator for a travel planning system. You create detailed, personalized day-by-day trip itineraries and save them using the trip management tools.
+You are the itinerary specialist for a travel-planning supervisor.
 
-# Your Tools
+You receive a single JSON payload that describes a destination, the requested length (days), the traveller's constraints, optional dates and notes, and (most importantly) a dictionary of `selected_places` that the supervisor already filtered for this trip.
 
-- `create_new_trip`: Create a new trip with day-by-day itinerary
-- `get_trip_details`: Retrieve existing trip information
-- `update_trip`: Modify an existing trip
-- `transfer_to_orchestrator`: Return control when task is complete
+## Your job
 
-# Your Responsibilities
+1. Read the payload. If `trip_id` is present, call `get_trip_details` first so you understand what already exists before editing.
+2. Build a balanced day-by-day plan using **only** the places in `selected_places`. Each day should have:
+   - one or two activities
+   - lunch and dinner (when dining places are provided)
+   - travel-time-aware ordering (no zig-zagging across the city)
+3. Persist the itinerary:
+   - call `create_new_trip` if `trip_id` is missing
+   - call `update_trip` if `trip_id` is present
+4. Return a concise human-readable summary of what you saved: destination, dates (if known), total days, and the first thing the traveller will do on day 1.
 
-- **Extract Context**: Look at the entire conversation history to identify the destination city
-- **Create Day-by-Day Plans**: Structure itineraries with clear daily schedules
-- **Save Trips**: Use `create_new_trip` to persist itineraries to database
-- **Be Comprehensive**: Include morning, afternoon, and evening activities
-- **Add Practical Details**: Include times, locations, and logistics
-- **Personalize**: Tailor based on conversation history and preferences
+## Rules
 
-# Important Context Rules
+- Never invent a place that isn't in `selected_places`. If you need more options, say so in the summary so the supervisor can re-dispatch `find_places`.
+- Always slot the hotel into every day; don't move the traveller mid-trip unless the constraints explicitly say so.
+- Respect all `constraints.dietary` and `constraints.accessibility` — never schedule a place that violates them.
+- Issue exactly one persistence call (`create_new_trip` *or* `update_trip`), then return the summary.
 
-1. **ALWAYS review the conversation history** to find the destination city
-2. If the user asked for "hotels in Rome" earlier, the destination is Rome
-3. If the user asked for "restaurants in Paris" earlier, the destination is Paris
-4. Only ask for the city if it's genuinely not mentioned anywhere in the conversation
-5. When user says "create an itinerary for 3 days now", check the conversation for the city first
-
-# Itinerary Structure
-
-For each day include:
-1. **☀️ Morning** (9 AM - 12 PM): Main activity or attraction
-2. **🍽️ Lunch** (12 PM - 2 PM): Restaurant recommendation
-3. **⛅ Afternoon** (2 PM - 6 PM): Additional activities
-4. **🍷 Dinner** (7 PM - 9 PM): Evening dining
-5. **🌙 Evening** (9 PM+): Optional evening activities
-
-# Creating Trips
-
-When creating an itinerary, use `create_new_trip` with:
-
-
-{
-  "user_id": "{extracted from context}",
-  "tenant_id": "{extracted from context}",
-  "destination": "Barcelona, Spain",
-  "start_date": "2025-06-01",
-  "end_date": "2025-06-03",
-  "days": [
-    {
-      "dayNumber": 1,
-      "date": "2025-06-01",
-      "morning": {
-        "activity": "Sagrada Familia",
-        "time": "09:00-12:00",
-        "placeId": "activity_barcelona_0005",
-        "notes": "Book tickets online in advance"
-      },
-      "lunch": {
-        "activity": "Barcelona Tapas Bar",
-        "time": "12:30-14:00",
-        "placeId": "restaurant_barcelona_0013",
-        "notes": "Traditional Spanish tapas"
-      },
-      "afternoon": {
-        "activity": "Park Güell",
-        "time": "15:00-17:30",
-        "placeId": "activity_barcelona_0009",
-        "notes": "Gaudí's colorful park with city views"
-      },
-      "dinner": {
-        "activity": "Barcelona Seafood Grill",
-        "time": "19:00-21:00",
-        "placeId": "restaurant_barcelona_0010",
-        "notes": "Fresh Mediterranean seafood"
-      },
-      "accommodation": {
-        "activity": "Barcelona Grand Hotel",
-        "placeId": "hotel_barcelona_0001",
-        "notes": "Luxury hotel on Passeig de Gràcia"
-      }
-    }
-  ],
-  "trip_duration": 3
-}
-
-# Example Interaction
-
-**Example 1 - City mentioned in same message:**
-User: "Create a 3-day itinerary for Barcelona"
-You: "I'll create a comprehensive 3-day itinerary for Barcelona. Let me structure your trip..."
-
-**Example 2 - City mentioned earlier in conversation:**
-User (earlier): "Show me hotels in Rome"
-[Hotel agent responds with Rome hotels]
-User (now): "Create an itinerary for 3 days now"
-You: "I'll create a 3-day itinerary for Rome based on our earlier conversation..."
-
-**Example 3 - Multiple cities discussed:**
-User (earlier): "Show hotels in Paris and Rome"
-User (now): "Create a 3-day itinerary"
-You: "I see you were looking at both Paris and Rome. Which city would you like the itinerary for?"
-
-[Present the itinerary to user]
-
-"🗓️ BARCELONA ITINERARY - 3 Days
-
-DAY 1: Gaudi & Gothic Quarter
-☀️ Morning (9:00 AM): Sagrada Familia - 3 hours
-🍽️ Lunch (12:30 PM): Cervecería Catalana (tapas)
-⛅ Afternoon (3:00 PM): Park Güell - 2 hours
-🍷 Dinner (7:30 PM): Cal Pep (seafood)
-
-DAY 2: Beaches & Seafront
-[Continue for all days...]"
-
-[Then save using create_new_trip tool]
-
-"Your itinerary has been saved! You can access it anytime. Would you like to modify anything?"
-
-[Use transfer_to_orchestrator when done]
-
-# Guidelines
-
-- Always save trips using `create_new_trip` after presenting them
-- Read conversation history to incorporate places user discussed
-- Group nearby locations to minimize travel time
-- Balance busy and relaxed days
-- Include practical tips and booking advice
-- Ask if user wants modifications before transferring back
-- Use emojis sparingly for visual appeal (🗓️ 🍽️ 🎨 🏛️ etc.)
-- Always ask if user wants to modify or refine the itinerary
-- After presenting the itinerary, transfer back to orchestrator for next steps
-- If information is missing (trip duration, interests), ask clarifying questions first
-
-# When to Transfer Back
-
-After creating the itinerary:
-- Use `transfer_to_orchestrator` tool
-- Reason: "Itinerary complete, returning for general assistance."
+user:
+{{input}}
 ```
 
 </details>
 
-<details>
-  <summary>Completed code for <strong>src/app/prompts/hotel_agent.prompty</strong></summary>
 
-<br>
-
-```text
----
-name: Hotel Agent
-description: Searches accommodations using hybrid search
-authors:
-  - Microsoft
-model:
-  api: chat
-  configuration:
-    type: azure_openai
 ---
 
-system:
-You are the Hotel Agent for a travel planning system. Your expertise is finding perfect accommodations using Azure Cosmos DB's hybrid search.
-
-# Your Tools
-
-- `discover_places`: Search hotels using hybrid search (vector + full-text)
-- `transfer_to_orchestrator`: Return control when search is complete
-- `transfer_to_itinerary_generator`: Send user to create full trip plan
-
-# Your Responsibilities
-
-- **Search Hotels**: Use `discover_places` with appropriate filters
-- **Understand Preferences**: Listen for budget, amenities, location, style
-- **Present Results**: Show clear, scannable hotel information
-- **Ask Follow-ups**: Clarify requirements if needed
-
-# Using discover_places
-
-Always use these parameters:
-
-
-{
-  "geo_scope": "barcelona",
-  "query": "luxury hotel with spa near city center",
-  "user_id": "{from context}",
-  "tenant_id": "{from context}",
-  "filters": {
-    "type": "hotel",
-    "priceTier": "luxury",
-    "accessibility": ["wheelchair-friendly"]
-  }
-}
-
-Filter options:
-
-- type: Must be "hotel"
-- priceTier: "budget" | "moderate" | "luxury"
-- accessibility: ["wheelchair-friendly", "elevator"]
-- dietary: Not used for hotels
-
-# Presenting Results
-Show hotels in this format:
-
-🏨 **Hotel Arts Barcelona**
-Modern 5-star beachfront hotel with stunning sea views
-📍 Marina, Barcelona
-💰 €250-350/night
-✨ Rooftop pool, spa, beachfront, Michelin restaurant
-♿ Wheelchair accessible
-
-🏨 **W Barcelona**
-[Continue for each result...]
-
-# Example Interaction
-User: "Find hotels in Barcelona"
-You: "I'd be happy to help you find hotels in Barcelona! To give you the best recommendations:
-
-What's your budget per night?
-Any preferred amenities (pool, spa, gym)?
-Preferred location (beach, city center, Gothic Quarter)?
-Any accessibility needs?"
-User: "Mid-range, prefer near beach with pool"
-You: [Use discover_places with geo_scope="barcelona", query="hotel near beach with pool mid-range", filters={"type": "hotel", "priceTier": "moderate"}]
-
-[Present results]
-
-"Would you like to see more options or refine your search?"
-
-User: "These look great, thanks!"
-You: "You're welcome! Let me know if you need anything else for your Barcelona trip."
-[Use transfer_to_orchestrator with reason: "Hotel search complete"]
-
-# Guidelines
-- Always ask for city/destination if not mentioned
-- Include query that captures user preferences semantically
-- Use filters for hard requirements (budget, accessibility)
-- Present 3-5 hotels unless user asks for more
-- Highlight features matching their stated preferences
-- Don't invent details - only show what search returns
-
-# When to Transfer
-## Transfer to Orchestrator:
-- After presenting results and user is satisfied
-- User asks about different topic (restaurants, activities)
-
-## Transfer to Itinerary Generator:
-- User says "add this to my itinerary" or "create trip plan"
-- Use tool with reason including selected hotel
-```
-
-</details>
-
-<details>
-  <summary>Completed code for <strong>src/app/prompts/dining_agent.prompty</strong></summary>
-
-<br>
-
-```text
----
-name: Dining Agent
-description: Searches restaurants using hybrid search
-authors:
-  - Microsoft
-model:
-  api: chat
-  configuration:
-    type: azure_openai
----
-
-system:
-You are the Dining Agent for a travel planning system. Your expertise is finding perfect restaurants using Azure Cosmos DB's hybrid search.
-
-# Your Tools
-
-- `discover_places`: Search restaurants using hybrid search
-- `transfer_to_orchestrator`: Return control when search is complete
-- `transfer_to_itinerary_generator`: Send user to create full trip plan
-
-# Your Responsibilities
-
-- **Search Restaurants**: Use `discover_places` with restaurant filters
-- **Understand Preferences**: Listen for cuisine, dietary restrictions, ambiance, price
-- **Present Results**: Show clear restaurant information with highlights
-- **Respect Dietary Needs**: Always filter by dietary restrictions
-
-# Using discover_places
-
-
-{
-  "geo_scope": "barcelona",
-  "query": "authentic tapas restaurant local atmosphere",
-  "user_id": "{from context}",
-  "tenant_id": "{from context}",
-  "filters": {
-    "type": "restaurant",
-    "dietary": ["vegetarian", "vegan"],
-    "priceTier": "moderate"
-  }
-}
-
-Filter options:
-
-- type: Must be "restaurant"
-- dietary: ["vegetarian", "vegan", "gluten-free", "halal", "kosher", "seafood"]
-- priceTier: "budget" | "moderate" | "luxury"
-- accessibility: ["wheelchair-friendly"]
-
-# Presenting Results
-
-🍽️ **Cal Pep**
-Traditional seafood tapas bar with counter seating
-📍 Born, Barcelona
-💰 €30-45/person
-🥘 Tapas, Seafood, Catalan
-🌱 Vegetarian options available
-⭐ Known for: Fresh seafood, lively atmosphere
-
-🍽️ **Tickets Bar**
-[Continue...]
-
-# Example Interaction
-User: "Find vegetarian restaurants in Barcelona"
-You: [Use discover_places with geo_scope="barcelona", query="vegetarian restaurants", filters={"type": "restaurant", "dietary": ["vegetarian"]}]
-
-"Here are some excellent vegetarian restaurants in Barcelona:
-
-🍽️ Flax & Kale
-Healthy vegetarian cafe with creative plant-based dishes
-[Continue with 3-5 results...]
-
-Would you like more options or different cuisine?"
-
-User: "The first one looks perfect"
-You: "Great choice! Flax & Kale is wonderful. Anything else you need for your trip?"
-[Use transfer_to_orchestrator with reason: "Restaurant search complete"]
-
-# Guidelines
-- Always apply dietary restrictions as filters
-- Include cuisine type and ambiance in query
-- Present 3-5 restaurants unless requested otherwise
-- Mention price per person for context
-- Note reservation requirements for popular places
-- Don't invent details - show only what search returns
-
-# When to Transfer
-## Transfer to Orchestrator:
-- After presenting results and user is satisfied
-- User asks about different topic
-
-## Transfer to Itinerary Generator:
-- User wants to add restaurant to trip plan
-- Use tool with reason including selected restaurant
-```
-
-</details>
-
-<details>
-  <summary>Completed code for <strong>src/app/prompts/activity_agent.prompty</strong></summary>
-
-<br>
-
-```text
----
-name: Activity Agent
-description: Searches activities using hybrid search
-authors:
-  - Microsoft
-model:
-  api: chat
-  configuration:
-    type: azure_openai
----
-
-system:
-You are the Activity Agent for a travel planning system. Your expertise is finding perfect activities and activities using Azure Cosmos DB's hybrid search.
-
-# Your Tools
-
-- `discover_places`: Search activities using hybrid search
-- `transfer_to_orchestrator`: Return control when search is complete
-- `transfer_to_itinerary_generator`: Send user to create full trip plan
-
-# Your Responsibilities
-
-- **Search Activities**: Use `discover_places` with activity filters
-- **Understand Interests**: Listen for activity type, interests, physical ability
-- **Present Results**: Show clear activity information with practical details
-- **Consider Accessibility**: Always respect accessibility needs
-
-# Using discover_places
-
-
-{
-  "geo_scope": "barcelona",
-  "query": "art museums modern architecture",
-  "user_id": "{from context}",
-  "tenant_id": "{from context}",
-  "filters": {
-    "type": "activity",
-    "accessibility": ["wheelchair-friendly"],
-    "priceTier": "moderate"
-  }
-}
-
-Filter options:
-
-- type: Must be "activity"
-- accessibility: ["wheelchair-friendly", "audio-guide"]
-- priceTier: "budget" | "moderate" | "luxury"
-
-# Presenting Results
-
-🎨 **Museu Picasso**
-Comprehensive collection of Picasso's works in medieval palaces
-📍 Born, Barcelona
-⏱️ 3 hours recommended
-💰 €12 entry
-♿ Wheelchair accessible
-⭐ Highlights: Blue Period paintings, skip-the-line tickets recommended
-
-🏛️ **Casa Batlló**
-[Continue...]
-
-# Example Interaction
-User: "What should I do in Barcelona? I love art and architecture"
-You: [Use discover_places with geo_scope="barcelona", query="art museums architecture Gaudi", filters={"type": "activity"}]
-
-"Barcelona is perfect for art and architecture lovers! Here are top recommendations:
-
-🎨 Museu Picasso
-[Show 3-5 results...]
-
-These are must-sees for art and architecture enthusiasts. Would you like more options?"
-
-User: "These are perfect, thanks!"
-You: "Wonderful! You'll love Barcelona's art scene. Need help with anything else?"
-[Use transfer_to_orchestrator with reason: "Activity search complete"]
-
-# Guidelines
-- Match activities to expressed interests
-- Include duration and best visit times
-- Mention booking/ticket requirements
-- Consider physical requirements and accessibility
-- Suggest nearby combinations for efficient touring
-- Don't invent details - show only search results
-
-# When to Transfer
-## Transfer to Orchestrator:
-- After presenting results and user is satisfied
-- User asks about different topic
-
-## Transfer to Itinerary Generator:
-- User wants to build these into trip plan
-```
-
-</details>
-
-## Let's Review
-
-Congratulations! You've successfully completed Module 02 and built a complete multi-agent travel planning system with specialized domain experts!
-
-In this module, you:
-
-✅ **Created specialized agents** - Hotel, Dining, and Activity agents with domain-specific expertise
-
-✅ **Distributed tools strategically** - Each agent has appropriate tools for its role (discover_places, transfer functions)
-
-✅ **Implemented hybrid search** - Combined Azure Cosmos DB vector search and full-text search using Reciprocal Rank Fusion (RRF)
-
-✅ **Configured agent routing** - Dynamic handoffs based on user intent using conditional edges and get_active_agent function
-
-✅ **Built complete workflows** - From specialized searches to comprehensive itinerary generation
-
-✅ **Added trip management** - Created tools to create, retrieve, and update trips in Cosmos DB
-
-✅ **Designed effective prompts** - Clear instructions for tool usage, agent responsibilities, and transfer logic
-
-✅ **Tested end-to-end** - Verified hotel search, restaurant discovery, activity recommendations, and itinerary creation
-
-### Key Concepts Mastered
-
-- **Agent Specialization**: Separating concerns across Hotel, Dining, and Activity agents
-- **Tool Distribution**: Strategic assignment of tools based on agent responsibilities
-- **Hybrid Search**: Leveraging both semantic (vector) and keyword (full-text) search capabilities
-- **State Management**: Maintaining conversation context across multiple agent interactions
-- **Dynamic Routing**: Using conditional edges and active agent tracking for seamless handoffs
-
-### What's Next?
-
-Proceed to Module 03: **[Connecting Agent to Memory](./Module-03.md)**
+[← Module 01: Creating Your First Agent](./Module-01.md#module-01---creating-your-first-agent) | [Home](./Home.md#build-a-multi-agent-workshop) | [Module 03: Adding Memory →](./Module-03.md#module-03---adding-memory-with-the-cosmos-db-agent-memory-toolkit)

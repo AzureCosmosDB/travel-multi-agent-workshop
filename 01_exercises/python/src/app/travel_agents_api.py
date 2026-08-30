@@ -7,7 +7,7 @@ from pathlib import Path
 import fastapi
 from dotenv import load_dotenv
 from datetime import datetime
-from fastapi import BackgroundTasks, Depends, HTTPException, Body
+from fastapi import BackgroundTasks, Depends, HTTPException, Body, Response
 from langchain_core.messages import HumanMessage, ToolMessage, AIMessage
 from pydantic import BaseModel
 from typing import List, Dict, Optional, Any
@@ -22,22 +22,20 @@ import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Reduce noise from verbose libraries
-logging.getLogger("azure.core.pipeline.policies.http_logging_policy").setLevel(logging.WARNING)
-logging.getLogger("azure.identity").setLevel(logging.WARNING)
-logging.getLogger("azure.identity._credentials.environment").setLevel(logging.WARNING)
-logging.getLogger("azure.identity._credentials.managed_identity").setLevel(logging.WARNING)
-logging.getLogger("azure.identity._credentials.chained").setLevel(logging.WARNING)
-logging.getLogger("azure.cosmos").setLevel(logging.WARNING)
-logging.getLogger("azure.cosmos._cosmos_http_logging_policy").setLevel(logging.WARNING)
-logging.getLogger("httpx").setLevel(logging.WARNING)
-logging.getLogger("httpcore").setLevel(logging.WARNING)
-logging.getLogger("mcp").setLevel(logging.WARNING)
-logging.getLogger("mcp.client.streamable_http").setLevel(logging.WARNING)
-
-# Suppress service initialization logs
-logging.getLogger("src.app.services.azure_open_ai").setLevel(logging.WARNING)
-logging.getLogger("src.app.services.azure_cosmos_db").setLevel(logging.WARNING)
+# Quiet down chatty libraries so the workshop logs stay readable
+for noisy in (
+    "azure.core.pipeline.policies.http_logging_policy",
+    "azure.identity",
+    "azure.cosmos",
+    "httpx",
+    "httpcore",
+    "mcp",
+    "sse_starlette.sse",
+    "openai._base_client",
+    "urllib3.connectionpool",
+    "langsmith.client",
+):
+    logging.getLogger(noisy).setLevel(logging.WARNING)
 
 # Add project root to path
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
@@ -59,15 +57,17 @@ else:
 from src.app.services.azure_open_ai import model, generate_embedding
 from src.app.services.azure_cosmos_db import (
     sessions_container, messages_container, trips_container,
-    memories_container, places_container, debug_logs_container, get_checkpoint_saver,
+    places_container, debug_logs_container,
+    aget_checkpoint_saver, close_async_cosmos_client, adelete_checkpoints_for_thread,
     create_session_record, get_session_by_id,
     append_message, get_session_messages, query_places_hybrid,
-    get_trip, query_memories, get_all_user_memories, query_places_with_theme, query_places_filtered,
+    get_trip, query_places_with_theme, query_places_filtered,
     patch_active_agent, update_session_activity,
     create_user, get_all_users, get_user_by_id,
     store_debug_log, get_debug_log, query_debug_logs
 )
-#from src.app.travel_agents import setup_agents, build_agent_graph, cleanup_persistent_session
+from src.app.travel_agents import setup_agents, build_agent_graph, cleanup_persistent_session
+from src.app.services.agent_memory import get_memory_client
 
 # Load environment variables
 load_dotenv(override=False)
@@ -133,25 +133,16 @@ class Trip(BaseModel):
     createdAt: Optional[str] = None
 
 
-class MemoryType(str, Enum):
-    DECLARATIVE = "declarative"
-    EPISODIC = "episodic"
-    PROCEDURAL = "procedural"
-
-
 class Memory(BaseModel):
-    id: str
-    memoryId: str
-    userId: str
-    tenantId: str
-    memoryType: str  # "declarative" | "episodic" | "procedural"
-    text: str
-    facets: Dict[str, Any]  # {"category": "dining", "preference": "vegetarian"}
-    salience: float
-    justification: str
-    extractedAt: str
-    lastUsedAt: str
-    ttl: Optional[int] = None
+    user_id: str
+    thread_id: Optional[str] = None
+    role: Optional[str] = None
+    type: str
+    content: str
+    metadata: Dict[str, Any] = {}
+    created_at: Optional[str] = None
+    tags: List[str] = []
+    salience: Optional[float] = None
 
 
 class PlaceType(str, Enum):
@@ -275,88 +266,92 @@ agent_mapping = {
     "hotel": "Hotel",
     "activity": "Activity",
     "dining": "Dining",
-    "itinerary_generator": "Itinerary",
-    "summarizer": "Summarizer"
+    "itinerary_generator": "Itinerary"
 }
 
 
-# @app.on_event("startup")
-# async def initialize_agents():
-#     """Initialize agents with retry logic to handle MCP server startup timing"""
-#     global _agents_initialized, _graph, _checkpointer
+@app.on_event("startup")
+async def initialize_agents():
+    """Initialize agents with retry logic to handle MCP server startup timing"""
+    global _agents_initialized, _graph, _checkpointer
 
-#     logger.info("Starting agent initialization with retry logic...")
+    logger.info("Starting agent initialization with retry logic...")
 
-#     max_retries = 5
-#     retry_delay = 10  # seconds
+    max_retries = 5
+    retry_delay = 10  # seconds
 
-#     for attempt in range(max_retries):
-#         try:
-#             logger.info(f"Attempt {attempt + 1}/{max_retries}: Initializing agents...")
-#             await setup_agents()
-#             _graph = build_agent_graph()
-#             _checkpointer = get_checkpoint_saver()
-#             _agents_initialized = True
-#             logger.info("Agents initialized successfully!")
-#             return
-#         except Exception as e:
-#             logger.error(f"Failed to initialize agents (attempt {attempt + 1}/{max_retries}): {e}")
-#             logger.error(f"Exception type: {type(e).__name__}")
-#             logger.error(f"Full traceback:")
-#             logger.error(traceback.format_exc())
+    for attempt in range(max_retries):
+        try:
+            logger.info(f"Attempt {attempt + 1}/{max_retries}: Initializing agents...")
 
-#             # If it's a TaskGroup exception, try to extract sub-exceptions
-#             if hasattr(e, '__cause__'):
-#                 logger.error(f"Underlying cause: {e.__cause__}")
-#             if hasattr(e, '__context__'):
-#                 logger.error(f"Exception context: {e.__context__}")
+            # # NEW: warm up the memory client so the first /chat doesn't pay the connect cost
+            # await get_memory_client()
 
-#             # ExceptionGroup (Python 3.11+) stores sub-exceptions in .exceptions attribute
-#             if hasattr(e, 'exceptions'):
-#                 logger.error(f"TaskGroup contained {len(e.exceptions)} sub-exception(s):")
-#                 for idx, sub_exc in enumerate(e.exceptions, 1):
-#                     logger.error(f"\n   --- Sub-exception #{idx} ---")
-#                     logger.error(f"   Type: {type(sub_exc).__name__}")
-#                     logger.error(f"   Message: {sub_exc}")
-#                     logger.error(f"   Traceback:")
-#                     sub_tb = ''.join(traceback.format_exception(type(sub_exc), sub_exc, sub_exc.__traceback__))
-#                     for line in sub_tb.split('\n'):
-#                         logger.error(f"   {line}")
+            _checkpointer = await aget_checkpoint_saver()
+            await setup_agents()
+            _graph = build_agent_graph()
+            _agents_initialized = True
+            logger.info("Agents initialized successfully!")
+            return
+        except Exception as e:
+            logger.error(f"Failed to initialize agents (attempt {attempt + 1}/{max_retries}): {e}")
+            logger.error(f"Exception type: {type(e).__name__}")
+            logger.error(f"Full traceback:")
+            logger.error(traceback.format_exc())
 
-#             if attempt < max_retries - 1:
-#                 logger.info(f"Retrying in {retry_delay} seconds...")
-#                 await asyncio.sleep(retry_delay)
-#             else:
-#                 logger.error("All retry attempts failed. Service will start but agents won't be available.")
+            # If it's a TaskGroup exception, try to extract sub-exceptions
+            if hasattr(e, '__cause__'):
+                logger.error(f"Underlying cause: {e.__cause__}")
+            if hasattr(e, '__context__'):
+                logger.error(f"Exception context: {e.__context__}")
 
+            # ExceptionGroup (Python 3.11+) stores sub-exceptions in .exceptions attribute
+            if hasattr(e, 'exceptions'):
+                logger.error(f"TaskGroup contained {len(e.exceptions)} sub-exception(s):")
+                for idx, sub_exc in enumerate(e.exceptions, 1):
+                    logger.error(f"\n   --- Sub-exception #{idx} ---")
+                    logger.error(f"   Type: {type(sub_exc).__name__}")
+                    logger.error(f"   Message: {sub_exc}")
+                    logger.error(f"   Traceback:")
+                    sub_tb = ''.join(traceback.format_exception(type(sub_exc), sub_exc, sub_exc.__traceback__))
+                    for line in sub_tb.split('\n'):
+                        logger.error(f"   {line}")
 
-# @app.on_event("shutdown")
-# async def shutdown_event():
-#     """Cleanup resources on shutdown"""
-#     logger.info("Shutting down Travel Assistant API...")
-#     await cleanup_persistent_session()
-#     logger.info("Cleanup complete")
+            if attempt < max_retries - 1:
+                logger.info(f"Retrying in {retry_delay} seconds...")
+                await asyncio.sleep(retry_delay)
+            else:
+                logger.error("All retry attempts failed. Service will start but agents won't be available.")
 
 
-# async def ensure_agents_initialized():
-#     """Ensure agents are initialized before handling requests"""
-#     global _agents_initialized
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Cleanup resources on shutdown"""
+    logger.info("Shutting down Travel Assistant API...")
+    await cleanup_persistent_session()
+    await close_async_cosmos_client()
+    logger.info("Cleanup complete")
 
-#     if not _agents_initialized:
-#         logger.info("Initializing agents on demand...")
-#         try:
-#             await setup_agents()
-#             global _graph, _checkpointer
-#             _graph = build_agent_graph()
-#             _checkpointer = get_checkpoint_saver()
-#             _agents_initialized = True
-#             logger.info("Agents initialized successfully!")
-#         except Exception as e:
-#             logger.error(f"Failed to initialize agents: {e}")
-#             raise HTTPException(
-#                 status_code=503,
-#                 detail="MCP service unavailable. Please try again in a few moments."
-#             )
+
+async def ensure_agents_initialized():
+    """Ensure agents are initialized before handling requests"""
+    global _agents_initialized
+
+    if not _agents_initialized:
+        logger.info("Initializing agents on demand...")
+        try:
+            global _graph, _checkpointer
+            _checkpointer = await aget_checkpoint_saver()
+            await setup_agents()
+            _graph = build_agent_graph()
+            _agents_initialized = True
+            logger.info("Agents initialized successfully!")
+        except Exception as e:
+            logger.error(f"Failed to initialize agents: {e}")
+            raise HTTPException(
+                status_code=503,
+                detail="MCP service unavailable. Please try again in a few moments."
+            )
 
 
 def get_compiled_graph():
@@ -378,6 +373,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Module 07 — mount the optimization / analytics REST surface
+from src.app.optimization_api import router as optimization_router
+from src.app.services import optimization
+from src.app.services.azure_open_ai import AZURE_OPENAI_DEPLOYMENT
+app.include_router(optimization_router)
 
 # ============================================================================
 # Health & Status Endpoints
@@ -629,23 +629,9 @@ def delete_session(tenantId: str, userId: str, sessionId: str, background_tasks:
                     logger.warning(f"Failed to delete message {item['id']}: {e}")
 
         # Schedule checkpoint cleanup as background task
-        def delete_checkpoints():
+        async def delete_checkpoints():
             try:
-                if _checkpointer and hasattr(_checkpointer, 'container'):
-                    query = "SELECT c.id, c.partition_key FROM c WHERE CONTAINS(c.partition_key, @sessionId)"
-                    partitions = list(_checkpointer.container.query_items(
-                        query=query,
-                        parameters=[{"name": "@sessionId", "value": sessionId}],
-                        enable_cross_partition_query=True
-                    ))
-                    for partition in partitions:
-                        try:
-                            _checkpointer.container.delete_item(
-                                item=partition["id"],
-                                partition_key=partition["partition_key"]
-                            )
-                        except Exception as e:
-                            logger.warning(f"Failed to delete checkpoint: {e}")
+                await adelete_checkpoints_for_thread(sessionId)
             except Exception as e:
                 logger.error(f"Error cleaning up checkpoints: {e}")
 
@@ -661,7 +647,33 @@ def delete_session(tenantId: str, userId: str, sessionId: str, background_tasks:
 # Chat Completion Endpoint
 # ============================================================================
 
-def store_debug_log_from_response(sessionId: str, tenantId: str, userId: str, response_data: List[Dict]) -> str:
+def _extract_tool_call_names(msg: Any) -> List[Dict[str, str]]:
+    """Normalize a message's tool calls to ``[{"name": <tool>}, ...]``.
+
+    LangChain surfaces tool calls in two shapes: the normalized ``msg.tool_calls``
+    list (``{"name", "args", "id"}``) and the raw OpenAI shape carried in
+    ``additional_kwargs["tool_calls"]`` (``{"id", "type", "function": {"name",
+    "arguments"}}``) where the name is nested under ``function``. We read the
+    normalized list first and fall back to the raw shape, returning a uniform
+    ``{"name": ...}`` list so agent_path / redundant-tool telemetry reflects every
+    tool the model actually invoked — not just ``transfer_to_`` handoffs.
+    """
+    names: List[Dict[str, str]] = []
+    for tc in (getattr(msg, "tool_calls", None) or []):
+        name = tc.get("name") if isinstance(tc, dict) else getattr(tc, "name", None)
+        if name:
+            names.append({"name": str(name)})
+    if not names:
+        for tc in ((getattr(msg, "additional_kwargs", {}) or {}).get("tool_calls") or []):
+            if not isinstance(tc, dict):
+                continue
+            name = tc.get("name") or (tc.get("function") or {}).get("name")
+            if name:
+                names.append({"name": str(name)})
+    return names
+
+
+def store_debug_log_from_response(sessionId: str, tenantId: str, userId: str, response_data: List[Dict], debug_log_id: Optional[str] = None, user_message_text: str = "") -> str:
     """
     Extract debug information from LangGraph response and store in Cosmos DB.
 
@@ -670,6 +682,7 @@ def store_debug_log_from_response(sessionId: str, tenantId: str, userId: str, re
         tenantId: Tenant identifier
         userId: User identifier
         response_data: LangGraph response data containing agent messages
+        debug_log_id: Optional pre-generated debug log ID
 
     Returns:
         Debug log ID
@@ -698,32 +711,53 @@ def store_debug_log_from_response(sessionId: str, tenantId: str, userId: str, re
                         finish_reason = metadata.get("finish_reason", finish_reason)
                         model_name = metadata.get("model_name", model_name)
                         system_fingerprint = metadata.get("system_fingerprint", system_fingerprint)
-                        token_usage = metadata.get("token_usage", {})
-                        input_tokens = token_usage.get("prompt_tokens", input_tokens)
-                        output_tokens = token_usage.get("completion_tokens", output_tokens)
-                        total_tokens = token_usage.get("total_tokens", total_tokens)
-
-                        # Get cached tokens from prompt_tokens_details
-                        prompt_details = token_usage.get("prompt_tokens_details", {})
-                        cached_tokens = prompt_details.get("cached_tokens", cached_tokens)
+                        # Token usage: LangChain normalizes counts onto usage_metadata
+                        # (input/output/total_tokens); fall back to response_metadata's
+                        # token_usage (prompt/completion_tokens) for older SDK responses.
+                        usage_meta = getattr(msg, "usage_metadata", None) or {}
+                        if usage_meta:
+                            input_tokens = usage_meta.get("input_tokens", input_tokens) or input_tokens
+                            output_tokens = usage_meta.get("output_tokens", output_tokens) or output_tokens
+                            total_tokens = usage_meta.get("total_tokens", total_tokens) or total_tokens
+                            cached_tokens = (usage_meta.get("input_token_details") or {}).get("cache_read", cached_tokens) or cached_tokens
+                        else:
+                            token_usage = metadata.get("token_usage", {}) or {}
+                            input_tokens = token_usage.get("prompt_tokens", input_tokens)
+                            output_tokens = token_usage.get("completion_tokens", output_tokens)
+                            total_tokens = token_usage.get("total_tokens", total_tokens)
+                            prompt_details = token_usage.get("prompt_tokens_details", {}) or {}
+                            cached_tokens = prompt_details.get("cached_tokens", cached_tokens)
 
                         logprobs = metadata.get("logprobs", logprobs)
                         content_filter_results = metadata.get("content_filter_results", content_filter_results)
 
-                        # Check for tool calls (agent transfers)
-                        if hasattr(msg, 'additional_kwargs') and "tool_calls" in msg.additional_kwargs:
-                            msg_tool_calls = msg.additional_kwargs["tool_calls"]
+                        # Capture every tool the model called this turn (normalized to
+                        # {"name": ...}). Covers both direct tools (find_places, ...) in
+                        # the tools-only architecture and transfer_to_ handoffs.
+                        msg_tool_calls = _extract_tool_call_names(msg)
+                        if msg_tool_calls:
                             tool_calls.extend(msg_tool_calls)
-                            transfer_success = any(
-                                call.get("name", "").startswith("transfer_to_") for call in msg_tool_calls
-                            )
-                            if transfer_success and tool_calls:
+                            if any(call["name"].startswith("transfer_to_") for call in msg_tool_calls):
+                                transfer_success = True
                                 previous_agent = agent_selected
-                                agent_selected = tool_calls[-1].get("name", "").replace("transfer_to_", "")
+                                agent_selected = tool_calls[-1]["name"].replace("transfer_to_", "")
 
-    # Store in Cosmos DB using the new function
+    # Store in Cosmos DB using the new function.
+    # agent_path = the ordered sequence of nodes this turn traversed, where a node is
+    # either a delegated sub-agent (transfer_to_X -> X) or a directly-invoked tool
+    # (find_places, create_or_update_itinerary, ...). In the tools-only architecture
+    # there are no handoffs, so the path is "supervisor" + the tools the supervisor
+    # called — which is exactly the signal the agent-path-cost and redundant-tool
+    # detectors read. handoff_count counts only true agent delegations.
+    path_nodes = [
+        c["name"][len("transfer_to_"):] if c["name"].startswith("transfer_to_") else c["name"]
+        for c in tool_calls
+    ]
+    agent_path = ",".join(["supervisor", *path_nodes]) if path_nodes else "supervisor"
+    handoff_count = sum(1 for c in tool_calls if c["name"].startswith("transfer_to_"))
+
     try:
-        debug_log_id = store_debug_log(
+        stored_id = store_debug_log(
             session_id=sessionId,
             tenant_id=tenantId,
             user_id=userId,
@@ -739,12 +773,68 @@ def store_debug_log_from_response(sessionId: str, tenantId: str, userId: str, re
             transfer_success=transfer_success,
             tool_calls=tool_calls,
             logprobs=logprobs,
-            content_filter_results=content_filter_results
+            content_filter_results=content_filter_results,
+            agent_path=agent_path,
+            handoff_count=handoff_count,
+            debug_log_id=debug_log_id,
+        )
+
+        # Module 07 — record this turn for optimization analytics.
+        # Every turn runs on the default model for now, so record complexity tier "default".
+        # optimization.record_optimization_turn(
+        #     tenant_id=tenantId, user_id=userId, session_id=sessionId,
+        #     complexity_tier="default", deployment=AZURE_OPENAI_DEPLOYMENT,
+        #     usage={"input_tokens": input_tokens, "output_tokens": output_tokens,
+        #            "total_tokens": total_tokens, "cached_tokens": cached_tokens},
+        #     model_name=model_name,
+        # )
+
+        optimization.record_optimization_turn_for_message(
+            tenant_id=tenantId, user_id=userId, session_id=sessionId,
+            user_message=user_message_text,
+            usage={"input_tokens": input_tokens, "output_tokens": output_tokens,
+                   "total_tokens": total_tokens, "cached_tokens": cached_tokens},
+            model_name=model_name,
+            handoff_count=handoff_count,
+        )
+
+        node_execs = []
+        node_deployment, _ = optimization.select_deployment_for_turn(
+            [{"role": "user", "content": user_message_text}]
+        )
+        for entry in response_data:
+            for node_agent, node_details in entry.items():
+                node_input = node_output = node_total = node_cached = 0
+                node_model = model_name
+                messages = node_details.get("messages", []) if isinstance(node_details, dict) else []
+                for msg in messages:
+                    usage = getattr(msg, "usage_metadata", None) or {}
+                    if not usage:
+                        continue
+                    node_input += usage.get("input_tokens", 0) or 0
+                    node_output += usage.get("output_tokens", 0) or 0
+                    node_total += usage.get("total_tokens", 0) or 0
+                    node_cached += (usage.get("input_token_details") or {}).get("cache_read", 0) or 0
+                    node_model = (getattr(msg, "response_metadata", {}) or {}).get("model_name", node_model)
+                if node_total or node_input or node_output:
+                    node_execs.append({
+                        "seq": len(node_execs),
+                        "agent": node_agent,
+                        "model_deployment": node_deployment,
+                        "model_name": node_model,
+                        "input_tokens": node_input,
+                        "output_tokens": node_output,
+                        "total_tokens": node_total,
+                        "cached_tokens": node_cached,
+                    })
+        optimization.record_node_executions(
+            tenant_id=tenantId, user_id=userId, session_id=sessionId,
+            turn_id=stored_id, node_execs=node_execs,
         )
 
         logger.info(
-            f"Debug log stored: {debug_log_id} for session {sessionId} (agent: {agent_selected}, tokens: {total_tokens})")
-        return debug_log_id
+            f"Debug log stored: {stored_id} for session {sessionId} (agent: {agent_selected}, tokens: {total_tokens})")
+        return stored_id
     except Exception as e:
         logger.error(f"Failed to store debug log: {e}")
         # Return a placeholder ID if storage fails
@@ -757,7 +847,8 @@ def extract_relevant_messages(
         response_data: List[Dict],
         tenantId: str,
         userId: str,
-        sessionId: str
+        sessionId: str,
+        user_message_text: str = ""
 ) -> List[tuple]:
     """Extract user and assistant messages from response data. Returns tuples of (MessageModel, original_message)"""
 
@@ -784,46 +875,36 @@ def extract_relevant_messages(
     if not last_agent_node:
         return []
 
-    # Extract messages
+    # Collect messages emitted across every update so we can pick the final reply
+    # even when an intermediate update (e.g., a tool call) is the "last" node.
     messages = []
-    for key, value in last_agent_node.items():
-        if isinstance(value, dict) and "messages" in value:
-            messages.extend(value["messages"])
+    for update in response_data:
+        if not isinstance(update, dict):
+            continue
+        for value in update.values():
+            if isinstance(value, dict) and "messages" in value:
+                messages.extend(value["messages"])
 
-    # Find last user message index
-    last_user_index = -1
-    for i in range(len(messages) - 1, -1, -1):
-        if isinstance(messages[i], HumanMessage):
-            last_user_index = i
-            break
+    # With stream_mode="updates" the HumanMessage isn't in any per-node delta,
+    # so synthesize it from the request body so the UI can render the turn.
+    user_msg = HumanMessage(content=user_message_text) if user_message_text else None
 
-    if last_user_index == -1:
-        return []
-
-    # Get messages after last user message
-    messages_after_user = messages[last_user_index:]
-
-    # Filter: Only keep the last user message and the LAST assistant message (not all intermediate ones)
-    filtered_messages = []
-
-    # Add user message
-    for msg in messages_after_user:
-        if isinstance(msg, HumanMessage):
-            filtered_messages.append(msg)
-            break
-
-    # Find and add only the LAST assistant message (skip intermediates and tool messages)
+    # Find the last assistant message that has real content (skip tool-only AIMessages).
     last_assistant_msg = None
-    for i in range(len(messages_after_user) - 1, -1, -1):
-        msg = messages_after_user[i]
+    for msg in reversed(messages):
         if isinstance(msg, AIMessage) and not isinstance(msg, ToolMessage):
-            # Make sure it has actual content
-            if hasattr(msg, "content") and msg.content and msg.content.strip():
+            if hasattr(msg, "content") and msg.content and str(msg.content).strip():
                 last_assistant_msg = msg
                 break
 
-    if last_assistant_msg:
+    filtered_messages = []
+    if user_msg is not None:
+        filtered_messages.append(user_msg)
+    if last_assistant_msg is not None:
         filtered_messages.append(last_assistant_msg)
+
+    if not filtered_messages:
+        return []
 
     # Convert to MessageModel and keep original message
     mapped_agent = agent_mapping.get(last_agent_name, last_agent_name.title())
@@ -887,6 +968,119 @@ def process_messages_background(message_tuples: List[tuple], userId: str, tenant
         logger.error(f"Error storing messages: {e}")
 
 
+async def _post_response_background(sessionId: str, tenantId: str, userId: str, response_data, messages,
+                                    debug_log_id: str, user_message_text: str = ""):
+    """
+    Background task: store debug log, persist messages, capture turns for the
+    memory pipeline, update agent state.
+    Runs after HTTP response is already sent to the client.
+    Each step is guarded independently so one failure doesn't block the others.
+    """
+    # Step 1: Store debug log
+    try:
+        # await asyncio.to_thread(
+        #     store_debug_log_from_response,
+        #     sessionId,
+        #     tenantId,
+        #     userId,
+        #     response_data,
+        #     debug_log_id=debug_log_id,
+        # )
+        
+        await asyncio.to_thread(
+            store_debug_log_from_response,
+            sessionId,
+            tenantId,
+            userId,
+            response_data,
+            debug_log_id=debug_log_id,
+            user_message_text=user_message_text,
+        )
+    except Exception as e:
+        logger.error(f"❌ Failed to store debug log for session {sessionId}: {e}")
+
+    # Step 2: Persist messages (runs even if debug log failed)
+    messages_persisted = False
+    try:
+        await asyncio.to_thread(process_messages_background, messages, userId, tenantId, sessionId)
+        messages_persisted = True
+    except Exception as e:
+        logger.error(f"❌ Failed to persist messages for session {sessionId}: {e}")
+
+    # Step 3: Memory capture.
+    memory_client = None
+    try:
+        memory_client = await get_memory_client()
+    except Exception:
+        memory_client = None
+    
+    if memory_client is not None:
+        try:
+            if user_message_text:
+                memory_client.add_local(
+                    user_id=userId,
+                    thread_id=sessionId,
+                    role="user",
+                    content=user_message_text,
+                    memory_type="turn",
+                )
+            assistant_text = ""
+            for msg_model, _ in messages:
+                if getattr(msg_model, "senderRole", None) == "Assistant" and getattr(msg_model, "text", ""):
+                    assistant_text = msg_model.text
+            if assistant_text:
+                memory_client.add_local(
+                    user_id=userId,
+                    thread_id=sessionId,
+                    role="agent",
+                    content=assistant_text,
+                    memory_type="turn",
+                )
+            await memory_client.push_to_cosmos()
+        except Exception as exc:
+            logger.warning(f"Background memory capture failed for session {sessionId}: {exc}")
+
+    # Step 4: Patch active agent
+    try:
+        last_agent_name = "unknown"
+        for i in range(len(response_data) - 1, -1, -1):
+            if "__interrupt__" in response_data[i]:
+                if i > 0:
+                    last_agent_name = list(response_data[i - 1].keys())[0]
+                break
+        if last_agent_name == "unknown" and response_data:
+            last_agent_name = list(response_data[-1].keys())[0] if response_data[-1] else "unknown"
+
+        await asyncio.to_thread(patch_active_agent, tenantId, userId, sessionId, last_agent_name)
+    except Exception as e:
+        logger.error(f"❌ Failed to patch active agent for session {sessionId}: {e}")
+
+    logger.info(f"✅ Background processing complete for session {sessionId}")
+
+
+async def _fetch_user_preference_vector(client: Any, user_id: str) -> list[float] | None:
+    """Fetch the user_summary embedding for preference-vector biasing in discover_places.
+
+    Returns None when the user has no summary yet, the summary lacks an embedding,
+    or any error occurs — preference biasing is best-effort, never a request blocker.
+    """
+    if not user_id:
+        return None
+    try:
+        summary = await client.get_user_summary(user_id)
+    except Exception as exc:
+        logger.warning("user_summary lookup failed for user=%s: %s", user_id, exc)
+        return None
+    if summary is None:
+        return None
+    if isinstance(summary, list):
+        if not summary:
+            return None
+        summary = summary[0]
+    embedding = summary.get("embedding") if isinstance(summary, dict) else None
+    return embedding if isinstance(embedding, list) else None
+
+
 @app.post(
     "/tenant/{tenantId}/user/{userId}/sessions/{sessionId}/completion",
     tags=[CHAT_TAG],
@@ -899,146 +1093,141 @@ async def get_chat_completion(
         userId: str,
         sessionId: str,
         background_tasks: BackgroundTasks,
-        request_body: str = Body(..., media_type="application/json")
+        request_body: str = Body(..., media_type="application/json"),
+        workflow=Depends(get_compiled_graph)
 ):
     """
-    Simple stub for chat completion - not yet implemented.
+    Send a message and receive AI response from the multi-agent system.
+
+    This endpoint:
+    1. Resumes conversation from last checkpoint
+    2. Routes message through orchestrator to appropriate agent
+    3. Stores messages in Cosmos DB
+    4. Returns user message + agent response
+
+    Args:
+        tenantId: Tenant identifier
+        userId: User identifier
+        sessionId: Session identifier
+        request_body: User message as plain text string
+
+    Returns:
+        List of MessageModel objects (user message + agent response)
     """
-    return [
-        MessageModel(
-            id=str(uuid.uuid4()),
-            type="message",
-            sessionId=sessionId,
-            tenantId=tenantId,
-            userId=userId,
-            timeStamp=datetime.utcnow().isoformat(),
-            sender="Assistant",
-            senderRole="Assistant",
-            text="Chat completion not implemented yet",
-            debugLogId="",
-            tokensUsed=0,
-            rating=None
+    # Ensure agents are initialized
+    await ensure_agents_initialized()
+
+    # # NEW: pull a memory client and best-effort fetch the preference vector
+    # client = await get_memory_client()
+    # pref_vector = await _fetch_user_preference_vector(client, userId)
+    #
+    # if pref_vector is not None:
+    #     # CHANGED: add user_preference_vector to the configurable block
+    #     config = {
+    #         "configurable": {
+    #             "thread_id": sessionId,
+    #             "checkpoint_ns": "",
+    #             "userId": userId,
+    #             "tenantId": tenantId,
+    #             "user_preference_vector": pref_vector,  # belt-and-braces for config-reading tools
+    #         }
+    #     }
+    #
+    #     # NEW: bracket the existing workflow.ainvoke(...) calls with set/reset
+    #     token = _current_user_preference_vector.set(pref_vector)
+    #     try:
+    #         # ... the existing try/except body from Module 03 stays here unchanged:
+    #         # checkpoint lookup, workflow.ainvoke(...), extract_relevant_messages(...),
+    #         # background_tasks.add_task(...), return response_models
+    #         ...
+    #     finally:
+    #         _current_user_preference_vector.reset(token)
+
+    if not request_body.strip():
+        raise HTTPException(status_code=400, detail="Request body cannot be empty")
+
+    try:
+        # Configuration for LangGraph
+        config = {
+            # Multi-agent turns loop (supervisor <-> find_places/itinerary), so the
+            # default recursion limit of 25 is too low for a heavy "plan a trip" turn.
+            "recursion_limit": 50,
+            "configurable": {
+                "thread_id": sessionId,
+                "checkpoint_ns": "",
+                "userId": userId,
+                "tenantId": tenantId
+            }
+        }
+
+        # Retrieve last checkpoint
+        checkpoints = [c async for c in _checkpointer.alist(config)]
+        last_active_agent = "supervisor"
+
+        if not checkpoints:
+            # No previous state - start fresh
+            new_state = {"messages": [{"role": "user", "content": request_body}]}
+            response_data = await workflow.ainvoke(new_state, config, stream_mode="updates")
+        else:
+            # Resume from last checkpoint
+            last_checkpoint = checkpoints[-1]
+            last_state = last_checkpoint.checkpoint
+
+            if "messages" not in last_state:
+                last_state["messages"] = []
+
+            last_state["messages"].append({"role": "user", "content": request_body})
+
+            # Get active agent from state
+            if "channel_versions" in last_state:
+                for channel, version in last_state["channel_versions"].items():
+                    if channel != "__start__" and version > 0:
+                        last_active_agent = channel
+                        break
+
+            response_data = await workflow.ainvoke(last_state, config, stream_mode="updates")
+
+        # Generate debug log ID upfront so it's available in the response
+        debug_log_id = str(uuid.uuid4())
+
+        # Extract messages (lightweight — just parses response_data)
+        messages = extract_relevant_messages(
+            debug_log_id, last_active_agent, response_data,
+            tenantId, userId, sessionId,
+            user_message_text=request_body,
         )
-    ]
 
+        # Build response immediately from extracted messages
+        response_models = [msg_model for msg_model, _ in messages]
 
-# @app.post(
-#     "/tenant/{tenantId}/user/{userId}/sessions/{sessionId}/completion",
-#     tags=[CHAT_TAG],
-#     summary="Chat Completion",
-#     description="Send a message and get AI agent response (main chat endpoint)",
-#     response_model=List[MessageModel]
-# )
-# async def get_chat_completion(
-#         tenantId: str,
-#         userId: str,
-#         sessionId: str,
-#         background_tasks: BackgroundTasks,
-#         request_body: str = Body(..., media_type="application/json"),
-#         workflow=Depends(get_compiled_graph)
-# ):
-#     """
-#     Send a message and receive AI response from the multi-agent system.
-#
-#     This endpoint:
-#     1. Resumes conversation from last checkpoint
-#     2. Routes message through orchestrator to appropriate agent
-#     3. Stores messages in Cosmos DB
-#     4. Returns user message + agent response
-#
-#     Args:
-#         tenantId: Tenant identifier
-#         userId: User identifier
-#         sessionId: Session identifier
-#         request_body: User message as plain text string
-#
-#     Returns:
-#         List of MessageModel objects (user message + agent response)
-#     """
-#     # Ensure agents are initialized
-#     await ensure_agents_initialized()
-#
-#     if not request_body.strip():
-#         raise HTTPException(status_code=400, detail="Request body cannot be empty")
-#
-#     try:
-#         # Configuration for LangGraph
-#         config = {
-#             "configurable": {
-#                 "thread_id": sessionId,
-#                 "checkpoint_ns": "",
-#                 "userId": userId,
-#                 "tenantId": tenantId
-#             }
-#         }
-#
-#         # Retrieve last checkpoint
-#         checkpoints = list(_checkpointer.list(config))
-#         last_active_agent = "orchestrator"
-#
-#         if not checkpoints:
-#             # No previous state - start fresh
-#             new_state = {"messages": [{"role": "user", "content": request_body}]}
-#             response_data = await workflow.ainvoke(new_state, config, stream_mode="updates")
-#         else:
-#             # Resume from last checkpoint
-#             last_checkpoint = checkpoints[-1]
-#             last_state = last_checkpoint.checkpoint
-#
-#             if "messages" not in last_state:
-#                 last_state["messages"] = []
-#
-#             last_state["messages"].append({"role": "user", "content": request_body})
-#
-#             # Get active agent from state
-#             if "channel_versions" in last_state:
-#                 for channel, version in last_state["channel_versions"].items():
-#                     if channel != "__start__" and version > 0:
-#                         last_active_agent = channel
-#                         break
-#
-#             response_data = await workflow.ainvoke(last_state, config, stream_mode="updates")
-#
-#         # Store debug log in Cosmos DB
-#         debug_log_id = store_debug_log_from_response(sessionId, tenantId, userId, response_data)
-#
-#         # Extract messages
-#         messages = extract_relevant_messages(
-#             debug_log_id, last_active_agent, response_data,
-#             tenantId, userId, sessionId
-#         )
-#
-#         # Store messages SYNCHRONOUSLY before returning (not in background)
-#         # This ensures they're in the database when we retrieve all messages
-#         process_messages_background(messages, userId, tenantId, sessionId)
-#
-#         # Now retrieve ALL messages from the database (including the ones we just stored)
-#         all_messages = get_session_messages(sessionId, tenantId, userId)
-#         
-#         # Convert to MessageModel format for API response
-#         return [
-#             MessageModel(
-#                 id=msg.get("id", str(uuid.uuid4())),
-#                 type="message",
-#                 sessionId=sessionId,
-#                 tenantId=tenantId,
-#                 userId=userId,
-#                 timeStamp=msg.get("ts") or msg.get("timeStamp", datetime.utcnow().isoformat()),
-#                 sender=msg.get("sender", "Assistant"),
-#                 senderRole="User" if msg.get("role") == "user" else "Assistant",
-#                 text=msg.get("content", ""),
-#                 debugLogId=msg.get("debugLogId", ""),
-#                 tokensUsed=msg.get("tokensUsed", 0),
-#                 rating=msg.get("rating")
-#             )
-#             for msg in all_messages
-#         ]
-#
-#     except Exception as e:
-#         logger.error(f"Error in chat completion: {e}")
-#         import traceback
-#         logger.error(traceback.format_exc())
-#         raise HTTPException(status_code=500, detail=f"Chat completion failed: {str(e)}")
+        # Offload ALL storage to background (debug log, messages, memory capture, agent patch)
+        background_tasks.add_task(
+            _post_response_background,
+            sessionId, tenantId, userId, response_data, messages, debug_log_id, request_body,
+        )
+
+        return response_models
+
+    except Exception as e:
+        # Azure OpenAI rate limits (429) are easy to hit when turns are driven quickly.
+        # Surface them as a clear, actionable message (the user can just wait and retry)
+        # rather than a generic failure.
+        is_rate_limit = (
+            getattr(e, "status_code", None) == 429
+            or e.__class__.__name__ == "RateLimitError"
+            or "rate limit" in str(e).lower()
+            or "rate_limit" in str(e).lower()
+        )
+        if is_rate_limit:
+            logger.warning(f"Rate limit (429) in chat completion: {e}")
+            raise HTTPException(
+                status_code=429,
+                detail="The AI model is temporarily rate-limited (too many requests in a short window). Please wait about 30 seconds and try again.",
+            )
+        logger.error(f"Error in chat completion: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"Chat completion failed: {str(e)}")
 
 
 @app.post(
@@ -1246,76 +1435,84 @@ def delete_trip_endpoint(tenantId: str, userId: str, tripId: str):
 # ============================================================================
 
 @app.get(
-    "/tenant/{tenantId}/user/{userId}/memories",
+    "/users/{user_id}/memories",
     tags=[MEMORY_TAG],
     summary="Get User Memories",
-    description="Retrieve user preferences and stored memories",
-    response_model=List[Memory]
+    description="Retrieve toolkit memories for a user; searches when q is supplied, otherwise lists recent memories",
+    response_model=List[Dict[str, Any]]
 )
-def get_user_memories(
-        tenantId: str,
-        userId: str,
-        memoryType: Optional[str] = None,
-        minSalience: float = 0.0,
+async def get_user_memories(
+    user_id: str,
+    q: Optional[str] = None,
+    thread_id: Optional[str] = None,
+    top_k: int = 10,
 ):
-    """
-    Get stored memories for a user.
-
-    Args:
-        tenantId: Tenant identifier
-        userId: User identifier
-        memoryType: Optional filter by type (declarative, episodic, procedural)
-        minSalience: Minimum importance score (0.0-1.0)
-
-    Returns:
-        List of Memory objects
-    """
+    """Get toolkit-backed memories for a user."""
     try:
-        memories = get_all_user_memories(
-            user_id=userId,
-            tenant_id=tenantId
-        )
+        client = await get_memory_client()
+        if q and q.strip():
+            return await client.search_cosmos(
+                search_terms=q,
+                user_id=user_id,
+                thread_id=thread_id,
+                top_k=top_k,
+            )
 
-        return [Memory(**mem) for mem in memories]
+        return await client.get_memories(
+            user_id=user_id,
+            thread_id=thread_id,
+            recent_k=top_k,
+        )
     except Exception as e:
         logger.error(f"Error fetching memories: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to fetch memories: {str(e)}")
 
 
 @app.delete(
-    "/tenant/{tenantId}/user/{userId}/memories/{memoryId}",
+    "/users/{user_id}/memories/{memory_id}",
     tags=[MEMORY_TAG],
     summary="Delete Memory",
-    description="Delete a specific user memory/preference",
-    status_code=200
+    description="Delete a toolkit memory for a user and thread",
+    status_code=204
 )
-def delete_memory(tenantId: str, userId: str, memoryId: str):
-    """
-    Delete a stored memory.
+async def delete_memory(user_id: str, memory_id: str, thread_id: Optional[str] = None):
+    """Delete a toolkit-backed memory."""
+    if not thread_id:
+        raise HTTPException(status_code=400, detail="thread_id is required")
 
-    Args:
-        tenantId: Tenant identifier
-        userId: User identifier
-        memoryId: Memory identifier
-
-    Returns:
-        Success message
-    """
     try:
-        if not memories_container:
-            raise HTTPException(status_code=503, detail="Cosmos DB not available")
-
-        partition_key = [tenantId, userId]
-        memories_container.delete_item(item=memoryId, partition_key=partition_key)
-
-        return {"message": "Memory deleted successfully", "memoryId": memoryId}
-    except CosmosHttpResponseError as e:
-        if e.status_code == 404:
-            raise HTTPException(status_code=404, detail="Memory not found")
-        raise
+        client = await get_memory_client()
+        await client.delete_cosmos(
+            memory_id=memory_id,
+            thread_id=thread_id,
+            user_id=user_id,
+        )
+        return Response(status_code=204)
     except Exception as e:
         logger.error(f"Error deleting memory: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to delete memory: {str(e)}")
+
+
+@app.get(
+    "/users/{user_id}/summary",
+    tags=[MEMORY_TAG],
+    summary="Get User Summary",
+    description="Retrieve the latest toolkit-generated cross-thread user summary",
+    response_model=Optional[Dict[str, Any]]
+)
+async def get_user_summary(user_id: str):
+    """Get the latest toolkit-backed user summary, or null if absent."""
+    try:
+        client = await get_memory_client()
+        summary = await client.get_user_summary(user_id)
+        if summary is None:
+            return None
+        if isinstance(summary, list):
+            return summary[0] if summary else None
+        return summary
+    except Exception as e:
+        logger.error(f"Error fetching user summary: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch user summary: {str(e)}")
 
 
 # ============================================================================

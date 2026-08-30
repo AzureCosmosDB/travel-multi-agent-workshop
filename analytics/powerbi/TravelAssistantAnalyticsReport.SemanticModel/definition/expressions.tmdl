@@ -1,0 +1,13 @@
+expression MirrorSQLEndpoint = "{{MIRROR_SQL_ENDPOINT}}" meta [IsParameterQuery = true, IsParameterQueryRequired = true, Type = "Any"]
+	lineageTag: 3be30c0c-814b-4e48-acf1-46dd076fd7b1
+
+	annotation PBI_NavigationStepName = Navigation
+
+	annotation PBI_ResultType = Text
+
+expression MirrorDatabase = "{{MIRROR_DATABASE}}" meta [IsParameterQuery = true, IsParameterQueryRequired = true, Type = "Any"]
+	lineageTag: b14e45ff-4b17-48c0-b30e-7756fbd1647d
+
+	annotation PBI_NavigationStepName = Navigation
+
+	annotation PBI_ResultType = Text

@@ -4,18 +4,24 @@ Heuristic Evaluators for Travel Assistant
 Fast, deterministic evaluators that check specific criteria without LLM calls.
 """
 
-def correct_routing(outputs: dict, reference_outputs: dict) -> bool:
+def correct_tool_routing(outputs: dict, reference_outputs: dict) -> bool:
     """
-    Check if orchestrator routed to the correct specialist agent.
-    
+    Check if the supervisor routed the request to the correct tool wrapper.
+
+    The supervisor exposes three top-level tool wrappers — ``find_places``,
+    ``create_or_update_itinerary``, and ``recall_memories`` — plus session
+    bookkeeping tools. This evaluator confirms the supervisor picked the right
+    wrapper for the request (or correctly answered directly with no tool call,
+    in which case ``actual_tool`` is ``"none"``).
+
     Args:
-        outputs: Contains actual_route from the system
-        reference_outputs: Contains expected_route
-        
+        outputs: Contains ``actual_tool`` produced by the routing tracker.
+        reference_outputs: Contains ``expected_tool``.
+
     Returns:
-        Boolean indicating if routing was correct
+        ``True`` if the actual tool matches the expected tool, else ``False``.
     """
-    return outputs.get("actual_route", "") == reference_outputs.get("expected_route", "")
+    return outputs.get("actual_tool", "") == reference_outputs.get("expected_tool", "")
 
 
 def required_tools_called(outputs: dict, reference_outputs: dict) -> bool:

@@ -477,11 +477,16 @@
         <div *ngIf="isLoading" class="flex justify-start gap-3">
           <div class="h-8 w-8 rounded-full bg-gray-200 grid place-items-center">🤖</div>
           <div class="bg-white rounded-2xl px-4 py-3 border">
-            <div class="flex gap-1">
-              <span class="animate-bounce">●</span>
-              <span class="animate-bounce" style="animation-delay: 0.1s">●</span>
-              <span class="animate-bounce" style="animation-delay: 0.2s">●</span>
+            <div *ngIf="chatProgressMessage; else typingDots" class="text-sm text-gray-600">
+              {{ chatProgressMessage }}
             </div>
+            <ng-template #typingDots>
+              <div class="flex gap-1">
+                <span class="animate-bounce">●</span>
+                <span class="animate-bounce" style="animation-delay: 0.1s">●</span>
+                <span class="animate-bounce" style="animation-delay: 0.2s">●</span>
+              </div>
+            </ng-template>
           </div>
         </div>
       </div>

@@ -24,6 +24,7 @@ export class ExploreComponent implements OnInit, OnDestroy, AfterViewChecked {
   currentThread: Thread | null = null;
   newMessage = '';
   isLoading = false;
+  chatProgressMessage = '';
   
   // Trip Planning Fields (from Home component)
   selectedCity = '';
@@ -171,69 +172,126 @@ export class ExploreComponent implements OnInit, OnDestroy, AfterViewChecked {
     const userMessage = this.newMessage;
     this.newMessage = '';
     this.isLoading = true;
-
-    // Optimistically add user message to UI
-    this.messages = [...this.messages, { role: 'user', content: userMessage }];
+    this.chatProgressMessage = '🤔 Thinking...';
+    this.messages = [
+      ...this.messages,
+      { role: 'user', content: userMessage, timestamp: new Date().toISOString() }
+    ];
     this.shouldScrollToBottom = true;
 
-    // Use sessionId (fallback to threadId for backward compatibility)
     const threadId = this.currentThread.sessionId || this.currentThread.threadId || '';
-    
     if (!threadId) {
       console.error('No thread ID available');
       this.isLoading = false;
+      this.chatProgressMessage = '';
       return;
     }
-    
-    console.log('📤 Sending message to thread:', threadId);
-    
-    this.travelApi.sendMessage(threadId, userMessage).subscribe({
-      next: (response) => {
-        console.log('📥 Received response:', response);
-        
-        // Backend returns only NEW messages (user + assistant) — append to existing
-        if (Array.isArray(response)) {
-          // Remove the optimistic user message only if server returned a user message
-          const hasServerUserMsg = response.some(msg => msg.senderRole === 'User');
-          if (hasServerUserMsg) {
-            this.messages = this.messages.filter(m => !(m.role === 'user' && m.content === userMessage && !m.timestamp));
-          }
-          
-          const newMessages = response.map(msg => ({
-            role: (msg.senderRole === 'User' ? 'user' : 'assistant') as 'user' | 'assistant',
-            content: msg.text || msg.content || '',
-            timestamp: msg.timeStamp
-          }));
-          
-          this.messages = [...this.messages, ...newMessages].sort((a: any, b: any) => {
-            const timeA = new Date(a.timestamp || 0).getTime();
-            const timeB = new Date(b.timestamp || 0).getTime();
-            return timeA - timeB;
-          });
-          
-          console.log('Appended messages:', newMessages.map(m => ({
-            role: m.role,
-            content: m.content.substring(0, 50)
-          })));
-        } else if (response.messages && Array.isArray(response.messages)) {
-          // Fallback: if backend returns full list, replace
-          this.messages = response.messages.sort((a: any, b: any) => {
-            const timeA = new Date(a.timestamp || 0).getTime();
-            const timeB = new Date(b.timestamp || 0).getTime();
-            return timeA - timeB;
-          });
-        } else {
-          console.warn('Unexpected response format:', response);
+
+    console.log('📤 Streaming message to thread:', threadId);
+    void this.streamChatMessage(threadId, userMessage);
+  }
+
+  private async streamChatMessage(threadId: string, userMessage: string): Promise<void> {
+    const assistantMessage: Message = {
+      role: 'assistant',
+      content: '',
+      timestamp: new Date().toISOString()
+    };
+    this.messages = [...this.messages, assistantMessage];
+
+    try {
+      const tenantId = encodeURIComponent(this.travelApi.getTenantId());
+      const userId = encodeURIComponent(this.travelApi.getUserId());
+      const encodedThreadId = encodeURIComponent(threadId);
+      const response = await fetch(
+        `/api/tenant/${tenantId}/user/${userId}/sessions/${encodedThreadId}/completion/stream`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(userMessage)
         }
-        this.shouldScrollToBottom = true;
-        this.isLoading = false;
-      },
-      error: (error) => {
-        console.error('❌ Error sending message:', error);
-        this.isLoading = false;
+      );
+
+      if (!response.ok || !response.body) {
+        throw new Error(await response.text() || `Stream failed with status ${response.status}`);
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let done = false;
+
+      while (!done) {
+        const result = await reader.read();
+        done = result.done;
+        buffer += decoder.decode(result.value || new Uint8Array(), { stream: !done });
+
+        const events = buffer.split('\n\n');
+        buffer = events.pop() || '';
+        for (const rawEvent of events) {
+          this.handleStreamEvent(rawEvent, assistantMessage);
+        }
+      }
+
+      if (buffer.trim()) {
+        this.handleStreamEvent(buffer, assistantMessage);
+      }
+    } catch (error) {
+      console.error('❌ Error streaming message:', error);
+      if (!assistantMessage.content.trim()) {
+        this.messages = this.messages.filter(message => message !== assistantMessage);
+      }
+      const err = error as { status?: number; error?: { detail?: string } };
+      if (err?.status === 429) {
+        alert(err?.error?.detail || 'The AI model is rate-limited right now. Please wait about 30 seconds and try again.');
+      } else {
         alert('Failed to send message. Please check your backend connection.');
       }
-    });
+    } finally {
+      this.chatProgressMessage = '';
+      this.isLoading = false;
+      this.shouldScrollToBottom = true;
+    }
+  }
+
+  private handleStreamEvent(rawEvent: string, assistantMessage: Message): void {
+    const dataLine = rawEvent
+      .split('\n')
+      .find(line => line.startsWith('data:'));
+    if (!dataLine) return;
+
+    const payload = JSON.parse(dataLine.slice(5).trim());
+    switch (payload.event) {
+      case 'tool_call_start':
+        this.chatProgressMessage = this.getToolProgressLabel(payload.tool);
+        break;
+      case 'tool_call_done':
+        this.chatProgressMessage = '🤔 Thinking...';
+        break;
+      case 'thinking':
+        this.chatProgressMessage = '🤔 Thinking...';
+        break;
+      case 'token':
+        assistantMessage.content += payload.delta || '';
+        this.chatProgressMessage = '';
+        break;
+      case 'done':
+        this.chatProgressMessage = '';
+        break;
+    }
+
+    this.messages = [...this.messages];
+    this.shouldScrollToBottom = true;
+  }
+
+  private getToolProgressLabel(toolName?: string): string {
+    if (toolName === 'create_or_update_itinerary') {
+      return '📝 Building itinerary...';
+    }
+    if (toolName === 'find_places' || toolName === 'discover_places') {
+      return '🔎 Searching...';
+    }
+    return '🤔 Thinking...';
   }
 
   onSavePlace(place: Place): void {
