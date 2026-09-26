@@ -37,6 +37,9 @@ export class HomeComponent implements OnInit {
   filteredCities: City[] = [];
   showCityDropdown = false;
   isLoadingCities = false;
+  isStartingTrip = false;
+  private startTripRequestId: string | null = null;
+  private startTripAttemptKey: string | null = null;
 
   // Pickers
   showDatePicker = false;
@@ -191,8 +194,14 @@ export class HomeComponent implements OnInit {
   }
 
   startTrip(): void {
+    if (this.isStartingTrip) {
+      return;
+    }
     if (!this.selectedCity) {
       alert('Please select a city first');
+      return;
+    }
+    if (!this.hasValidDateRange()) {
       return;
     }
 
@@ -203,13 +212,77 @@ export class HomeComponent implements OnInit {
     );
 
     if (city) {
-      // Navigate to explore with the city
-      this.router.navigate(['/explore'], { 
-        queryParams: { city: city.name }
+      const attemptKey = JSON.stringify([
+        this.selectedCity.trim(),
+        this.startDate,
+        this.endDate
+      ]);
+      if (!this.startTripRequestId || this.startTripAttemptKey !== attemptKey) {
+        this.startTripRequestId = this.createRequestId();
+        this.startTripAttemptKey = attemptKey;
+      }
+      this.isStartingTrip = true;
+      this.travelApiService.startTrip({
+        requestId: this.startTripRequestId,
+        destination: this.selectedCity,
+        startDate: this.startDate,
+        endDate: this.endDate
+      }).subscribe({
+        next: (result) => {
+          this.isStartingTrip = false;
+          this.router.navigate(['/explore'], {
+            queryParams: {
+              city: city.name,
+              startDate: this.startDate,
+              endDate: this.endDate,
+              adults: this.travelers.adults,
+              children: this.travelers.children,
+              pets: this.travelers.pets,
+              sessionId: result.session.sessionId
+            }
+          });
+        },
+        error: (error) => {
+          this.isStartingTrip = false;
+          console.error('Error starting trip:', error);
+          alert('Failed to start trip. Please try again.');
+        }
       });
     } else {
-      this.router.navigate(['/explore']);
+      alert('City not found. Please select from the dropdown.');
     }
+  }
+
+  private createRequestId(): string {
+    return globalThis.crypto?.randomUUID?.()
+      ?? `start-trip-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  }
+
+  private hasValidDateRange(): boolean {
+    if (!this.startDate || !this.endDate) {
+      alert('Please select valid start and end dates');
+      return false;
+    }
+    const start = this.parseDate(this.startDate);
+    const end = this.parseDate(this.endDate);
+    if (!start || !end) {
+      alert('Please select valid start and end dates');
+      return false;
+    }
+    if (end < start) {
+      alert('End date must be on or after start date');
+      return false;
+    }
+    return true;
+  }
+
+  private parseDate(value: string): Date | null {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+    const [year, month, day] = value.split('-').map(Number);
+    const parsed = new Date(Date.UTC(year, month - 1, day));
+    return parsed.getUTCFullYear() === year &&
+      parsed.getUTCMonth() === month - 1 &&
+      parsed.getUTCDate() === day ? parsed : null;
   }
 
   exploreCities(): void {
@@ -228,4 +301,3 @@ export class HomeComponent implements OnInit {
     }
   }
 }
-

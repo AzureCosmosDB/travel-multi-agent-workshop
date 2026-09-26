@@ -1,13 +1,34 @@
-"""Generator for ConversionFunnelReverseETL.ipynb (learner version).
+"""Deterministic generator for the learner and solution Fabric notebooks.
 
 Kept in-repo so the notebook can be regenerated deterministically. Run:
     python analytics/fabric/_gen_funnel_notebook.py
+    python analytics/fabric/_gen_funnel_notebook.py --output-dir <empty-directory>
 Produces ConversionFunnelReverseETL.ipynb (TODOs) and *_solution.ipynb (filled).
 """
+import argparse
+import hashlib
 import json
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
+ROOT = HERE.parents[1]
+CONTROLLED_DEMO4_SOURCE = (
+    ROOT / "02_completed" / "python" / "src" / "app" / "services" / "controlled_demo4.py"
+).read_text(encoding="utf-8")
+CONTROLLED_DEMO4_PRICING_PATH = (
+    ROOT / "02_completed" / "python" / "data" / "model_pricing.json"
+)
+CONTROLLED_DEMO4_PRICING = json.loads(
+    CONTROLLED_DEMO4_PRICING_PATH.read_text(encoding="utf-8")
+)
+CONTROLLED_DEMO4_PRICING_SHA256 = hashlib.sha256(
+    CONTROLLED_DEMO4_PRICING_PATH.read_bytes()
+).hexdigest()
+
+OUTPUT_NAMES = (
+    "ConversionFunnelReverseETL.ipynb",
+    "ConversionFunnelReverseETL_solution.ipynb",
+)
 
 
 def md(text):
@@ -44,7 +65,7 @@ Console and the Power BI report read directly:
 - **Turn metrics** (5c) — the Console KPIs: total turns/tokens, estimated cost, trivial-turn share, model distribution, cost-by-tier.
 - **Agent scorecard** (5d) — per-agent health across **cost efficiency**, **model selection**, and **workflow efficiency**, rolled up from the mirrored `NodeExecutions` node-grain (feeds the Power BI **Agent Performance** page 6b).
 - **Memory intelligence** (6) — salience / health / supersession of the memory subsystem.
-- **LLM analyst** (7) — the model *proposes* one recommendation card **per detected opportunity** (**model-selection** + **tool-call-dedup**) and the engine's **guardrails** *dispose*: bound it to a known seam, require citations, and override its dollar figure with the engine-measured saving. Each accepted card is reverse-ETL'd as a `discovered_opportunity` **and** a flat `recommendation_card` row — now including a compact **evidence line** and a **caveat** — so the Console and the Power BI **recommendation gallery** show the same proof, limitation, and `governed_state` badge (and the tool-dedup card **supersedes** its app-plane "awaiting analysis" placeholder).
+- **LLM analyst** (7) — the model *proposes* one recommendation card **per positive detected opportunity** (**model-selection** + **tool-call-dedup**) and the engine's **guardrails** *dispose*: bind it to the exact declared opportunity seam, require citations, and override its dollar figure with the engine-measured saving. Each accepted card is reverse-ETL'd as a `discovered_opportunity` **and** a flat `recommendation_card` row — now including a compact **evidence line** and a **caveat** — so the Console and the Power BI **recommendation gallery** show the same proof, limitation, and `governed_state` badge. Detections with zero candidates/turns or zero saving overwrite their deterministic report IDs as `suppressed_opportunity` tombstones, preventing stale cards.
 
 **You implement two pieces** (everything else is provided):
 - **TODO 1** — classify *why* a session didn't convert (the analytics decision you own; the notebook analog of `classify_complexity_tier`).
@@ -71,13 +92,54 @@ TENANT_ID = ""                 # Entra tenant (for the Fabric->Cosmos AAD write)
 SQL_EP = ""
 SQL_DB = ""
 SOURCE_SCHEMA = COSMOS_DATABASE   # the mirror schema == the Cosmos DB name
-TENANT = "analytics"            # which app tenant to analyze
+DEMO_TENANTS = ("analytics", "marvel")
+TENANT = "analytics"            # one demo tenant per Fabric notebook activity
+RUN_GLOBAL_INSIGHTS = True      # True for analytics; False for the dependent marvel activity
 # Azure OpenAI (the LLM analyst in Section 7 — keyless/AAD, the same account the app uses).
 # Leave blank to skip the live call: the analyst then falls back to the deterministic
 # proposer (engine parity), so the section still reverse-ETLs a guardrailed card.
 AOAI_ENDPOINT = ""              # https://<account>.openai.azure.com/
 AOAI_DEPLOYMENT = "gpt-5.1"
 AOAI_API_VERSION = "2025-04-01-preview"'''
+
+PARAM_NORMALIZATION = '''# --- Normalize and validate pipeline-injected parameter overrides ---
+TENANT = str(TENANT).strip().lower()
+if TENANT not in DEMO_TENANTS:
+    raise ValueError(f"TENANT must be one of {DEMO_TENANTS}; got {TENANT!r}")
+if isinstance(RUN_GLOBAL_INSIGHTS, bool):
+    pass
+elif isinstance(RUN_GLOBAL_INSIGHTS, str):
+    _bool_values = {
+        "1": True, "true": True, "yes": True, "y": True, "on": True,
+        "0": False, "false": False, "no": False, "n": False, "off": False,
+    }
+    _bool_key = RUN_GLOBAL_INSIGHTS.strip().lower()
+    if _bool_key not in _bool_values:
+        raise ValueError(
+            "RUN_GLOBAL_INSIGHTS must be a boolean or one of "
+            f"{tuple(_bool_values)}; got {RUN_GLOBAL_INSIGHTS!r}"
+        )
+    RUN_GLOBAL_INSIGHTS = _bool_values[_bool_key]
+elif isinstance(RUN_GLOBAL_INSIGHTS, int) and RUN_GLOBAL_INSIGHTS in (0, 1):
+    RUN_GLOBAL_INSIGHTS = bool(RUN_GLOBAL_INSIGHTS)
+else:
+    raise ValueError(
+        "RUN_GLOBAL_INSIGHTS must be a boolean, 0/1, or a recognized boolean string; "
+        f"got {RUN_GLOBAL_INSIGHTS!r}"
+    )
+print(f"Notebook run: tenant={TENANT}; global insights={RUN_GLOBAL_INSIGHTS}")'''
+
+MULTI_TENANT_MD = """### Run both demo tenants safely
+
+This notebook is a **single-tenant worker**, not a self-recursive controller. Phase 2 of
+`provision_fabric.py` creates or updates the `RefreshAllDemoTenants` Fabric Data Pipeline with:
+
+1. `analytics`: `TENANT=analytics`, `RUN_GLOBAL_INSIGHTS=true`
+2. `marvel` (depends on `analytics` succeeding): `TENANT=marvel`, `RUN_GLOBAL_INSIGHTS=false`
+
+The first activity writes the shared `_global_optimizations` and `_global_memory` rows once. The
+second writes only Marvel's tenant-scoped rows. This supported two-activity pattern is deterministic,
+retryable per tenant, and avoids duplicate global memory analysis."""
 
 READ = '''from pyspark.sql import functions as F
 from datetime import datetime, timezone
@@ -107,6 +169,93 @@ policies = read_sql("OptimizationPolicies", tenant_scoped=False)
 governance = read_sql("OptimizationGovernance")
 print("turns:", turns.count(), "trips:", trips.count(), "messages:", messages.count(),
       "policies:", policies.count(), "governance:", governance.count())'''
+
+CONTROLLED_STATE = f'''# ---- canonical controlled Demo 4 source evaluator ----
+# The app evaluator is embedded verbatim at generation time because Fabric cannot import the
+# application package. This keeps one evaluator/result schema while the adapter only supplies
+# rows captured from the same mirrored DirectQuery snapshot.
+CONTROLLED_DEMO4_EMBEDDED_PRICING = {CONTROLLED_DEMO4_PRICING!r}
+CONTROLLED_DEMO4_EMBEDDED_PRICING_SOURCE = r"python\\data\\model_pricing.json"
+CONTROLLED_DEMO4_EMBEDDED_PRICING_SHA256 = "{CONTROLLED_DEMO4_PRICING_SHA256}"
+exec({CONTROLLED_DEMO4_SOURCE!r}, globals())
+
+def _plain(_value):
+    if hasattr(_value, "asDict"):
+        return {{_key: _plain(_item) for _key, _item in _value.asDict(recursive=False).items()}}
+    if isinstance(_value, list):
+        return [_plain(_item) for _item in _value]
+    if isinstance(_value, tuple):
+        return [_plain(_item) for _item in _value]
+    if isinstance(_value, dict):
+        return {{_key: _plain(_item) for _key, _item in _value.items()}}
+    return _value
+
+_controlled_frames = {{
+    "OptimizationTurns": turns,
+    "Debug": read_sql("Debug"),
+    "NodeExecutions": read_sql("NodeExecutions"),
+    "Sessions": read_sql("Sessions"),
+    "Messages": messages,
+    "Trips": trips,
+}}
+_controlled_snapshot = {{
+    _name: [_plain(_row) for _row in _frame.collect()]
+    for _name, _frame in _controlled_frames.items()
+}}
+_policy_rows = [_plain(_row) for _row in policies.collect()]
+
+class _SnapshotContainer:
+    def __init__(self, _rows):
+        self._rows = _rows
+    def query_items(self, **_kwargs):
+        return list(self._rows)
+    def read_item(self, item, partition_key):
+        for _row in self._rows:
+            if _row.get("id") == item or _row.get("scenario") == item:
+                return _row
+        raise KeyError(item)
+
+class _SnapshotDatabase:
+    def get_container_client(self, _name):
+        if _name == "OptimizationPolicies":
+            return _SnapshotContainer(_policy_rows)
+        return _SnapshotContainer(_controlled_snapshot.get(_name, []))
+
+_controlled_state = evaluate_controlled_demo4(_SnapshotDatabase(), TENANT)
+assert_evaluation_schema(_controlled_state)
+_controlled_measurement = _controlled_state["measurement"]
+print(
+    "controlled Demo 4 source state:",
+    _controlled_state["dataset_phase"],
+    _controlled_state["display_state"],
+    "valid=" + str(_controlled_state["state_valid"]),
+    _controlled_state["state_reason"],
+)
+if TENANT == "analytics" and not (
+    _controlled_state["state_valid"] and _controlled_state["dataset_phase"] == "after"
+):
+    print("MIRROR_NOT_READY: suppressing stale Applied/After and measured model-selection rows")
+
+_state_row = (
+    f"state::{{TENANT}}", "controlled_demo4_state", TENANT,
+    _controlled_state["policy_status"], _controlled_state["dataset_phase"],
+    _controlled_state["display_state"], bool(_controlled_state["state_valid"]),
+    _controlled_state["state_reason"], _controlled_state["fixture_version"],
+    _controlled_state["burst_version"], _controlled_state["burst_anchor"],
+    _controlled_state["burst_window_minutes"],
+    int(_controlled_state["baseline_expected_count"]),
+    int(_controlled_state["baseline_observed_count"]),
+    int(_controlled_state["burst_expected_count"]),
+    int(_controlled_state["burst_observed_count"]),
+    json.dumps(_controlled_state["model_counts"], sort_keys=True), now,
+)
+state_df = spark.createDataFrame(
+    [_state_row],
+    ["id", "type", "tenantId", "policy_status", "dataset_phase", "display_state",
+     "state_valid", "state_reason", "fixture_version", "burst_version", "burst_anchor",
+     "burst_window_minutes", "baseline_expected_count", "baseline_observed_count",
+     "burst_expected_count", "burst_observed_count", "model_counts_json", "computed_at"],
+)'''
 
 FUNNEL = '''# ---- funnel stages per session (PROVIDED) ----
 # A session is "searched" if any turn delegated (handoff>0 / agent_path hit find_places),
@@ -200,11 +349,9 @@ rows (stored under a reserved `_global_optimizations` partition key — a non-te
 the report's **Measured Saving** page, where a `scenario` slicer switches between optimizations.
 Run this cell, then include `result_df` in the reverse-ETL write below."""
 
-SAVING = '''# ---- 4b. Measured saving: counterfactual, keyed by OPTIMIZATION (PROVIDED) ----
-# Price EVERY captured turn (all tenants) under the model it actually ran on vs. the
-# all-premium baseline (gpt-5.1). Keyed by scenario (the optimization), NOT by tenant,
-# and stored under a reserved "_global_optimizations" partition so the report slices on
-# `scenario`. Pricing comes from the mirrored Configuration table (type="model_pricing").
+SAVING_SETUP = '''# ---- 4b. Measured saving: counterfactual, keyed by OPTIMIZATION (PROVIDED) ----
+# Load shared pricing, then calculate the current tenant's saving for tenant-scoped analyst cards.
+# The controller's Analytics activity separately computes the all-tenant result rows below.
 BASELINE_DEPLOYMENT = "gpt-5.1"
 
 _pricing = (spark.read.format("jdbc")
@@ -221,27 +368,34 @@ _base = _pricing.where(F.col("dep") == BASELINE_DEPLOYMENT).collect()
 b_in = float(_base[0]["in_price"]) if _base else 1.25
 b_out = float(_base[0]["out_price"]) if _base else 10.0
 
-# ALL turns (every tenant) - the optimization measurement is keyed by scenario, not tenant
-_all_turns = (spark.read.format("jdbc")
-              .option("url", _jdbc)
-              .option("dbtable", f"[{SOURCE_SCHEMA}].[OptimizationTurns]")
-              .option("accessToken", _sql_token)
-              .load())
-
-_priced = (_all_turns.join(_pricing, _all_turns["model_deployment"] == _pricing["dep"], "left")
-           .withColumn("in_price", F.coalesce(F.col("in_price"), F.lit(b_in)))
-           .withColumn("out_price", F.coalesce(F.col("out_price"), F.lit(b_out))))
-
-_agg = _priced.agg(
+# Tenant pricing stays per-run because the tenant-scoped analyst and metrics need it.
+_tenant_priced = (turns.join(_pricing, turns["model_deployment"] == _pricing["dep"], "left")
+                  .withColumn("in_price", F.coalesce(F.col("in_price"), F.lit(b_in)))
+                  .withColumn("out_price", F.coalesce(F.col("out_price"), F.lit(b_out))))
+_tenant_agg = _tenant_priced.agg(
     F.sum((F.col("input_tokens") * F.col("in_price") + F.col("output_tokens") * F.col("out_price")) / F.lit(1e6)).alias("actual"),
     F.sum((F.col("input_tokens") * F.lit(b_in) + F.col("output_tokens") * F.lit(b_out)) / F.lit(1e6)).alias("baseline"),
     F.count(F.lit(1)).alias("turns")).collect()[0]
-
-_actual = float(_agg["actual"] or 0.0)
-_baseline = float(_agg["baseline"] or 0.0)
-_n = int(_agg["turns"] or 0)
+_actual = float(_tenant_agg["actual"] or 0.0)
+_baseline = float(_tenant_agg["baseline"] or 0.0)
+_n = int(_tenant_agg["turns"] or 0)
 _saving = _baseline - _actual
-_saving_pct = round(100 * _saving / _baseline, 1) if _baseline else 0.0
+_saving_pct = round(100 * _saving / _baseline, 1) if _baseline else 0.0'''
+
+GLOBAL_SAVING_BODY = '''# The model-selection result comes only from the complete controlled
+# Analytics after burst evaluated above. Completeness and measured values therefore come from
+# the same captured DirectQuery snapshot; stale mirror rows cannot publish Applied/After.
+_measured_ready = (
+    _controlled_state["state_valid"]
+    and _controlled_state["dataset_phase"] == "after"
+    and _controlled_measurement is not None
+    and _controlled_measurement["positive_measured_result"]
+)
+_global_actual = float(_controlled_measurement["actual_cost_usd"]) if _measured_ready else 0.0
+_global_baseline = float(_controlled_measurement["baseline_cost_usd"]) if _measured_ready else 0.0
+_global_n = int(_controlled_measurement["observed_count"]) if _measured_ready else 0
+_global_saving = float(_controlled_measurement["saving_usd"]) if _measured_ready else 0.0
+_global_saving_pct = float(_controlled_measurement["saving_pct"]) if _measured_ready else 0.0
 
 # memory-retention: MEASURED from recall telemetry over the mirrored ApiEvents. Each
 # `recall_pruned_avoided` event's response.avoided_input_tokens = the input tokens a recall
@@ -287,23 +441,54 @@ _MR_NOTE = ("Measured from recall telemetry (ApiEvents) - input tokens avoided b
 # prompt/code PR, not an in-app policy) - no measured before/after. compute_insights.py emits
 # the identical rows app-plane (idempotent by id), so notebook == console == report.
 _GOVERNED_NOTE = "Governed-path fix (human-reviewed prompt/code PR) - no in-app policy to apply, so no measured before/after here; see the turn-grain estimate on Discovered Opportunities."
+_model_result_type = "optimization_result" if _measured_ready else "suppressed_result"
+_model_note = (
+    "Measured — Analytics controlled burst " + str(_controlled_state["burst_version"])
+    if _measured_ready
+    else "Suppressed — controlled Analytics source is incomplete, corrupt, or delayed: "
+         + str(_controlled_state["state_reason"])
+)
 _result_rows = [
-    ("result::model-selection", "optimization_result", "_global_optimizations",
-     "model-selection", "Capability-tiered model selection", "counterfactual",
-     _n, round(_baseline, 4), round(_actual, 4), round(_saving, 4), _saving_pct, "", now),
+    ("result::model-selection", _model_result_type, "_global_optimizations",
+     "model-selection", "Capability-tiered model selection", "measured",
+     _global_n, round(_global_baseline, 4), round(_global_actual, 4),
+     round(_global_saving, 4), _global_saving_pct, _model_note, now,
+     "Measured", "Analytics controlled after burst", "analytics",
+     _controlled_state["burst_version"],
+     _controlled_state["policy_status"], _controlled_state["dataset_phase"],
+     _controlled_state["display_state"], bool(_controlled_state["state_valid"]),
+     _controlled_state["state_reason"]),
     ("result::memory-retention", "optimization_result", "_global_optimizations",
      "memory-retention", "Memory retention (prune superseded)", "telemetry",
-     _mr_recalls, 0.0, 0.0, _mr_saving, 0.0, _MR_NOTE, now),
+     _mr_recalls, 0.0, 0.0, _mr_saving, 0.0, _MR_NOTE, now,
+     "Measured", "Global memory recall telemetry", "", "", "", "", "", True, ""),
 ]
 for _sc, _title in [("tool-call-dedup", "Redundant tool-call dedup")]:
     _result_rows.append((f"result::{_sc}", "optimization_result", "_global_optimizations",
-                         _sc, _title, "governed", 0, 0.0, 0.0, 0.0, 0.0, _GOVERNED_NOTE, now))
+                         _sc, _title, "governed", 0, 0.0, 0.0, 0.0, 0.0, _GOVERNED_NOTE, now,
+                         "Projected", "Analytics recommendation", "analytics",
+                         _controlled_state["burst_version"],
+                         _controlled_state["policy_status"], _controlled_state["dataset_phase"],
+                         _controlled_state["display_state"], bool(_controlled_state["state_valid"]),
+                         _controlled_state["state_reason"]))
 
 result_df = spark.createDataFrame(
     _result_rows,
     ["id", "type", "tenantId", "scenario", "title", "method", "turns",
-     "baseline_cost_usd", "actual_cost_usd", "saving_usd", "saving_pct", "note", "computed_at"])
-print("measured saving: model-selection $%.4f (%.1f%% vs baseline) over %d turns; memory-retention $%.4f (%d recalls); +1 governed" % (_saving, _saving_pct, _n, _mr_saving, _mr_recalls))'''
+     "baseline_cost_usd", "actual_cost_usd", "saving_usd", "saving_pct", "note", "computed_at",
+     "measurement_kind", "measurement_scope", "measurement_tenant", "burst_version", "policy_status",
+     "dataset_phase", "display_state", "state_valid", "state_reason"])
+print("measured saving: model-selection $%.4f (%.1f%% vs baseline) over %d turns; memory-retention $%.4f (%d recalls); +1 governed" % (_global_saving, _global_saving_pct, _global_n, _mr_saving, _mr_recalls))'''
+
+SAVING = (
+    SAVING_SETUP
+    + "\n\n# Global measured-saving work runs once, in the analytics controller activity.\n"
+    + "if not RUN_GLOBAL_INSIGHTS:\n"
+    + "    result_df = None\n"
+    + "    print(f\"Skipping global measured-saving analysis for {TENANT}; the analytics activity owns it.\")\n"
+    + "else:\n"
+    + "\n".join(f"    {line}" if line else "" for line in GLOBAL_SAVING_BODY.splitlines())
+)
 
 TODO2_STUB = '''# ---- TODO 2: reverse-ETL — write the insight rows BACK to Cosmos (the pattern) ----
 # Write funnel_df, cause_df, kpi_df, result_df to the Cosmos OptimizationInsights container
@@ -322,7 +507,9 @@ cosmos_write = {
 }
 raise NotImplementedError("Write funnel_df, cause_df, kpi_df, result_df to Cosmos with format('cosmos.oltp')")
 
-# for df in (funnel_df, cause_df, kpi_df, result_df):
+# tenant_frames = (funnel_df, cause_df, kpi_df, state_df)
+# global_frames = (result_df,) if RUN_GLOBAL_INSIGHTS else ()
+# for df in tenant_frames + global_frames:
 #     df.write.format("cosmos.oltp").options(**cosmos_write).mode("append").save()
 # print("Reverse-ETL complete -> the Power BI Business Impact page will light up.")'''
 
@@ -338,9 +525,11 @@ cosmos_write = {
     "spark.cosmos.write.strategy": "ItemOverwrite",
     "spark.cosmos.write.bulk.enabled": "true",
 }
-for df in (funnel_df, cause_df, kpi_df, result_df):
+tenant_frames = (funnel_df, cause_df, kpi_df, state_df)
+global_frames = (result_df,) if RUN_GLOBAL_INSIGHTS else ()
+for df in tenant_frames + global_frames:
     df.write.format("cosmos.oltp").options(**cosmos_write).mode("append").save()
-print("Reverse-ETL complete -> the Power BI Business Impact page will light up.")'''
+print(f"Reverse-ETL complete for {TENANT}; global rows written={RUN_GLOBAL_INSIGHTS}.")'''
 
 CHECKPOINT_SETUP = '''# Persist the last completed stage because failed Fabric jobs do not retain cell output.
 def _checkpoint(stage):
@@ -366,7 +555,7 @@ TODO2_MD = "## 5. TODO 2 — reverse-ETL the insights back to Cosmos\nThe patter
 
 MEMORY_MD = "## 6. Memory intelligence (provided) — reverse-ETL memory health\nMemories aren't free: every recall retrieves and *pays* (tokens + latency) for what it pulls, so **stale, low-salience, and superseded** memories are cost with no benefit. This provided section reads the mirrored **`memories`** table (the same SQL-endpoint path as above), computes salience / health / supersession, and reverse-ETLs the result to `OptimizationInsights` — the funnel pattern, for the **memory pillar**.\n\n> **Reserved partition key, not a tenant.** `OptimizationInsights` is partitioned by `/tenantId`, and a *tenant* here is a customer with its own users (e.g. `marvel`, `analytics`). Memory is **global** — memories are keyed by user, not tenant — so these rows use a reserved partition key **`_global_memory`** (a bucket for non-tenant rows, distinguished by `type`), never a real tenant. The Power BI **Memory Intelligence** page reads them by `type`."
 
-MEMORY_CODE = '''# ---- memory intelligence: read mirrored `memories`, compute health, reverse-ETL (PROVIDED) ----
+MEMORY_CODE_BODY = '''# ---- memory intelligence: read mirrored `memories`, compute health, reverse-ETL (PROVIDED) ----
 # `_global_memory` is a RESERVED partition key, NOT a tenant. OptimizationInsights is
 # partitioned by /tenantId; a tenant is a customer with users (marvel, analytics). Memory is
 # global (memories are keyed by user_id/thread_id), so its rows use this reserved bucket and are
@@ -445,6 +634,14 @@ for df in (mem_kpi_df,
            _mem_buckets("memory_health", "memory_health")):
     df.write.format("cosmos.oltp").options(**cosmos_write).mode("append").save()
 print(f"Memory reverse-ETL complete -> {total} memories ({scored} scored), avg salience {avg_sal}, {sup_pct}% superseded, {low_pct}% low-salience (of scored)")'''
+
+MEMORY_CODE = (
+    "# Global memory is intentionally computed only by the controller's first activity.\n"
+    "if not RUN_GLOBAL_INSIGHTS:\n"
+    "    print(f\"Skipping global memory analysis for {TENANT}; the analytics activity owns it.\")\n"
+    "else:\n"
+    + "\n".join(f"    {line}" if line else "" for line in MEMORY_CODE_BODY.splitlines())
+)
 
 
 AGENTPATH_MD = "## 5b. Agent-path cost concentration (provided)\nWhere do the tokens actually go? A few **agent paths** (typically the itinerary path) dominate token cost — many times a plain supervisor turn. This provided section aggregates the tenant's turns by `agent_path` and reverse-ETLs the **top paths by average tokens** as `agent_path_cost` rows (the twin of `compute_insights.py`). The Power BI **Agent Collaboration / Agent-Path Cost** page reads them — it's where tiering and tool-dedup fixes pay off."
@@ -540,22 +737,26 @@ The final, highest-maturity step of the loop (ADR-0010 Layer 2): turn the aggreg
 telemetry above into **ranked recommendations** with an **LLM analyst**, safely.
 
 The model **proposes** one optimization card as strict JSON **per detected opportunity**
-— here two: the capability-tiered **model-selection** counterfactual (seam `config`) and
+— here two: the capability-tiered **model-selection** downgrade-candidate estimate (seam `config`) and
 the **repeated-node / tool-call-dedup** structural finding (seam `prompt`,
 `supervisor.prompty`). Five deterministic **guardrails** then **dispose** each card:
 1. **bounded** — the card's seam/target must be on the app's *declared* surface (else reject);
 2. **cited** — every card must cite the detector + opportunity id (else reject);
 3. **engine computes the saving** — the model's dollar figure is **ignored**; the
-   engine-measured saving wins (Section 4b re-pricing for model-selection; the priced
+   engine estimate wins (tenant premium-short-output candidates re-priced from gpt-5.1
+   to gpt-5-nano for model-selection; the priced
    avoidable duplicate hop for tool-dedup);
 4. **apply_mode from the seam** — `config` auto-applies; `prompt`/`code` are staged;
 5. **autonomy ceiling from the seam** — `config` L4, `prompt`/`code` L3.
 
-Then we reverse-ETL each accepted card two ways: a `discovered_opportunity` row (the
+Only detections with positive count **and** positive saving reach the analyst. We reverse-ETL
+each accepted card two ways: a `discovered_opportunity` row (the
 analyst's native output) **and** a flat `recommendation_card` projection the Power BI
 **Discovered Opportunities** page and the Console already read — so the tool-dedup card,
 once analyzed, **supersedes** the app-plane "insight (awaiting analysis)" card on the same
-`tool-call-dedup` id. The call is **keyless** (Entra token to the app's Azure OpenAI); if
+`tool-call-dedup` id. When a previously positive signal disappears, the same deterministic
+discovery, agent-opportunity, and recommendation IDs are overwritten as
+`suppressed_opportunity` tombstones. The call is **keyless** (Entra token to the app's Azure OpenAI); if
 `AOAI_ENDPOINT` is blank or the call fails, the analyst falls back to the deterministic
 proposer, so the section always lands guardrailed cards. This mirrors the reusable engine
 analyst in `src/app/engine/analyst/llm.py` and `pipeline.analyze` — same prompt, same
@@ -606,17 +807,41 @@ for _r in turns.select("agent_path", "input_tokens", "output_tokens", "model_dep
                         + float(_r["output_tokens"] or 0) * _pout) / _hops) / 1e6
 _td_saving = round(_td_saving, 6)
 
+# Model-selection opportunity parity with build_model_selection_recommendation:
+# tenant-scoped premium deployments with short output are downgrade candidates. Re-price
+# only their observed tokens from the gpt-5.1 baseline to gpt-5-nano.
+_MS_PREMIUM = {"gpt-5.1", "gpt-5"}
+_MS_SHORT_OUTPUT_MAX = 250
+_nano_in, _nano_out = _price_map.get("gpt-5-nano", (0.05, 0.40))
+_ms_candidates = 0
+_ms_candidate_in = 0
+_ms_candidate_out = 0
+_ms_models = {}
+for _r in turns.select("model_deployment", "input_tokens", "output_tokens").collect():
+    _deployment = str(_r["model_deployment"] or "Unknown")
+    _ms_models[_deployment] = _ms_models.get(_deployment, 0) + 1
+    _output_tokens = int(_r["output_tokens"] or 0)
+    if _deployment in _MS_PREMIUM and _output_tokens < _MS_SHORT_OUTPUT_MAX:
+        _ms_candidates += 1
+        _ms_candidate_in += int(_r["input_tokens"] or 0)
+        _ms_candidate_out += _output_tokens
+_ms_cost_now = (_ms_candidate_in * b_in + _ms_candidate_out * b_out) / 1e6
+_ms_cost_proposed = (_ms_candidate_in * _nano_in + _ms_candidate_out * _nano_out) / 1e6
+_ms_saving = round(_ms_cost_now - _ms_cost_proposed, 6)
+
 # The detected issues THIS data supports, each with its ENGINE-computed saving (guardrail #3
 # makes the engine number authoritative; the analyst may argue but cannot change it). The
 # loop below mirrors pipeline.analyze — one card per detection:
-#   (1) model-fit counterfactual -> Section 4b re-pricing ($ _saving over _n turns), seam=config
+#   (1) tenant premium-short-output downgrade candidates -> gpt-5.1-to-nano re-pricing, seam=config
 #   (2) repeated-node structural -> the avoidable duplicated hop priced above, seam=prompt (L3)
 _detections = [
     {"detector": "counterfactual.model_fit", "kind": "counterfactual", "agent": "supervisor",
      "dimension": "model selection \\u00b7 cost", "opportunity_id": "opp-modelfit-supervisor",
      "scenario": "model-selection", "title": "Capability-tiered model selection (discovered)",
-     "evidence": {"turns": _n, "measured_saving_usd": round(_saving, 4)},
-     "engine_saving": round(_saving, 6)},
+     "evidence": {"total_turns": _n, "downgrade_candidates": _ms_candidates,
+                  "downgrade_pct": round(100 * _ms_candidates / max(_n, 1), 1),
+                  "model_distribution": _ms_models},
+     "engine_saving": _ms_saving},
     {"detector": "structural.repeated_node", "kind": "structural", "agent": "find_places",
      "dimension": "workflow efficiency \\u00b7 tool use", "opportunity_id": "opp-repeated-node",
      "scenario": "tool-call-dedup",
@@ -687,18 +912,26 @@ def _default_card(det):   # deterministic fallback (engine parity) when the LLM 
                           "traces": ["sample-trace"]}]}
 
 
-def _guardrail(card, engine_saving):   # the five deterministic rules; returns (normalized|None, why)
+def _guardrail(card, det):   # the deterministic rules; returns (normalized|None, why)
     if card["seam"] not in SURFACE:
         return None, f"reject: unknown seam '{card['seam']}'"
     if card["target"] not in SURFACE[card["seam"]]:
         return None, f"reject: target '{card['target']}' off the declared {card['seam']} surface"
+    _expected = OPPORTUNITY_SEAMS.get(det["opportunity_id"])
+    if _expected is None:
+        return None, f"reject: no declared seam for opportunity '{det['opportunity_id']}'"
+    if (card["seam"], card["target"]) != _expected:
+        return None, (
+            f"reject: opportunity '{det['opportunity_id']}' requires "
+            f"{_expected[0]} -> {_expected[1]}"
+        )
     if not card["evidence"]:
         return None, "reject: uncited"
     for e in card["evidence"]:
         if not (e.get("detector") and e.get("opportunity_id") and e.get("traces")):
             return None, "reject: evidence missing detector/opportunity_id/traces"
     return {"agent": card["agent"], "dimension": card["dimension"], "seam": card["seam"],
-            "target": card["target"], "saving": engine_saving,
+            "target": card["target"], "saving": det["engine_saving"],
             "apply_mode": SEAM_APPLY_MODE[card["seam"]],
             "autonomy_ceiling": SEAM_CEILING[card["seam"]]}, "accepted (engine-computed saving; LLM $ ignored)"
 
@@ -726,11 +959,9 @@ from pyspark.sql.types import StructType, StructField, StringType, LongType, Dou
 def _evidence_line(_det):
     _s = _det["scenario"]
     if _s == "model-selection":
-        _mm = globals().get("_metrics") or {}
-        _md = _mm.get("model_distribution") or {}
-        return (f"{_mm.get('total_turns', _n):,} turns \\u00b7 "
-                f"{_mm.get('trivial_turns', 0):,} trivial "
-                f"({_mm.get('trivial_pct', 0)}%) \\u00b7 {len(_md)} models")
+        return (f"{_n:,} turns \\u00b7 {_ms_candidates:,} downgrade candidates "
+                f"({round(100 * _ms_candidates / max(_n, 1), 1)}%) \\u00b7 "
+                f"{len(_ms_models)} models")
     if _s == "tool-call-dedup":
         return f"{_td_turns:,} redundant tool turns of {_n:,}"
     return ""
@@ -739,8 +970,9 @@ def _evidence_line(_det):
 def _caveat_line(_det):
     _s = _det["scenario"]
     if _s == "model-selection":
-        return ("Counterfactual estimate \\u2014 every captured turn re-priced under the model it "
-                "actually ran on vs. the all-premium baseline.")
+        return ("Estimate only \\u2014 tenant downgrade candidates re-priced from gpt-5.1 to "
+                "gpt-5-nano using their observed input/output tokens; measured before/after "
+                "remains authoritative.")
     if _s == "tool-call-dedup":
         return ("Turn-grain estimate \\u2014 one avoidable duplicated hop per repeated-node turn, "
                 "priced under the model it ran on.")
@@ -767,13 +999,49 @@ if "type" in governance.columns:
             if _slo_doc.get(_key) is not None:
                 _slo[_key] = _slo_doc[_key]
 
-_disc_rows, _agent_opp_rows, _rec_rows = [], [], []
-_total_spend = sum(float(_n.get("cost") or 0.0) for _n in nodes)
-for _rank, _det in enumerate(_detections):
-    _norm, _why = _guardrail(_propose(_det), _det["engine_saving"])
+def _has_positive_signal(_det):
+    if _det["scenario"] == "model-selection":
+        return _ms_candidates > 0 and float(_det["engine_saving"]) > 0
+    if _det["scenario"] == "tool-call-dedup":
+        return _td_turns > 0 and float(_det["engine_saving"]) > 0
+    return False
+
+
+def _suppression_reason(_det):
+    if _det["scenario"] == "model-selection":
+        return (
+            f"no positive model-selection signal: downgrade_candidates={_ms_candidates}, "
+            f"estimated_saving_usd={float(_det['engine_saving']):.6f}"
+        )
+    if _det["scenario"] == "tool-call-dedup":
+        return (
+            f"no positive tool-call-dedup signal: redundant_tool_turns={_td_turns}, "
+            f"estimated_saving_usd={float(_det['engine_saving']):.6f}"
+        )
+    return "unsupported opportunity"
+
+
+_positive_detections = [_det for _det in _detections if _has_positive_signal(_det)]
+_suppressed_detections = [_det for _det in _detections if not _has_positive_signal(_det)]
+_disc_rows, _agent_opp_rows, _rec_rows, _suppressed_rows = [], [], [], []
+_total_spend = sum(float(_n.get("cost") or 0.0) for _n in _nodes)
+for _det in _suppressed_detections:
+    _reason = _suppression_reason(_det)
+    for _id in (
+        f"disc:{TENANT}:{_det['opportunity_id']}",
+        f"agentopp::{TENANT}::{_det['opportunity_id']}",
+        f"reccard::{TENANT}::{_det['scenario']}",
+    ):
+        _suppressed_rows.append(
+            (_id, "suppressed_opportunity", TENANT, _det["scenario"], _reason, now)
+        )
+    print(f"suppressed analyst opportunity [{_det['opportunity_id']}]:", _reason)
+
+for _rank, _det in enumerate(_positive_detections):
+    _norm, _why = _guardrail(_propose(_det), _det)
     if _norm is None:                          # a bad LLM proposal -> fall back and guardrail that
         print("guardrail rejected the LLM card:", _why)
-        _norm, _why = _guardrail(_default_card(_det), _det["engine_saving"])
+        _norm, _why = _guardrail(_default_card(_det), _det)
     print(f"analyst card [{_det['opportunity_id']}]:", _json.dumps(_norm), "->", _why)
     _disc_rows.append(
         (f"disc:{TENANT}:{_det['opportunity_id']}", "discovered_opportunity", TENANT, _rank,
@@ -792,7 +1060,8 @@ for _rank, _det in enumerate(_detections):
     )
     _effect_pct = 100 * float(_norm["saving"]) / _total_spend if _total_spend else 0.0
     _agent_opp_rows.append(
-        (f"agentopp::{TENANT}::{_det['opportunity_id']}", "agent_opportunity", TENANT, _rank + 1,
+        (f"agentopp::{TENANT}::{_det['opportunity_id']}", "agent_opportunity", TENANT,
+         _norm["agent"], _norm["dimension"], _rank + 1,
          f"{_norm['seam']} \\u2192 {_norm['target']}", float(_norm["saving"]), round(_effect_pct, 2),
          "Automatic" if _norm["apply_mode"] == "auto" else "Manual",
          _norm["autonomy_ceiling"], "\\u2713" if _effect_pct / 100 >= float(_slo["min_effect"]) else "\\u00d7",
@@ -807,17 +1076,6 @@ for _rank, _det in enumerate(_detections):
          _card_obj["dimension"], _card_obj["apply_mode"], _card_obj["status"], _card_obj["maturity"],
          float(_card_obj["estimated_saving_usd"]),
          _evidence_line(_det), _caveat_line(_det), _card_obj, now))
-
-# reverse-ETL: native analyst rows plus report-compatible ranked opportunities, SLO, and recommendations
-disc_df = spark.createDataFrame(
-    _disc_rows,
-    ["id", "type", "tenantId", "rank", "opportunity_id", "kind", "agent", "dimension", "seam",
-     "target", "saving", "apply_mode", "autonomy_ceiling", "evidence_json", "computed_at"])
-
-agent_opp_df = spark.createDataFrame(
-    _agent_opp_rows,
-    ["id", "type", "tenantId", "order", "note", "saving_usd", "saving_pct", "apply_mode",
-     "maturity", "method", "status", "computed_at"])
 
 _slo_rows = [
     (f"slometric::{TENANT}::1", "slo_metric", TENANT, 1, "1 \\u00b7 Quality gate (e2e_quality \\u2265)",
@@ -846,14 +1104,33 @@ _rec_schema = StructType([
         StructField("estimated_saving_usd", DoubleType()), StructField("status", StringType())])),
     StructField("computed_at", StringType()),
 ])
-rec_df = spark.createDataFrame(_rec_rows, _rec_schema)
 
-for _df in (disc_df, agent_opp_df, slo_df, rec_df):
+# reverse-ETL positive analyst/report rows only. Suppressed detections overwrite the same
+# deterministic IDs with a non-report type so a disappeared signal cannot leave stale cards.
+_write_dfs = [slo_df]
+if _disc_rows:
+    _write_dfs.append(spark.createDataFrame(
+        _disc_rows,
+        ["id", "type", "tenantId", "rank", "opportunity_id", "kind", "agent", "dimension", "seam",
+         "target", "saving", "apply_mode", "autonomy_ceiling", "evidence_json", "computed_at"]))
+if _agent_opp_rows:
+    _write_dfs.append(spark.createDataFrame(
+        _agent_opp_rows,
+        ["id", "type", "tenantId", "agent", "dimension", "order", "note", "saving_usd",
+         "saving_pct", "apply_mode", "maturity", "method", "status", "computed_at"]))
+if _rec_rows:
+    _write_dfs.append(spark.createDataFrame(_rec_rows, _rec_schema))
+if _suppressed_rows:
+    _write_dfs.append(spark.createDataFrame(
+        _suppressed_rows,
+        ["id", "type", "tenantId", "scenario", "reason", "computed_at"]))
+
+for _df in _write_dfs:
     _df.write.format("cosmos.oltp").options(**cosmos_write).mode("append").save()
 print(f"Analyst reverse-ETL complete -> {len(_disc_rows)} discovered_opportunity + "
       f"{len(_agent_opp_rows)} agent_opportunity + {len(_slo_rows)} slo_metric + "
-      f"{len(_rec_rows)} recommendation_card rows ("
-      + ", ".join(f"{d['scenario']} ${d['engine_saving']}" for d in _detections) + ")")'''
+      f"{len(_rec_rows)} recommendation_card + {len(_suppressed_rows)} suppressed rows ("
+      + ", ".join(f"{d['scenario']} ${d['engine_saving']}" for d in _positive_detections) + ")")'''
 
 
 def notebook(solution: bool):
@@ -864,8 +1141,8 @@ def notebook(solution: bool):
         "cells": [
             md(INTRO),
             md(CONFIG_MD), code(CONFIG),
-            code(PARAMS, tags=["parameters"]),
-            md(READ_MD), code(READ),
+            code(PARAMS, tags=["parameters"]), code(PARAM_NORMALIZATION), md(MULTI_TENANT_MD),
+            md(READ_MD), code(READ), code(CONTROLLED_STATE),
             md(FUNNEL_MD), code(FUNNEL),
             md(TODO1_MD), code(TODO1_SOLUTION if solution else TODO1_STUB),
             md(BUILD_MD), code(BUILD),
@@ -881,12 +1158,52 @@ def notebook(solution: bool):
     }
 
 
-def main():
-    for solution, name in ((False, "ConversionFunnelReverseETL.ipynb"),
-                           (True, "ConversionFunnelReverseETL_solution.ipynb")):
-        path = HERE / name
-        path.write_text(json.dumps(notebook(solution), indent=1) + "\n", encoding="utf-8")
-        print("wrote", path.name)
+def serialize_notebook(solution: bool) -> bytes:
+    """Return canonical UTF-8 bytes with stable ordering and LF newlines."""
+    text = json.dumps(
+        notebook(solution),
+        ensure_ascii=False,
+        indent=1,
+        sort_keys=True,
+        separators=(",", ": "),
+    )
+    return (text + "\n").encode("utf-8")
+
+
+def generate(output_dir: Path, *, isolated: bool) -> dict[str, str]:
+    output_dir = output_dir.resolve()
+    output_dir.mkdir(parents=True, exist_ok=True)
+    if isolated:
+        unexpected = sorted(
+            path.name for path in output_dir.glob("*.ipynb") if path.name not in OUTPUT_NAMES
+        )
+        if unexpected:
+            raise RuntimeError(
+                "isolated output directory contains unexpected notebook(s): "
+                + ", ".join(unexpected)
+            )
+
+    hashes: dict[str, str] = {}
+    for solution, name in zip((False, True), OUTPUT_NAMES):
+        payload = serialize_notebook(solution)
+        path = output_dir / name
+        with path.open("wb") as stream:
+            stream.write(payload)
+        hashes[name] = hashlib.sha256(payload).hexdigest()
+        print(f"wrote {path} sha256={hashes[name]}")
+    return hashes
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=HERE,
+        help="directory receiving both notebooks; explicit directories are treated as isolated",
+    )
+    args = parser.parse_args()
+    generate(args.output_dir, isolated=args.output_dir.resolve() != HERE.resolve())
 
 
 if __name__ == "__main__":

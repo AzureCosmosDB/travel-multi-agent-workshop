@@ -1,0 +1,15 @@
+table 'Demo Tenant'
+
+	column 'Tenant Key'
+		dataType: string
+		summarizeBy: none
+		sourceColumn: [Tenant Key]
+
+	column Tenant
+		dataType: string
+		summarizeBy: none
+		sourceColumn: [Tenant]
+
+	partition 'Demo Tenant' = calculated
+		mode: import
+		source = DATATABLE("Tenant Key", STRING, "Tenant", STRING, {{"analytics", "Analytics"}, {"marvel", "Marvel"}})

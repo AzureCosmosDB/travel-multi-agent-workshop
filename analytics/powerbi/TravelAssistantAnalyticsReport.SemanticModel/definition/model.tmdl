@@ -9,15 +9,28 @@ model Model
 
 annotation __PBI_TimeIntelligenceEnabled = 1
 
-annotation PBI_QueryOrder = ["TravelAssistant OptimizationTurns","TravelAssistant Trips","TravelAssistant OptimizationPolicies","MirrorSQLEndpoint","MirrorDatabase","TravelAssistant OptimizationInsights","TravelAssistant Configuration"]
+annotation PBI_QueryOrder = ["TravelAssistant OptimizationTurns","TravelAssistant Trips","TravelAssistant OptimizationPolicies","MirrorSQLEndpoint","MirrorDatabase","TravelAssistant OptimizationInsights","TravelAssistant Configuration","Demo Tenant"]
 
 ref table 'TravelAssistant OptimizationTurns'
 ref table 'TravelAssistant Trips'
 ref table 'TravelAssistant OptimizationPolicies'
 ref table 'TravelAssistant OptimizationInsights'
 ref table 'TravelAssistant Configuration'
+ref table 'Demo Tenant'
 ref table 'Turns per Day'
 ref table 'Projection Volume'
 ref table 'Cost Comparison'
+
+relationship 3f61f168-c454-4c17-a718-f9021567a696
+	fromColumn: 'TravelAssistant OptimizationTurns'.tenantId
+	toColumn: 'Demo Tenant'.'Tenant Key'
+
+relationship d9570024-3d0a-4f31-89d6-e925f0ca6fb0
+	fromColumn: 'TravelAssistant Trips'.tenantId
+	toColumn: 'Demo Tenant'.'Tenant Key'
+
+relationship 97f67372-776a-43a9-8c8a-7039dbd42069
+	fromColumn: 'TravelAssistant OptimizationInsights'.'Report Tenant Key'
+	toColumn: 'Demo Tenant'.'Tenant Key'
 
 ref cultureInfo en-US

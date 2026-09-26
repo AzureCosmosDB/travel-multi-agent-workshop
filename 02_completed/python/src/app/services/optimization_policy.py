@@ -8,7 +8,8 @@ flip + audit entry here -- never a code edit -- which is what makes these
 optimizations safe to automate (maturity Level 4/5).
 
 Design:
-- One active policy per ``scenario`` (partition key ``/scenario``, id == scenario).
+- One active policy per tenant + ``scenario``. The partition key remains
+  ``/scenario`` and tenant-scoped ids use ``<tenant>::<scenario>``.
 - ``status``: ``proposed`` -> ``active`` -> ``reverted``. Only ``active`` +
   ``params.enabled`` changes runtime behavior; anything else is a no-op, so the
   default state is always safe.
@@ -20,6 +21,7 @@ Design:
 
 from __future__ import annotations
 
+import copy
 import logging
 import threading
 import time
@@ -36,7 +38,7 @@ CONTAINER_NAME = "OptimizationPolicies"
 _CACHE_TTL_SECONDS = 15
 
 _policies_container = None
-_cache: dict[str, tuple[float, Optional[dict[str, Any]]]] = {}
+_cache: dict[tuple[str, Optional[str]], tuple[float, Optional[dict[str, Any]]]] = {}
 _cache_lock = threading.Lock()
 
 
@@ -74,16 +76,21 @@ def _get_container():
     return _policies_container
 
 
-def _invalidate(scenario: str) -> None:
+def _policy_id(scenario: str, tenant_id: Optional[str]) -> str:
+    return f"{tenant_id}::{scenario}" if tenant_id else scenario
+
+
+def _invalidate(scenario: str, tenant_id: Optional[str] = None) -> None:
     with _cache_lock:
-        _cache.pop(scenario, None)
+        _cache.pop((scenario, tenant_id), None)
 
 
-def get_active_policy(scenario: str) -> Optional[dict[str, Any]]:
+def get_active_policy(scenario: str, tenant_id: Optional[str] = None) -> Optional[dict[str, Any]]:
     """Return the active policy doc for a scenario, or None. Cached (short TTL)."""
     now = time.monotonic()
+    cache_key = (scenario, tenant_id)
     with _cache_lock:
-        cached = _cache.get(scenario)
+        cached = _cache.get(cache_key)
         if cached and (now - cached[0]) < _CACHE_TTL_SECONDS:
             return cached[1]
 
@@ -91,24 +98,30 @@ def get_active_policy(scenario: str) -> Optional[dict[str, Any]]:
     policy: Optional[dict[str, Any]] = None
     if container is not None:
         try:
-            doc = container.read_item(item=scenario, partition_key=scenario)
+            doc = container.read_item(
+                item=_policy_id(scenario, tenant_id),
+                partition_key=scenario,
+            )
             if doc.get("status") == "active":
                 policy = doc
         except Exception:  # noqa: BLE001 -- 404 == no policy yet, which is fine
             policy = None
 
     with _cache_lock:
-        _cache[scenario] = (now, policy)
+        _cache[cache_key] = (now, policy)
     return policy
 
 
-def get_policy(scenario: str) -> Optional[dict[str, Any]]:
+def get_policy(scenario: str, tenant_id: Optional[str] = None) -> Optional[dict[str, Any]]:
     """Return the policy doc for a scenario regardless of status (or None)."""
     container = _get_container()
     if container is None:
         return None
     try:
-        return container.read_item(item=scenario, partition_key=scenario)
+        return container.read_item(
+            item=_policy_id(scenario, tenant_id),
+            partition_key=scenario,
+        )
     except Exception:  # noqa: BLE001
         return None
 
@@ -125,19 +138,20 @@ def list_policies() -> list[dict[str, Any]]:
 
 
 def upsert_policy(doc: dict[str, Any]) -> Optional[dict[str, Any]]:
-    """Create or replace a policy document. ``scenario`` is the id/partition key."""
+    """Create or replace a policy document within a scenario partition."""
     container = _get_container()
     if container is None:
         return None
     scenario = doc["scenario"]
-    doc["id"] = scenario
+    tenant_id = doc.get("tenant_id")
+    doc["id"] = _policy_id(scenario, tenant_id)
     now = datetime.now(timezone.utc)
     doc.setdefault("created_at", now.isoformat())
     doc["updated_at"] = now.isoformat()
     doc.setdefault("created_epoch", int(now.timestamp()))
     doc["updated_epoch"] = int(now.timestamp())
     saved = container.upsert_item(doc)
-    _invalidate(scenario)
+    _invalidate(scenario, tenant_id)
     return saved
 
 
@@ -153,8 +167,13 @@ def propose_policy(doc: dict[str, Any]) -> Optional[dict[str, Any]]:
     return upsert_policy(doc)
 
 
-def _transition(scenario: str, status: str, by: str) -> Optional[dict[str, Any]]:
-    doc = get_policy(scenario)
+def _transition(
+    scenario: str,
+    status: str,
+    by: str,
+    tenant_id: Optional[str] = None,
+) -> Optional[dict[str, Any]]:
+    doc = get_policy(scenario, tenant_id)
     if doc is None:
         return None
     doc["status"] = status
@@ -165,12 +184,44 @@ def _transition(scenario: str, status: str, by: str) -> Optional[dict[str, Any]]
     return upsert_policy(doc)
 
 
-def apply_policy(scenario: str, by: str = "dashboard") -> Optional[dict[str, Any]]:
+def apply_policy(
+    scenario: str,
+    by: str = "dashboard",
+    tenant_id: Optional[str] = None,
+) -> Optional[dict[str, Any]]:
     """Activate a scenario's policy (one-click apply). Reversible via revert_policy."""
-    return _transition(scenario, "active", by)
+    return _transition(scenario, "active", by, tenant_id)
 
 
-def revert_policy(scenario: str, by: str = "dashboard") -> Optional[dict[str, Any]]:
+def revert_policy(
+    scenario: str,
+    by: str = "dashboard",
+    tenant_id: Optional[str] = None,
+) -> Optional[dict[str, Any]]:
     """Roll a scenario's policy back to inactive (one-click revert)."""
-    return _transition(scenario, "reverted", by)
+    return _transition(scenario, "reverted", by, tenant_id)
 
+
+def restore_policy_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
+    """Restore an operator-captured policy document without inventing a new shape.
+
+    This is intentionally narrower than ``upsert_policy``: rollback must preserve the exact
+    captured lifecycle document (including version and audit) so manifest hash verification is
+    meaningful.  Callers may restore only an existing, self-consistent scenario document.
+    """
+    document = copy.deepcopy(snapshot)
+    scenario = document.get("scenario")
+    if (
+        not scenario
+        or document.get("id") != _policy_id(scenario, document.get("tenant_id"))
+        or document.get("status") not in {"proposed", "active", "reverted"}
+        or not isinstance(document.get("params"), dict)
+        or not isinstance(document.get("audit", []), list)
+    ):
+        raise ValueError("invalid optimization policy snapshot")
+    container = _get_container()
+    if container is None:
+        raise RuntimeError("optimization policies container is unavailable")
+    saved = container.upsert_item(document)
+    _invalidate(scenario, document.get("tenant_id"))
+    return saved

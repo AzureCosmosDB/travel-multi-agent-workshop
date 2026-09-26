@@ -32,12 +32,18 @@
 .PARAMETER WorkshopRoot
     The deployed workshop folder (holds .azure + the venv). Auto-detected when omitted.
 
+.PARAMETER Controlled
+    Invoke the deterministic Analytics after-burst through the existing traffic API.
+
 .EXAMPLE
     .\Run-TrafficSimulator.ps1
     Interactive: prompts for the tenant, then streams 120 turns/min for 10 minutes.
 
 .EXAMPLE
     .\Run-TrafficSimulator.ps1 -Tenant marvel -Rate 200 -Forever
+
+.EXAMPLE
+    .\Run-TrafficSimulator.ps1 -Controlled
 #>
 [CmdletBinding()]
 param(
@@ -47,7 +53,14 @@ param(
     [switch]$Forever,
     [ValidateSet('auto', 'baseline', 'tiered')]
     [string]$Assume = 'auto',
-    [string]$WorkshopRoot
+    [string]$WorkshopRoot,
+    [switch]$Controlled,
+    [string]$Endpoint = 'http://localhost:8000',
+    [string]$FixtureVersion = 'controlled-demo4-v1',
+    [string]$BurstVersion = 'controlled-demo4-after-v1',
+    [string]$Anchor = '2026-09-24T13:00:00Z',
+    [int]$Count = 200,
+    [int]$Window = 20
 )
 
 $ErrorActionPreference = 'Stop'
@@ -104,8 +117,16 @@ if ($LASTEXITCODE -ne 0) { Fail "You are not signed in to Azure. Run 'az login' 
 
 # --- Tenant prompt -----------------------------------------------------------
 if (-not $Tenant) {
-    $entered = Read-Host "Tenant to write live turns under [analytics]"
-    $Tenant = if ([string]::IsNullOrWhiteSpace($entered)) { 'analytics' } else { $entered.Trim() }
+    if ($Controlled) {
+        $Tenant = 'analytics'
+    }
+    if ($Controlled -and $Tenant -ne 'analytics') {
+        Fail "Controlled traffic is Analytics-only. Use -Tenant analytics."
+    }
+    else {
+        $entered = Read-Host "Tenant to write live turns under [analytics]"
+        $Tenant = if ([string]::IsNullOrWhiteSpace($entered)) { 'analytics' } else { $entered.Trim() }
+    }
 }
 
 # --- Read the deployment's Cosmos endpoint so we target the right account -----
@@ -124,17 +145,44 @@ finally {
 Write-Host ''
 Write-Host "Workshop folder : $WorkshopRoot"
 Write-Host "Tenant          : $Tenant"
-Write-Host "Rate            : $Rate turns/min"
-Write-Host ("Duration        : " + $(if ($Forever) { 'until Ctrl+C' } else { "$Minutes minutes" }))
-Write-Host ("Model policy    : " + $(if ($Assume -eq 'auto') { 'auto (baseline until you apply model-selection, then tiered)' } else { "$Assume (forced)" }))
+if ($Controlled) {
+    Write-Host "Mode            : controlled deterministic burst"
+    Write-Host "Burst           : $Count turns / $Window minutes / $BurstVersion"
+    Write-Host "Anchor          : $Anchor"
+    Write-Host "API             : $Endpoint"
+}
+else {
+    Write-Host "Rate            : $Rate turns/min"
+    Write-Host ("Duration        : " + $(if ($Forever) { 'until Ctrl+C' } else { "$Minutes minutes" }))
+    Write-Host ("Model policy    : " + $(if ($Assume -eq 'auto') { 'auto (baseline until you apply model-selection, then tiered)' } else { "$Assume (forced)" }))
+}
 if ($cosmos) { Write-Host "Cosmos          : $cosmos" }
 Write-Host ''
-Write-Host "Streaming live turns under tenant '$Tenant' - watch your Power BI report" -ForegroundColor Cyan
-Write-Host "(filtered to '$Tenant') or the Optimization Console update. Press Ctrl+C to stop." -ForegroundColor Cyan
+if ($Controlled) {
+    Write-Host "Replacing the deterministic Analytics after-burst through the existing API." -ForegroundColor Cyan
+    Write-Host "Apply model-selection first; run Recompute after this command completes." -ForegroundColor Cyan
+}
+else {
+    Write-Host "Streaming live turns under tenant '$Tenant' - watch your Power BI report" -ForegroundColor Cyan
+    Write-Host "(filtered to '$Tenant') or the Optimization Console update. Press Ctrl+C to stop." -ForegroundColor Cyan
+}
 Write-Host ''
 
-$argList = @($simPy, '--tenant', $Tenant, '--rate', "$Rate", '--assume', $Assume)
-if ($Forever) { $argList += '--forever' } else { $argList += @('--minutes', "$Minutes") }
+$argList = @($simPy, '--tenant', $Tenant, '--endpoint', $Endpoint)
+if ($Controlled) {
+    $argList += @(
+        '--controlled',
+        '--fixture-version', $FixtureVersion,
+        '--burst-version', $BurstVersion,
+        '--anchor', $Anchor,
+        '--count', "$Count",
+        '--window', "$Window"
+    )
+}
+else {
+    $argList += @('--rate', "$Rate", '--assume', $Assume)
+    if ($Forever) { $argList += '--forever' } else { $argList += @('--minutes', "$Minutes") }
+}
 
 $prev = $env:COSMOSDB_ENDPOINT
 if ($cosmos) { $env:COSMOSDB_ENDPOINT = $cosmos }

@@ -25,8 +25,9 @@ import os
 import random
 import sys
 import time
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional, Tuple
 
 # Ensure stdout/stderr use UTF-8 so emoji in logs/prints don't crash on Windows,
 # where the console defaults to cp1252 and raises UnicodeEncodeError on emoji.
@@ -57,6 +58,7 @@ DATABASE_NAME = os.getenv("COSMOSDB_DATABASE_NAME", "TravelAssistant")
 # Memory container names (env-overridable to match agent_memory.py / toolkit)
 MEMORIES_CONTAINER = os.getenv("COSMOS_MEMORIES_CONTAINER", "memories")
 TURNS_CONTAINER = os.getenv("COSMOS_TURNS_CONTAINER", "memories_turns")
+COUNTER_CONTAINER = os.getenv("COSMOS_COUNTER_CONTAINER", "counter")
 
 # Concurrency / retry knobs (tuned for Cosmos serverless)
 MAX_CONCURRENT_WORKERS = 5
@@ -197,6 +199,115 @@ def seed_trips(container) -> None:
     upload_items_concurrent(container, load_json_file("trips.json"), "trips")
 
 
+def _count_turns_by_user_thread(
+    turns: List[Dict[str, Any]],
+) -> Dict[Tuple[str, str], int]:
+    """Count stored turn documents by toolkit user/thread identity."""
+    counts: Dict[Tuple[str, str], int] = {}
+    for turn in turns:
+        user_id = turn.get("user_id")
+        thread_id = turn.get("thread_id")
+        if not user_id or not thread_id:
+            continue
+        key = (str(user_id), str(thread_id))
+        counts[key] = counts.get(key, 0) + 1
+    return counts
+
+
+def _build_counter_doc(
+    user_id: str,
+    thread_id: str,
+    seed_count: int,
+    now: str,
+    existing: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Build a toolkit counter document without reducing existing progress."""
+    if existing is None:
+        return {
+            "id": (
+                f"user:{user_id}"
+                if thread_id == "__counters__"
+                else f"thread:{user_id}:{thread_id}"
+            ),
+            "user_id": user_id,
+            "thread_id": thread_id,
+            "count": seed_count,
+            "last_batch_lsn": None,
+            "last_batch_old_count": 0,
+            "created_at": now,
+            "updated_at": now,
+        }
+
+    document = {
+        key: value
+        for key, value in existing.items()
+        if not key.startswith("_")
+    }
+    document["count"] = max(int(existing.get("count", 0)), seed_count)
+    document["updated_at"] = now
+    return document
+
+
+def seed_memory_counters(
+    counter_container,
+    turns: List[Dict[str, Any]],
+    now: Optional[str] = None,
+) -> None:
+    """Initialize toolkit counters from stored turns without running processing."""
+    thread_counts = _count_turns_by_user_thread(turns)
+    user_counts: Dict[str, int] = {}
+    for (user_id, _thread_id), count in thread_counts.items():
+        user_counts[user_id] = user_counts.get(user_id, 0) + count
+
+    counter_specs = [
+        (user_id, thread_id, count)
+        for (user_id, thread_id), count in sorted(thread_counts.items())
+    ]
+    counter_specs.extend(
+        (user_id, "__counters__", count)
+        for user_id, count in sorted(user_counts.items())
+    )
+    if not counter_specs:
+        print("   ⚠️  No memory counters to seed")
+        return
+
+    timestamp = now or datetime.now(timezone.utc).isoformat()
+    writes = 0
+    for user_id, thread_id, seed_count in counter_specs:
+        document_id = (
+            f"user:{user_id}"
+            if thread_id == "__counters__"
+            else f"thread:{user_id}:{thread_id}"
+        )
+        try:
+            existing = counter_container.read_item(
+                item=document_id,
+                partition_key=[user_id, thread_id],
+            )
+        except CosmosResourceNotFoundError:
+            existing = None
+
+        if existing is not None and int(existing.get("count", 0)) >= seed_count:
+            continue
+
+        _upsert_with_retry(
+            counter_container,
+            _build_counter_doc(
+                user_id=user_id,
+                thread_id=thread_id,
+                seed_count=seed_count,
+                now=timestamp,
+                existing=existing,
+            ),
+        )
+        writes += 1
+
+    print(
+        f"   ✅ Memory counters initialized "
+        f"({len(counter_specs)} checked, {writes} written)"
+    )
+
+
 def seed_memories(database) -> None:
     """Seed the memory containers — pure JSON-to-upsert, no transformations.
 
@@ -209,12 +320,14 @@ def seed_memories(database) -> None:
     try:
         memories_container = database.get_container_client(MEMORIES_CONTAINER)
         turns_container = database.get_container_client(TURNS_CONTAINER)
+        counter_container = database.get_container_client(COUNTER_CONTAINER)
         memories_container.read()
         turns_container.read()
+        counter_container.read()
     except CosmosResourceNotFoundError as exc:
         print(
             f"   ⚠️  Memory containers missing "
-            f"({MEMORIES_CONTAINER}, {TURNS_CONTAINER}). "
+            f"({MEMORIES_CONTAINER}, {TURNS_CONTAINER}, {COUNTER_CONTAINER}). "
             "Run `azd up` (or deploy the Cosmos Bicep) before seeding."
         )
         print(f"      Details: {exc}")
@@ -223,6 +336,7 @@ def seed_memories(database) -> None:
     turns = load_json_file("turns.json")
     if turns:
         upload_items_concurrent(turns_container, turns, "memory turns")
+        seed_memory_counters(counter_container, turns)
 
     memories = load_json_file("memories.json")
     if memories:

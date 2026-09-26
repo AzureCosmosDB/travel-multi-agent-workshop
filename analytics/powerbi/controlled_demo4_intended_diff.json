@@ -1,0 +1,151 @@
+{
+  "schema_version": 1,
+  "baseline_commit": "b62e7b0868094b209f9ee48c84b8ed68dcd8a440",
+  "scope": [
+    "analytics/powerbi/TravelAssistantAnalyticsReport.Report/definition",
+    "analytics/powerbi/TravelAssistantAnalyticsReport.SemanticModel/definition"
+  ],
+  "pbir": {
+    "new_slicers": {
+      "analytics/powerbi/TravelAssistantAnalyticsReport.Report/definition/pages/1cb8e89d583fa5784a65/visuals/a3d79bc23917f695b7ef/visual.json": "18637b79b96f05057df8c64269a81800597e21657c0cafff5bc59174f505018b",
+      "analytics/powerbi/TravelAssistantAnalyticsReport.Report/definition/pages/1ec0950511c6f38d7609/visuals/93b3c3442b5050b2fef1/visual.json": "98c67054679630af019bb896b3c1d0859102f31fdd2bbf50b23cfde2326ea2c3",
+      "analytics/powerbi/TravelAssistantAnalyticsReport.Report/definition/pages/b219be7fdc6775327c11/visuals/e15ed62efb7e59092c64/visual.json": "bf98f5e59a19069ca664f323faf7035c75c5cdc78bb8290cb8f118794d0b7591",
+      "analytics/powerbi/TravelAssistantAnalyticsReport.Report/definition/pages/cec777f691a5019c61b3/visuals/c55565f335827bc5cae6/visual.json": "40350f98f61799559a68e5c174dd647689d77aae2e472177c080ae3e7dbc9dc1",
+      "analytics/powerbi/TravelAssistantAnalyticsReport.Report/definition/pages/db6a6a2ea325e58c2d72/visuals/a445fcac71bc1aa09e7b/visual.json": "dc7fcef7ccee2927a89e1a5a1d54a6201731d194f5e64a3fbb9756308c5fcd85",
+      "analytics/powerbi/TravelAssistantAnalyticsReport.Report/definition/pages/e6312147fd3d30e6248b/visuals/ffc3ffa562f8a74e7d23/visual.json": "f0ae17eb3a816e0284d6caa5b96f028f08eb6d263478555581ca11baec387ca4",
+      "analytics/powerbi/TravelAssistantAnalyticsReport.Report/definition/pages/fe153ccbd76573b28722/visuals/3f72c5e4ea0a2a2df481/visual.json": "23e3818b6538ae1689e99fd0533854fdbcc28f530a30e58bd1ae854d8758b67c"
+    },
+    "remove_fixed_analytics_filter": [
+      "pages/1ec0950511c6f38d7609/visuals/053651dd208f2dc81915/visual.json",
+      "pages/1ec0950511c6f38d7609/visuals/2ecec0aaa08d8eec0456/visual.json",
+      "pages/1ec0950511c6f38d7609/visuals/75480b371755464312d9/visual.json",
+      "pages/1ec0950511c6f38d7609/visuals/b9a441d222ec8ebff901/visual.json",
+      "pages/1ec0950511c6f38d7609/visuals/cf1dee75d87c55f9e9e9/visual.json",
+      "pages/1ec0950511c6f38d7609/visuals/e707e72b8af7334b9b8f/visual.json",
+      "pages/b219be7fdc6775327c11/visuals/07cd3ee101cfef3fa1b7/visual.json",
+      "pages/b219be7fdc6775327c11/visuals/8a617e76a64d41f808fa/visual.json",
+      "pages/b219be7fdc6775327c11/visuals/98e4adec467c8c8bf504/visual.json",
+      "pages/b219be7fdc6775327c11/visuals/dc784a639e4eb6c376f2/visual.json",
+      "pages/cec777f691a5019c61b3/visuals/0073a569792bffe4224f/visual.json",
+      "pages/cec777f691a5019c61b3/visuals/0e11612d85ebeefd7822/visual.json",
+      "pages/cec777f691a5019c61b3/visuals/2923d54900ddd863f737/visual.json",
+      "pages/cec777f691a5019c61b3/visuals/2f99d21e68192c319480/visual.json",
+      "pages/cec777f691a5019c61b3/visuals/815fe72b858309797e3d/visual.json",
+      "pages/cec777f691a5019c61b3/visuals/caf802ac430a5e2273bf/visual.json",
+      "pages/cec777f691a5019c61b3/visuals/daacaa47d81feeddb8d2/visual.json",
+      "pages/cec777f691a5019c61b3/visuals/db56f75fd9ec24498717/visual.json",
+      "pages/db6a6a2ea325e58c2d72/visuals/7d11ff2f9b3498f27c56/visual.json",
+      "pages/e6312147fd3d30e6248b/visuals/0370fc408e3d68bad41d/visual.json",
+      "pages/e6312147fd3d30e6248b/visuals/07572aa3456d0cce54dd/visual.json",
+      "pages/e6312147fd3d30e6248b/visuals/164131e6658d79641a87/visual.json",
+      "pages/e6312147fd3d30e6248b/visuals/750031216d2d0a2d6567/visual.json",
+      "pages/e6312147fd3d30e6248b/visuals/751755ec514cf78d92eb/visual.json",
+      "pages/e6312147fd3d30e6248b/visuals/787d34dbb8dbc4e0c13c/visual.json",
+      "pages/e6312147fd3d30e6248b/visuals/83f581105a756c6c51d8/visual.json",
+      "pages/e6312147fd3d30e6248b/visuals/929d70a4dabca1dabe24/visual.json",
+      "pages/e6312147fd3d30e6248b/visuals/963e328a84d510af9cad/visual.json",
+      "pages/e6312147fd3d30e6248b/visuals/be15c456f0751c7fff6e/visual.json",
+      "pages/e6312147fd3d30e6248b/visuals/f1d581c1fd2a021b38b5/visual.json",
+      "pages/fe153ccbd76573b28722/visuals/19d4ee41f7f028270d6a/visual.json",
+      "pages/fe153ccbd76573b28722/visuals/29cf05b29aa2bc26d680/visual.json",
+      "pages/fe153ccbd76573b28722/visuals/43791ffbb52dc24abd51/visual.json",
+      "pages/fe153ccbd76573b28722/visuals/75982e98db75d3aa7623/visual.json",
+      "pages/fe153ccbd76573b28722/visuals/8a15065258760b958431/visual.json",
+      "pages/fe153ccbd76573b28722/visuals/f47e75e5c0f4f8aaebf8/visual.json"
+    ],
+    "ranked_feed": "pages/cec777f691a5019c61b3/visuals/e865a83f0dc86edb594c/visual.json",
+    "interaction_file": "pages/cec777f691a5019c61b3/page.json",
+    "approved_interactions": [
+      {
+        "source": "c55565f335827bc5cae6",
+        "target": "db56f75fd9ec24498717",
+        "type": "DataFilter"
+      },
+      {
+        "source": "c55565f335827bc5cae6",
+        "target": "e865a83f0dc86edb594c",
+        "type": "DataFilter"
+      }
+    ]
+  },
+  "tmdl": {
+    "new_tables": {
+      "analytics/powerbi/TravelAssistantAnalyticsReport.SemanticModel/definition/tables/Demo Tenant.tmdl": {
+        "table": "Demo Tenant",
+        "sha256": "9a76be3bde2958231fbd28128801312073c1499a0cc2e28c8ec67b85b1b26b02"
+      }
+    },
+    "allowed_named_objects": {
+      "analytics/powerbi/TravelAssistantAnalyticsReport.SemanticModel/definition/tables/TravelAssistant OptimizationInsights.tmdl": {
+        "measure": [
+          "Demo Policy Status Raw",
+          "Demo Dataset Phase",
+          "Demo Dataset Display State",
+          "Demo State Valid",
+          "Demo State Reason",
+          "Model Result Scope Label",
+          "Memory Result Scope Label",
+          "Measured Saving USD",
+          "Opportunity Selected Tenant Row",
+          "Opportunity Saving Display",
+          "Opportunity State Display",
+          "Recommendation Saving Display",
+          "Recommendation Panel",
+          "Recommendation Footer",
+          "Recommendation State Display",
+          "Selected Recommendation Status",
+          "Selected Action Label",
+          "MS Saving USD",
+          "MS Turns",
+          "Model Saving Detail"
+        ],
+        "column": [
+          "policy_status",
+          "dataset_phase",
+          "display_state",
+          "state_valid",
+          "state_reason",
+          "measurement_kind",
+          "measurement_scope",
+          "measurement_tenant",
+          "burst_version",
+          "Report Tenant Key"
+        ],
+        "partition": [
+          "TravelAssistant OptimizationInsights"
+        ]
+      },
+      "analytics/powerbi/TravelAssistantAnalyticsReport.SemanticModel/definition/tables/TravelAssistant OptimizationPolicies.tmdl": {
+        "measure": [
+          "Active Policies"
+        ]
+      },
+      "analytics/powerbi/TravelAssistantAnalyticsReport.SemanticModel/definition/tables/TravelAssistant OptimizationTurns.tmdl": {
+        "measure": [
+          "Confirmed Trips"
+        ]
+      }
+    },
+    "model": {
+      "path": "analytics/powerbi/TravelAssistantAnalyticsReport.SemanticModel/definition/model.tmdl",
+      "added_table": "Demo Tenant",
+      "relationships": [
+        {
+          "id": "3f61f168-c454-4c17-a718-f9021567a696",
+          "from": "'TravelAssistant OptimizationTurns'.tenantId",
+          "to": "'Demo Tenant'.'Tenant Key'"
+        },
+        {
+          "id": "d9570024-3d0a-4f31-89d6-e925f0ca6fb0",
+          "from": "'TravelAssistant Trips'.tenantId",
+          "to": "'Demo Tenant'.'Tenant Key'"
+        },
+        {
+          "id": "97f67372-776a-43a9-8c8a-7039dbd42069",
+          "from": "'TravelAssistant OptimizationInsights'.'Report Tenant Key'",
+          "to": "'Demo Tenant'.'Tenant Key'"
+        }
+      ]
+    }
+  }
+}

@@ -8,6 +8,7 @@ keeps the Module 08 decision and model-selection API on one stable import path.
 from __future__ import annotations
 
 import logging
+import os
 import re
 from typing import Any, Optional
 
@@ -20,7 +21,6 @@ from src.app.services.optimization_policy import get_active_policy
 logger = logging.getLogger(__name__)
 
 MODEL_SELECTION_SCENARIO = "model-selection"
-
 _DEFAULT_TRIVIAL_PATTERNS = [
     r"^(hi|hello|hey|yo|greetings|good (morning|afternoon|evening))\b",
     r"^(thanks|thank you|thx|ty|cheers|much appreciated|appreciate it|appreciated)\b",
@@ -72,11 +72,17 @@ def classify_complexity_tier(text: str, classifier: Optional[dict[str, Any]] = N
     return "routine"
 
 
-def select_deployment_for_turn(messages: Any) -> tuple[str, str]:
-    """Return (deployment_name, complexity_tier) from the active policy."""
+def select_deployment_for_turn(
+    messages: Any,
+    tenant_id: Optional[str] = None,
+) -> tuple[str, str]:
+    """Return the tenant-scoped (deployment_name, complexity_tier) decision."""
     default = AZURE_OPENAI_DEPLOYMENT
+    if not tenant_id:
+        return default, "default"
+
     try:
-        policy = get_active_policy(MODEL_SELECTION_SCENARIO)
+        policy = get_active_policy(MODEL_SELECTION_SCENARIO, tenant_id=tenant_id)
     except Exception as exc:  # noqa: BLE001
         logger.warning("Could not read model-selection policy; using default model: %s", exc)
         policy = None
@@ -99,7 +105,7 @@ def select_deployment_for_turn(messages: Any) -> tuple[str, str]:
     return deployment, complexity_tier
 
 
-def get_chat_model_for_turn(messages: Any):
-    """Return the chat model selected by the active policy for this turn."""
-    deployment, _complexity_tier = select_deployment_for_turn(messages)
+def get_chat_model_for_turn(messages: Any, tenant_id: Optional[str] = None):
+    """Return the tenant-scoped chat model selected for this turn."""
+    deployment, _complexity_tier = select_deployment_for_turn(messages, tenant_id)
     return get_chat_model(deployment)

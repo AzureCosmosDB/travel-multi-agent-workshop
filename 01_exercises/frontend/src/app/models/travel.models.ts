@@ -53,17 +53,33 @@ export interface Trip {
   tripId: string;
   tenantId: string;
   userId: string;
+  sessionId?: string;
   destination: string;
   startDate: string;
   endDate: string;
-  status: 'planning' | 'confirmed' | 'completed';
+  status: 'planning' | 'booked' | 'confirmed' | 'completed' | 'cancelled';
   days?: TripDay[];
   createdAt: string;
+}
+
+export interface StartTripRequest {
+  requestId?: string;
+  destination: string;
+  startDate: string;
+  endDate: string;
+  activeAgent?: string;
+  title?: string;
+}
+
+export interface StartTripResponse {
+  session: Thread;
+  trip: Trip;
 }
 
 export interface TripDay {
   dayNumber: number;
   date: string;
+  breakfast?: TripActivity;
   morning?: TripActivity;
   lunch?: TripActivity;
   afternoon?: TripActivity;
@@ -107,6 +123,13 @@ export interface UserSummary extends Memory {
   type: 'user_summary';
 }
 
+export interface TravelPreferences {
+  budget: string;
+  mobility: string;
+  dietary: string;
+  timeOfDay: string;
+}
+
 export interface ChatCompletionResponse {
   threadId: string;
   messages: Message[];
@@ -144,6 +167,8 @@ export interface User {
   };
   email?: string;
   createdAt: string;
+  preferences?: Partial<TravelPreferences>;
+  updatedAt?: string;
 }
 
 export interface City {
@@ -160,4 +185,3 @@ export interface PlaceFilterRequest {
   accessibility?: string[];
   theme?: string;
 }
-

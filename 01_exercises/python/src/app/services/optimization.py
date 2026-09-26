@@ -177,11 +177,17 @@ def classify_complexity_tier(text: str, classifier: Optional[dict[str, Any]] = N
     return "routine"
 
 
-def select_deployment_for_turn(messages: Any) -> tuple[str, str]:
-    """Return (deployment_name, complexity_tier) from the active policy."""
+def select_deployment_for_turn(
+    messages: Any,
+    tenant_id: Optional[str] = None,
+) -> tuple[str, str]:
+    """Return the tenant-scoped (deployment_name, complexity_tier) decision."""
     default = AZURE_OPENAI_DEPLOYMENT
+    if not tenant_id:
+        return default, "default"
+
     try:
-        policy = get_active_policy(MODEL_SELECTION_SCENARIO)
+        policy = get_active_policy(MODEL_SELECTION_SCENARIO, tenant_id)
     except Exception as exc:  # noqa: BLE001
         logger.warning("Could not read model-selection policy; using default model: %s", exc)
         policy = None
@@ -259,9 +265,12 @@ def get_chat_model(deployment_name: Optional[str] = None) -> AzureChatOpenAI:
     return tiered
 
 
-def get_chat_model_for_turn(messages: Any) -> AzureChatOpenAI:
-    """Return the chat model selected by the active policy for this turn."""
-    deployment, _complexity_tier = select_deployment_for_turn(messages)
+def get_chat_model_for_turn(
+    messages: Any,
+    tenant_id: Optional[str] = None,
+) -> AzureChatOpenAI:
+    """Return the tenant-scoped chat model selected for this turn."""
+    deployment, _complexity_tier = select_deployment_for_turn(messages, tenant_id)
     return get_chat_model(deployment)
 
 
@@ -270,7 +279,7 @@ def get_chat_model_for_turn(messages: Any) -> AzureChatOpenAI:
 # ---------------------------------------------------------------------------
 
 _CACHE_TTL_SECONDS = 15
-_policy_cache: dict[str, tuple[float, Optional[dict[str, Any]]]] = {}
+_policy_cache: dict[tuple[str, Optional[str]], tuple[float, Optional[dict[str, Any]]]] = {}
 _policy_lock = threading.Lock()
 
 
@@ -279,16 +288,21 @@ def _policies_container():
     return db.get_container_client(POLICIES_CONTAINER) if db is not None else None
 
 
-def _invalidate(scenario: str) -> None:
+def _policy_id(scenario: str, tenant_id: Optional[str]) -> str:
+    return f"{tenant_id}::{scenario}" if tenant_id else scenario
+
+
+def _invalidate(scenario: str, tenant_id: Optional[str] = None) -> None:
     with _policy_lock:
-        _policy_cache.pop(scenario, None)
+        _policy_cache.pop((scenario, tenant_id), None)
 
 
-def get_active_policy(scenario: str) -> Optional[dict[str, Any]]:
+def get_active_policy(scenario: str, tenant_id: Optional[str] = None) -> Optional[dict[str, Any]]:
     """Return the active policy doc for a scenario, or None. Cached (short TTL)."""
     now = time.monotonic()
     with _policy_lock:
-        cached = _policy_cache.get(scenario)
+        cache_key = (scenario, tenant_id)
+        cached = _policy_cache.get(cache_key)
         if cached and (now - cached[0]) < _CACHE_TTL_SECONDS:
             return cached[1]
 
@@ -296,23 +310,29 @@ def get_active_policy(scenario: str) -> Optional[dict[str, Any]]:
     policy: Optional[dict[str, Any]] = None
     if container is not None:
         try:
-            doc = container.read_item(item=scenario, partition_key=scenario)
+            doc = container.read_item(
+                item=_policy_id(scenario, tenant_id),
+                partition_key=scenario,
+            )
             if doc.get("status") == "active":
                 policy = doc
         except Exception:  # noqa: BLE001 -- 404 == no policy yet
             policy = None
 
     with _policy_lock:
-        _policy_cache[scenario] = (now, policy)
+        _policy_cache[(scenario, tenant_id)] = (now, policy)
     return policy
 
 
-def get_policy(scenario: str) -> Optional[dict[str, Any]]:
+def get_policy(scenario: str, tenant_id: Optional[str] = None) -> Optional[dict[str, Any]]:
     container = _policies_container()
     if container is None:
         return None
     try:
-        return container.read_item(item=scenario, partition_key=scenario)
+        return container.read_item(
+            item=_policy_id(scenario, tenant_id),
+            partition_key=scenario,
+        )
     except Exception:  # noqa: BLE001
         return None
 
@@ -333,14 +353,15 @@ def upsert_policy(doc: dict[str, Any]) -> Optional[dict[str, Any]]:
     if container is None:
         return None
     scenario = doc["scenario"]
-    doc["id"] = scenario
+    tenant_id = doc.get("tenant_id")
+    doc["id"] = _policy_id(scenario, tenant_id)
     now = datetime.now(timezone.utc)
     doc.setdefault("created_at", now.isoformat())
     doc["updated_at"] = now.isoformat()
     doc.setdefault("created_epoch", int(now.timestamp()))
     doc["updated_epoch"] = int(now.timestamp())
     saved = container.upsert_item(doc)
-    _invalidate(scenario)
+    _invalidate(scenario, tenant_id)
     return saved
 
 
@@ -354,8 +375,13 @@ def propose_policy(doc: dict[str, Any]) -> Optional[dict[str, Any]]:
     return upsert_policy(doc)
 
 
-def _transition(scenario: str, status: str, by: str) -> Optional[dict[str, Any]]:
-    doc = get_policy(scenario)
+def _transition(
+    scenario: str,
+    status: str,
+    by: str,
+    tenant_id: Optional[str] = None,
+) -> Optional[dict[str, Any]]:
+    doc = get_policy(scenario, tenant_id)
     if doc is None:
         return None
     doc["status"] = status
@@ -364,14 +390,22 @@ def _transition(scenario: str, status: str, by: str) -> Optional[dict[str, Any]]
     return upsert_policy(doc)
 
 
-def apply_policy(scenario: str, by: str = "dashboard") -> Optional[dict[str, Any]]:
+def apply_policy(
+    scenario: str,
+    by: str = "dashboard",
+    tenant_id: Optional[str] = None,
+) -> Optional[dict[str, Any]]:
     """Activate a scenario's policy (one-click apply). Reversible via revert_policy."""
-    return _transition(scenario, "active", by)
+    return _transition(scenario, "active", by, tenant_id)
 
 
-def revert_policy(scenario: str, by: str = "dashboard") -> Optional[dict[str, Any]]:
+def revert_policy(
+    scenario: str,
+    by: str = "dashboard",
+    tenant_id: Optional[str] = None,
+) -> Optional[dict[str, Any]]:
     """Roll a scenario's policy back to inactive (one-click revert)."""
-    return _transition(scenario, "reverted", by)
+    return _transition(scenario, "reverted", by, tenant_id)
 
 
 # ---------------------------------------------------------------------------
@@ -518,7 +552,8 @@ def record_optimization_turn_for_message(
 ) -> None:
     """Classify and record a turn from framework-neutral completion telemetry."""
     deployment, complexity_tier = select_deployment_for_turn(
-        [{"role": "user", "content": user_message}]
+        [{"role": "user", "content": user_message}],
+        tenant_id=tenant_id,
     )
     record_optimization_turn(
         tenant_id=tenant_id,
@@ -571,8 +606,10 @@ def build_model_selection_recommendation(tenant_id: str) -> dict[str, Any]:
     cost_now = (trivial_in * mini["input"] + trivial_out * mini["output"]) / 1_000_000
     cost_proposed = (trivial_in * nano["input"] + trivial_out * nano["output"]) / 1_000_000
 
-    active = get_active_policy(MODEL_SELECTION_SCENARIO)
-    status = "active" if active else (get_policy(MODEL_SELECTION_SCENARIO) or {}).get("status", "not_proposed")
+    active = get_active_policy(MODEL_SELECTION_SCENARIO, tenant_id)
+    status = "active" if active else (
+        get_policy(MODEL_SELECTION_SCENARIO, tenant_id) or {}
+    ).get("status", "not_proposed")
 
     return {
         "scenario": MODEL_SELECTION_SCENARIO,
@@ -684,9 +721,13 @@ def read_recommendations_from_insights(tenant_id: str) -> list[dict[str, Any]] |
         if not card:
             continue
         scenario = card.get("scenario")
-        active = get_active_policy(scenario)
+        policy_tenant = tenant_id if scenario == MODEL_SELECTION_SCENARIO else None
+        active = get_active_policy(scenario, policy_tenant)
         card["status"] = "active" if active else (
-            (get_policy(scenario) or {}).get("status", card.get("status", "not_proposed"))
+            (get_policy(scenario, policy_tenant) or {}).get(
+                "status",
+                card.get("status", "not_proposed"),
+            )
         )
         card["source"] = "fabric"
         card["computed_at"] = r.get("computed_at")
@@ -737,9 +778,13 @@ def read_optimization_result_from_insights(tenant_id: str) -> dict[str, Any] | N
     if not rows:
         return None
     results = sorted(
-        [{k: v for k, v in r.items() if not k.startswith("_")} for r in rows],
+        [
+            {k: v for k, v in r.items() if not k.startswith("_")}
+            for r in rows
+            if r.get("measurement_tenant") == tenant_id
+        ],
         key=lambda r: r.get("scenario", ""))
-    return {"source": "fabric", "results": results}
+    return {"tenant_id": tenant_id, "source": "fabric", "results": results}
 
 
 # ---------------------------------------------------------------------------

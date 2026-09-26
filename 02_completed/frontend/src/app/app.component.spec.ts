@@ -56,14 +56,7 @@ describe('AppComponent', () => {
 
   it('should have navigation screens defined', () => {
     expect(component.screens).toBeDefined();
-    expect(component.screens.length).toBe(4);
-  });
-
-  it('should contain home screen', () => {
-    const homeScreen = component.screens.find(s => s.key === 'home');
-    expect(homeScreen).toBeDefined();
-    expect(homeScreen?.label).toBe('Home');
-    expect(homeScreen?.route).toBe('/home');
+    expect(component.screens.length).toBe(3);
   });
 
   it('should contain explore screen', () => {
@@ -95,7 +88,7 @@ describe('AppComponent', () => {
 
   it('should redirect to login when no user and not on login page', (done) => {
     spyOn(router, 'navigate');
-    spyOn(router, 'url').and.returnValue('/home');
+    Object.defineProperty(router, 'url', { value: '/home' });
     
     component.ngOnInit();
     currentUserSubject.next(null);

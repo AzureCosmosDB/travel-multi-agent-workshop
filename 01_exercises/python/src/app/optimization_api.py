@@ -19,6 +19,7 @@ running app reads per turn — never a code change.
 
 from __future__ import annotations
 
+import os
 from typing import Any, Optional
 
 from fastapi import APIRouter, HTTPException
@@ -53,15 +54,46 @@ _SCENARIO_META: dict[str, dict[str, str]] = {
 class ProposeBody(BaseModel):
     params: Optional[dict[str, Any]] = None
     by: str = "analytics"
+    tenant_id: str = "analytics"
 
 
 class ActionBody(BaseModel):
     by: str = "dashboard"
+    tenant_id: str = "analytics"
+
+
+def _policy_applies_to_tenant(policy: dict[str, Any], tenant_id: str) -> bool:
+    scenario = policy.get("scenario") or policy.get("scenario_id") or policy.get("id")
+    explicit_tenant = policy.get("tenant_id") or policy.get("tenantId")
+    if explicit_tenant:
+        return str(explicit_tenant).casefold() == tenant_id.casefold()
+    if scenario == optimization.MODEL_SELECTION_SCENARIO:
+        target = os.getenv("MODEL_SELECTION_TENANT", "analytics").strip() or "analytics"
+        return tenant_id.casefold() == target.casefold()
+    return scenario == optimization.MEMORY_RETENTION_SCENARIO
+
+
+def _policy_tenant(scenario: str, tenant_id: str) -> Optional[str]:
+    return tenant_id if scenario == optimization.MODEL_SELECTION_SCENARIO else None
 
 
 @router.get("/policies")
-def list_policies() -> dict[str, Any]:
-    return {"policies": optimization.list_policies()}
+def list_policies(tenant_id: Optional[str] = None) -> dict[str, Any]:
+    policies = optimization.list_policies()
+    if tenant_id:
+        policies = [policy for policy in policies if _policy_applies_to_tenant(policy, tenant_id)]
+        scoped_scenarios = {
+            policy.get("scenario")
+            for policy in policies
+            if policy.get("tenant_id") or policy.get("tenantId")
+        }
+        policies = [
+            policy
+            for policy in policies
+            if (policy.get("tenant_id") or policy.get("tenantId"))
+            or policy.get("scenario") not in scoped_scenarios
+        ]
+    return {"policies": policies}
 
 
 # --- Fabric capacity control (pause/resume the analytics infra to stop the meter) ---
@@ -159,8 +191,8 @@ def get_optimization_result(tenant_id: str) -> dict[str, Any]:
 
 
 @router.get("/{scenario}/policy")
-def get_scenario_policy(scenario: str) -> dict[str, Any]:
-    doc = optimization.get_policy(scenario)
+def get_scenario_policy(scenario: str, tenant_id: str = "analytics") -> dict[str, Any]:
+    doc = optimization.get_policy(scenario, _policy_tenant(scenario, tenant_id))
     if doc is None:
         raise HTTPException(status_code=404, detail=f"No policy for scenario '{scenario}'")
     return doc
@@ -182,6 +214,9 @@ def propose(scenario: str, body: Optional[ProposeBody] = None) -> dict[str, Any]
         "gate": {"metric": "e2e_quality", "threshold": 4.0},
         "proposed_by": body.by,
     }
+    policy_tenant = _policy_tenant(scenario, body.tenant_id)
+    if policy_tenant:
+        doc["tenant_id"] = policy_tenant
     saved = optimization.propose_policy(doc)
     if saved is None:
         raise HTTPException(status_code=503, detail="Policy store unavailable")
@@ -200,9 +235,10 @@ def apply(scenario: str, body: Optional[ActionBody] = None) -> dict[str, Any]:
             detail="This is a read-only insight, not an applyable optimization; a proposed "
                    "fix comes from the offline optimization analytics notebook, not from the app.",
         )
-    if optimization.get_policy(scenario) is None:
-        propose(scenario, ProposeBody(by=body.by))
-    saved = optimization.apply_policy(scenario, by=body.by)
+    policy_tenant = _policy_tenant(scenario, body.tenant_id)
+    if optimization.get_policy(scenario, policy_tenant) is None:
+        propose(scenario, ProposeBody(by=body.by, tenant_id=body.tenant_id))
+    saved = optimization.apply_policy(scenario, by=body.by, tenant_id=policy_tenant)
     if saved is None:
         raise HTTPException(status_code=404, detail=f"No policy to apply for '{scenario}'")
     # memory retention applies a side effect: soft-prune superseded memories (reversible).
@@ -220,7 +256,11 @@ def revert(scenario: str, body: Optional[ActionBody] = None) -> dict[str, Any]:
             status_code=400,
             detail="This is a read-only insight, not an applied optimization; there is nothing to revert.",
         )
-    saved = optimization.revert_policy(scenario, by=body.by)
+    saved = optimization.revert_policy(
+        scenario,
+        by=body.by,
+        tenant_id=_policy_tenant(scenario, body.tenant_id),
+    )
     if saved is None:
         raise HTTPException(status_code=404, detail=f"No policy to revert for '{scenario}'")
     if scenario == optimization.MEMORY_RETENTION_SCENARIO:

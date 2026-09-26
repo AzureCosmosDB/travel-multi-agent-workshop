@@ -2,6 +2,9 @@
 
 **[< Evaluating Your Multi-Agent Application](./Module-06.md#module-06---evaluating-your-multi-agent-application-bonus-module)** - **[Agent Optimization >](./Module-08.md#module-08---agent-optimization-apply-autonomy)**
 
+> **Marvel-only learner boundary.** Every learner exercise in this module uses the Marvel tenant and dataset.
+> The Analytics tenant is reserved for explicitly marked presenter/reference material.
+
 ## Introduction
 
 You've built a capable multi-agent travel assistant, made it **observable** (Module 05, LangSmith traces) and learned to **evaluate** its quality (Module 06). Traces tell you what happened on *one* request; evaluation scores *one* conversation. But to run an agent system well, organizations need to answer **higher-level, fleet-wide** questions:
@@ -191,7 +194,7 @@ Still inside `store_debug_log_from_response`, **immediately after the Hook 2 blo
 
 `record_node_executions` is the provided recorder (it **self-provisions** the `NodeExecutions` container, so it works even before an `azd up`; the Bicep also declares the container for future deploys). Each turn now writes **one document holding a per-agent list** alongside the turn aggregate. Use the active policy's selected deployment for `model_deployment` so tiered node rows join to the same pricing configuration as aggregate turns.
 
-> **Where's the payoff?** The per-turn portal cards don't read node-grain — the **agent scorecard** does, on the portal's **Agents** tab after the Module 09 notebook writes the `agent_scorecard` snapshot. There the Fabric notebook rolls your `NodeExecutions` into an *agent × dimension* health view (**cost efficiency**, **model selection**, **workflow efficiency**). The pre-seeded **`analytics`** tenant already carries node-grain so that view renders immediately; **this hook is what makes _your own_ traffic show up there too.** To spot-check capture right now, drive a few turns, then run `SELECT * FROM c` on the **`NodeExecutions`** container in the Data Explorer — you'll see one document per turn with a `nodeExecutions` array.
+> **Where's the payoff?** The per-turn portal cards don't read node-grain — the **agent scorecard** does, on the portal's **Agents** tab after the Module 09 notebook writes the `agent_scorecard` snapshot. There the Fabric notebook rolls your `NodeExecutions` into an *agent × dimension* health view (**cost efficiency**, **model selection**, **workflow efficiency**). This hook is what makes your Marvel traffic show up there. To spot-check capture right now, drive a few turns, then run `SELECT * FROM c` on the **`NodeExecutions`** container in the Data Explorer — you'll see one document per turn with a `nodeExecutions` array.
 
 ### Save and let the API reload
 
@@ -228,16 +231,21 @@ Leave it running and open <http://localhost:8060> in your browser.
 
 Open <http://localhost:8060>. The portal auto-detects the local API as `http://localhost:8000` — there is no API URL to enter. The **Dataset** selector defaults to **`marvel`** — the tenant the frontend records turns under, so the traffic you just drove is stored under it. Set **Source → Live (recompute)** so the portal recomputes from the raw captured turns (there is no notebook snapshot yet), then click **Refresh** (the portal also refreshes automatically when you switch datasets).
 
-> **The Dataset selector is a *lens*, not an optimization boundary.** It picks *which slice of captured telemetry you're looking at* — but any optimization you **apply** (e.g. a model-selection policy) is **app-wide (global)**: policies live in a container with no `tenantId`, so they take effect for every tenant at once. That's why it's labelled *Dataset*, not *Tenant* — you observe per-dataset, but you optimize for the whole app.
+> **Stay in Marvel.** The Dataset selector chooses which captured telemetry you are viewing. For
+> this learner exercise, keep it on `marvel`; the current Marvel policy state determines the
+> behavior you observe. The underlying policy-storage architecture is intentionally outside this
+> workshop activity.
 
-> **This is *your* traffic — and it's a small sample.** `marvel` ships with **no** pre-captured optimization turns; everything here is the handful of turns *you* drove in Activity 3 — that's the payoff of instrumenting the app, seeing your own signal appear. With a sample this small, some recommendation cards will be **modest, or read "not enough signal yet"** — that's expected, not a bug. You'll see the same panels backed by a rich stream in a moment (the `analytics` tenant).
+> **This is *your* traffic — and it's a small sample.** Everything here is the handful of Marvel
+> turns you drove in Activity 3. With a sample this small, some recommendation cards will be
+> modest, or read "not enough signal yet" — that is an honest result, not a bug.
 
 > **Where the portal gets its data.** The portal is a *static* page — it stores nothing itself. With **Source → Live (recompute)**, **Refresh** calls the Travel API's `/optimizations/*` endpoints and the **API computes the metrics and recommendation cards on demand, straight from Cosmos**. There is no Fabric, notebook, or Power BI in this loop; each panel is a live rollup of an operational container:
 >
 > - **Turns · spend · model usage · trivial share · model-selection card** ← `OptimizationTurns` (one row per turn, written by `record_optimization_turn`).
 > - **Cost per outcome & conversion funnel** ← the per-session journey in `Debug` (`agent_path`) joined to your confirmed **`Trips`**.
 > - **Agent-path cost & redundant-tool cards** ← `Debug` (`agent_path` + per-turn tokens).
-> - **Memory-retention card** ← the `Memories` container (global — shared across datasets, not per-tenant).
+> - **Memory-retention card** ← the `Memories` container for the current user context.
 > - **The $ rates** behind "estimated cost" ← the `Configuration` model-pricing rows.
 >
 > Because every number is computed live from the operational store, the portal runs on **Cosmos alone** in this module. The heavier reverse-ETL path (`OptimizationInsights` via a Fabric mirror) is **Module 09**; after that notebook writes its snapshot, you'll switch the portal's Source to **Reverse-ETL (notebook)**.
@@ -252,14 +260,38 @@ Take a few minutes to read each panel; here's what to notice in each, and why it
 
 > **Model pricing is config-driven — one edit, everywhere.** The $/1M-token rates behind "estimated cost" are stored in the Cosmos **`Configuration`** container (`type = "model_pricing"`), seeded at deploy time from the models `azd` actually deployed. The app's recommendation card, the web analytics portal, the Fabric reverse-ETL notebook, and the optional Power BI report all read those **same** rows — no CSV, no per-place hardcoding. Models are discovered from your data; any model without a priced row falls back to a default, so a model swap never breaks a report. To change a price or add a model, edit **`python/data/model_pricing.json`** (the committed price reference, format `{"deployment": {"input": x, "output": y}}` USD per 1M tokens) and redeploy. See **[analytics/docs/model-pricing.md](../../analytics/docs/model-pricing.md)** for the default models and how to find a model's price.
 
-Notice what the portal is doing: it rolls your captured turns up into a handful of **decisions** — which is exactly what a human operator (or, later, the system itself) needs to act. Keep **Source → Live (recompute)**, then switch the **Dataset** selector to **`analytics`** — a pre-seeded tenant with hundreds of turns — to see the recommendations at full strength, where "many turns → a few decisions" really lands. **`analytics` is the at-scale dataset you'll keep using through Modules 08–09** (it's also what the traffic simulator and the Module 09 conversion funnel write to), so get familiar with it now.
+Notice what the portal is doing: it rolls your captured turns up into a handful of **decisions** —
+which is exactly what a human operator (or, later, the system itself) needs to act. Keep
+**Dataset → `marvel`** and **Source → Live (recompute)** throughout the learner path.
+
+<!-- BEGIN PRESENTER REFERENCE -->
+> **Learner exercise versus completed/reference solution.** In this module, learners instrument,
+> generate a few ordinary turns, and inspect them. The destructive controlled Reset and the
+> deterministic 200-turn burst are completed/reference-solution-only operator controls. Do not
+> imitate them with manual data edits or ad hoc scripts.
+
+### Controlled baseline contract (reference solution)
+
+The completed reference prepares both `analytics` and `marvel` with fixture
+`controlled-demo4-v1`. Each tenant has 200 all-premium turns across 20 populated minute buckets and
+the same funnel: `192 → 184 → 92 → 56`, conversion `29.2%`, largest cause `city_friction`.
+Preparation reseeds exactly `OptimizationTurns`, `Debug`, `NodeExecutions`, `Sessions`, `Messages`,
+and `Trips`; clears tenant-derived `OptimizationInsights` and `OptimizationGovernance`; reverts the
+existing model-selection policies for the controlled tenants; and preserves `Users`, `Memories`,
+`Checkpoints`, `ApiEvents`, unrelated tenants, and protected stores.
+
+Inspect this baseline with **Source → Live (recompute)** while derived rows are absent. Do not use
+**Freshen Turn Times** in the controlled path. A complete pre-mutation backup is required; same-
+parameter reruns are deterministic/idempotent, and targeted rollback restores only the backed-up
+controlled rows and policy.
+<!-- END PRESENTER REFERENCE -->
 
 ### The raw signal (REST + CLI)
 
 Everything the surfaces show comes from data you can query directly. This is a plain REST call — **no virtual environment needed** (it just hits the running API over HTTP), but your **API must be running** (Terminal 2 from [Module 00](./Module-00.md#module-00---deployment-and-setup)). Use any free terminal, or open a new one:
 
 ```powershell
-# the recommendation card, straight from the API — replace 'marvel' with 'analytics' for the at-scale dataset
+# the recommendation card for the learner's Marvel dataset
 Invoke-RestMethod "http://localhost:8000/optimizations/marvel" | ConvertTo-Json -Depth 6
 ```
 
@@ -330,7 +362,8 @@ cd ..
 python analytics/scripts/optimization_mining.py --tenant marvel --verify
 ```
 
-Use `--tenant marvel` for *your* traffic (or `--tenant analytics` for the at-scale dataset). The `--verify` report groups your captured turns **by complexity tier** and prints turns, tokens, and **estimated cost** per tier, with a grand total:
+Use `--tenant marvel` for your learner traffic. The `--verify` report groups your captured turns
+**by complexity tier** and prints turns, tokens, and **estimated cost** per tier, with a grand total:
 
 ```
 === MODEL-SELECTION VERIFY - per-complexity-tier cost for tenant 'marvel' ===
@@ -375,7 +408,9 @@ Key ideas to understand (and to talk about):
 
 > **Detect operationally; measure analytically.** Computing a recommendation card is lightweight, so `GET /optimizations/<tenant>` does it **in-app from Cosmos** — the fast "peek" you used to *detect*. The **cross-session aggregation and the measured before/after** belong in the analytical plane: in Module 09 you compute the **conversion funnel** and the **measured saving** over the Fabric mirror and reverse-ETL them into `OptimizationInsights`, where the portal's **Reverse-ETL (notebook)** source (and `GET /optimizations/<tenant>/result`) read them cheaply.
 
-**The at-scale view (keep Source → Live (recompute)).** Switch the **Dataset** to `analytics` — the pre-seeded tenant with hundreds of turns — and keep **Source → Live (recompute)** to see the same panels at scale, recomputed live from the raw turns. (In **Module 09** you'll stand up the Fabric mirror, run the reverse-ETL notebook, and *then* switch the portal's **Source** to **Reverse-ETL (notebook)** to read the notebook's snapshot instead — but that comes later.) Here's what two of those tabs look like at scale:
+**The learner view (keep Dataset → `marvel` and Source → Live (recompute)).** In **Module 09**
+you'll stand up the Fabric mirror, run reverse-ETL for Marvel, and then switch the portal's
+**Source** to **Reverse-ETL (notebook)**. Here's what two tabs look like:
 
 ![Model Selection tab of the web analytics portal (Source: Live recompute)](./media/Module-07/portal-03-model-selection-live.png)
 

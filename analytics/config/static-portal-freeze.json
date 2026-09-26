@@ -1,0 +1,340 @@
+{
+  "class_element_count": 111,
+  "class_elements_sha256": "6cd49ef53161dab446a74fc0c414b8dbcd7e275368cd6cd536362e9a6e4be4d1",
+  "mutable_lifecycle_attributes": {
+    "analyticsNote": [
+      "aria-busy",
+      "aria-live",
+      "hidden"
+    ],
+    "generateTraffic": [
+      "aria-busy",
+      "disabled",
+      "hidden"
+    ],
+    "recomputeInsights": [
+      "aria-busy",
+      "disabled",
+      "hidden"
+    ],
+    "refresh": [
+      "aria-busy",
+      "disabled"
+    ],
+    "resetState": [
+      "aria-busy",
+      "disabled",
+      "hidden"
+    ],
+    "statusText": [
+      "aria-busy",
+      "aria-live"
+    ],
+    "toast": [
+      "aria-busy",
+      "aria-live",
+      "hidden"
+    ]
+  },
+  "mutable_lifecycle_text_ids": [
+    "analyticsNote",
+    "generateTraffic",
+    "recomputeInsights",
+    "refresh",
+    "resetState",
+    "statusText",
+    "toast"
+  ],
+  "ordered_ids": [
+    {
+      "class": "",
+      "id": "tenant",
+      "tag": "select"
+    },
+    {
+      "class": "",
+      "id": "source",
+      "tag": "select"
+    },
+    {
+      "class": "",
+      "id": "auto",
+      "tag": "input"
+    },
+    {
+      "class": "",
+      "id": "refresh",
+      "tag": "button"
+    },
+    {
+      "class": "ghost",
+      "id": "toolsBtn",
+      "tag": "button"
+    },
+    {
+      "class": "toolsmenu",
+      "id": "toolsMenu",
+      "tag": "div"
+    },
+    {
+      "class": "toolitem",
+      "id": "generateTraffic",
+      "tag": "button"
+    },
+    {
+      "class": "toolitem",
+      "id": "recomputeInsights",
+      "tag": "button"
+    },
+    {
+      "class": "toolitem",
+      "id": "freshenTimes",
+      "tag": "button"
+    },
+    {
+      "class": "toolitem danger",
+      "id": "resetState",
+      "tag": "button"
+    },
+    {
+      "class": "dot",
+      "id": "statusDot",
+      "tag": "span"
+    },
+    {
+      "class": "",
+      "id": "statusText",
+      "tag": "span"
+    },
+    {
+      "class": "analytics-note",
+      "id": "analyticsNote",
+      "tag": "div"
+    },
+    {
+      "class": "toast",
+      "id": "toast",
+      "tag": "div"
+    },
+    {
+      "class": "modal-overlay",
+      "id": "diffModal",
+      "tag": "div"
+    },
+    {
+      "class": "modal-title",
+      "id": "diffTitle",
+      "tag": "div"
+    },
+    {
+      "class": "modal-sub",
+      "id": "diffSub",
+      "tag": "div"
+    },
+    {
+      "class": "modal-x",
+      "id": "diffClose",
+      "tag": "button"
+    },
+    {
+      "class": "diff-view",
+      "id": "diffView",
+      "tag": "div"
+    },
+    {
+      "class": "gov-actions",
+      "id": "govActions",
+      "tag": "div"
+    },
+    {
+      "class": "copybtn",
+      "id": "diffCopy",
+      "tag": "button"
+    },
+    {
+      "class": "tabs",
+      "id": "tabs",
+      "tag": "nav"
+    },
+    {
+      "class": "pane active",
+      "id": "pane-overview",
+      "tag": "section"
+    },
+    {
+      "class": "grid",
+      "id": "kpis",
+      "tag": "div"
+    },
+    {
+      "class": "grid g4",
+      "id": "oppBand",
+      "tag": "div"
+    },
+    {
+      "class": "chartrow",
+      "id": "ovModels",
+      "tag": "div"
+    },
+    {
+      "class": "",
+      "id": "turnsTimeline",
+      "tag": "div"
+    },
+    {
+      "class": "pane",
+      "id": "pane-opps",
+      "tag": "section"
+    },
+    {
+      "class": "",
+      "id": "opps",
+      "tag": "div"
+    },
+    {
+      "class": "recstack",
+      "id": "recs",
+      "tag": "div"
+    },
+    {
+      "class": "pane",
+      "id": "pane-model",
+      "tag": "section"
+    },
+    {
+      "class": "chartrow",
+      "id": "models",
+      "tag": "div"
+    },
+    {
+      "class": "",
+      "id": "trivialGauge",
+      "tag": "div"
+    },
+    {
+      "class": "bars",
+      "id": "baselineActual",
+      "tag": "div"
+    },
+    {
+      "class": "bars",
+      "id": "byTier",
+      "tag": "div"
+    },
+    {
+      "class": "",
+      "id": "projection",
+      "tag": "div"
+    },
+    {
+      "class": "pane",
+      "id": "pane-memory",
+      "tag": "section"
+    },
+    {
+      "class": "grid g4",
+      "id": "memKpis",
+      "tag": "div"
+    },
+    {
+      "class": "chartrow",
+      "id": "memType",
+      "tag": "div"
+    },
+    {
+      "class": "chartrow",
+      "id": "memHealth",
+      "tag": "div"
+    },
+    {
+      "class": "bars",
+      "id": "memSalience",
+      "tag": "div"
+    },
+    {
+      "class": "pane",
+      "id": "pane-agents",
+      "tag": "section"
+    },
+    {
+      "class": "",
+      "id": "scorecard",
+      "tag": "div"
+    },
+    {
+      "class": "bars",
+      "id": "agentCost",
+      "tag": "div"
+    },
+    {
+      "class": "",
+      "id": "dimDetail",
+      "tag": "div"
+    },
+    {
+      "class": "",
+      "id": "agentPaths",
+      "tag": "div"
+    },
+    {
+      "class": "pane",
+      "id": "pane-business",
+      "tag": "section"
+    },
+    {
+      "class": "grid g4",
+      "id": "business",
+      "tag": "div"
+    },
+    {
+      "class": "bars",
+      "id": "funnel",
+      "tag": "div"
+    },
+    {
+      "class": "bars",
+      "id": "abandon",
+      "tag": "div"
+    },
+    {
+      "class": "pane",
+      "id": "pane-gov",
+      "tag": "section"
+    },
+    {
+      "class": "",
+      "id": "policies",
+      "tag": "div"
+    },
+    {
+      "class": "",
+      "id": "slo",
+      "tag": "div"
+    },
+    {
+      "class": "",
+      "id": "result",
+      "tag": "div"
+    },
+    {
+      "class": "",
+      "id": "baBar",
+      "tag": "div"
+    },
+    {
+      "class": "",
+      "id": "decisions",
+      "tag": "div"
+    }
+  ],
+  "schema_version": 1,
+  "structural_event_count": 438,
+  "structural_events_sha256": "75383b1f2c9a68ad365976f8173d896c9775e6a1d2280bd42f0d39559237c631",
+  "stylesheets": [
+    {
+      "bytes": 15233,
+      "index": 0,
+      "sha256": "58c73dd1bd335b3b78a9af23fa88e1c0b48215cddf913a5112143256949c13fd"
+    }
+  ]
+}

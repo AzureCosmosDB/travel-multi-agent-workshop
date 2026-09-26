@@ -87,8 +87,8 @@
                 }
               },
               "queryRef": "TravelAssistant OptimizationInsights.Agent Cost Detail",
-              "nativeQueryRef": "COST · SHARE · CALLS",
-              "displayName": "COST · SHARE · CALLS"
+              "nativeQueryRef": "COST \u00b7 SHARE \u00b7 CALLS",
+              "displayName": "COST \u00b7 SHARE \u00b7 CALLS"
             }
           ]
         }
@@ -416,62 +416,6 @@
   },
   "filterConfig": {
     "filters": [
-      {
-        "name": "049559ec53f2c5688f6c",
-        "field": {
-          "Column": {
-            "Expression": {
-              "SourceRef": {
-                "Entity": "TravelAssistant OptimizationInsights"
-              }
-            },
-            "Property": "tenantId"
-          }
-        },
-        "type": "Categorical",
-        "filter": {
-          "Version": 2,
-          "From": [
-            {
-              "Name": "t",
-              "Entity": "TravelAssistant OptimizationInsights",
-              "Type": 0
-            }
-          ],
-          "Where": [
-            {
-              "Condition": {
-                "In": {
-                  "Expressions": [
-                    {
-                      "Column": {
-                        "Expression": {
-                          "SourceRef": {
-                            "Source": "t"
-                          }
-                        },
-                        "Property": "tenantId"
-                      }
-                    }
-                  ],
-                  "Values": [
-                    [
-                      {
-                        "Literal": {
-                          "Value": "'analytics'"
-                        }
-                      }
-                    ]
-                  ]
-                }
-              }
-            }
-          ]
-        },
-        "howCreated": "User",
-        "isHiddenInViewMode": true,
-        "isLockedInViewMode": true
-      },
       {
         "name": "f66c51708d7143a35b43",
         "field": {

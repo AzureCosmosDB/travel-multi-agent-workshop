@@ -1,17 +1,19 @@
 import logging
 import os
+import re
 import uuid
 from datetime import UTC, datetime
 from typing import List, Dict, Optional, Any
 from azure.cosmos import CosmosClient, PartitionKey
 from azure.cosmos.aio import CosmosClient as AsyncCosmosClient
-from azure.cosmos.exceptions import CosmosResourceNotFoundError
+from azure.cosmos.exceptions import CosmosResourceExistsError, CosmosResourceNotFoundError
 from azure.identity import DefaultAzureCredential
 from azure.identity.aio import DefaultAzureCredential as AsyncDefaultAzureCredential
 from dotenv import load_dotenv
 from langchain_azure_cosmosdb import CosmosDBSaver
 
 from src.app.services.azure_open_ai import generate_embedding, extract_keywords
+from src.app.trip_planning import TripRequestConflictError
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -234,12 +236,20 @@ def patch_active_agent(tenantId: str, userId: str, sessionId: str, activeAgent: 
 # ============================================================================
 # MCP Tool Functions (for mcp_http_server.py)
 # ============================================================================
-def create_session_record(user_id: str, tenant_id: str, activeAgent: str, title: str = None) -> Dict[str, Any]:
+def create_session_record(
+    user_id: str,
+    tenant_id: str,
+    activeAgent: str,
+    title: str = None,
+    session_id: Optional[str] = None,
+    start_trip_request_id: Optional[str] = None,
+    start_trip_fingerprint: Optional[str] = None,
+) -> Dict[str, Any]:
     """Create a new session record"""
     if not sessions_container:
         raise Exception("Cosmos DB not available")
     
-    session_id = f"session_{uuid.uuid4().hex[:12]}"
+    session_id = session_id or f"session_{uuid.uuid4().hex[:12]}"
     now = datetime.now(UTC)
     
     session = {
@@ -254,10 +264,42 @@ def create_session_record(user_id: str, tenant_id: str, activeAgent: str, title:
         "status": "active",
         "messageCount": 0
     }
+    if start_trip_request_id:
+        session["startTripRequestId"] = start_trip_request_id
+        session["startTripFingerprint"] = start_trip_fingerprint
     
-    sessions_container.upsert_item(session)
+    if start_trip_request_id:
+        try:
+            sessions_container.create_item(session)
+        except CosmosResourceExistsError:
+            existing = sessions_container.read_item(
+                item=session_id,
+                partition_key=[tenant_id, user_id, session_id],
+            )
+            if (
+                existing.get("startTripRequestId") != start_trip_request_id
+                or existing.get("startTripFingerprint") != start_trip_fingerprint
+            ):
+                raise TripRequestConflictError(
+                    "requestId has already been used with a different Start Trip payload"
+                )
+            return existing
+    else:
+        sessions_container.upsert_item(session)
     logger.info(f"✅ Created session: {session_id}")
     return session
+
+
+def delete_session_record(session_id: str, tenant_id: str, user_id: str) -> None:
+    """Delete one session record using its hierarchical partition key."""
+    if not sessions_container:
+        raise Exception("Cosmos DB not available")
+
+    sessions_container.delete_item(
+        item=session_id,
+        partition_key=[tenant_id, user_id, session_id],
+    )
+    logger.info("Deleted session record: %s", session_id)
 
 
 def get_session_by_id(session_id: str, tenant_id: str, user_id: str) -> Optional[Dict[str, Any]]:
@@ -811,7 +853,10 @@ def create_trip(
     end_date: str,
     days: Optional[List[Dict[str, Any]]] = None,
     trip_duration: Optional[int] = None,
-    session_id: Optional[str] = None
+    session_id: Optional[str] = None,
+    trip_id: Optional[str] = None,
+    start_trip_request_id: Optional[str] = None,
+    start_trip_fingerprint: Optional[str] = None,
 ) -> str:
     """Create a new trip.
 
@@ -824,7 +869,10 @@ def create_trip(
     
     # Generate a short destination slug for the trip ID
     dest_slug = destination.lower().split(",")[0].strip().replace(" ", "_")[:15]
-    trip_id = f"trip_{user_id}_{dest_slug}_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}"
+    trip_id = trip_id or (
+        f"trip_{user_id}_{dest_slug}_"
+        f"{datetime.utcnow().strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:8]}"
+    )
     
     # Calculate trip duration from days array if not provided
     if trip_duration is None and days:
@@ -844,8 +892,28 @@ def create_trip(
         "status": "planning",
         "createdAt": datetime.utcnow().isoformat() + "Z"
     }
+    if start_trip_request_id:
+        trip["startTripRequestId"] = start_trip_request_id
+        trip["startTripFingerprint"] = start_trip_fingerprint
     
-    trips_container.upsert_item(trip)
+    if start_trip_request_id:
+        try:
+            trips_container.create_item(trip)
+        except CosmosResourceExistsError:
+            existing = trips_container.read_item(
+                item=trip_id,
+                partition_key=[tenant_id, user_id, trip_id],
+            )
+            if (
+                existing.get("startTripRequestId") != start_trip_request_id
+                or existing.get("startTripFingerprint") != start_trip_fingerprint
+            ):
+                raise TripRequestConflictError(
+                    "requestId has already been used with a different Start Trip payload"
+                )
+            return trip_id
+    else:
+        trips_container.upsert_item(trip)
     logger.info(f"✅ Created trip: {trip_id} with {trip_duration} days")
     return trip_id
 
@@ -866,6 +934,169 @@ def get_trip(trip_id: str, user_id: str, tenant_id: str) -> Optional[Dict[str, A
     except Exception as e:
         logger.error(f"Error reading trip {trip_id}: {e}")
         return None
+
+
+def delete_trip_record(trip_id: str, user_id: str, tenant_id: str) -> None:
+    """Delete one trip record using its hierarchical partition key."""
+    if not trips_container:
+        raise Exception("Cosmos DB not available")
+
+    trips_container.delete_item(
+        item=trip_id,
+        partition_key=[tenant_id, user_id, trip_id],
+    )
+    logger.info("Deleted trip record: %s", trip_id)
+
+
+def get_bound_trip_for_session(
+    tenant_id: str,
+    user_id: str,
+    session_id: str,
+) -> Optional[Dict[str, Any]]:
+    """Return the newest trip bound to a chat session, regardless of status."""
+    if trips_container is None:
+        raise RuntimeError("Trips container is unavailable")
+
+    query = """
+    SELECT TOP 1 * FROM c
+    WHERE c.tenantId = @tenantId
+      AND c.userId = @userId
+      AND c.sessionId = @sessionId
+    ORDER BY c.createdAt DESC
+    """
+    try:
+        items = list(trips_container.query_items(
+            query=query,
+            parameters=[
+                {"name": "@tenantId", "value": tenant_id},
+                {"name": "@userId", "value": user_id},
+                {"name": "@sessionId", "value": session_id},
+            ],
+            enable_cross_partition_query=True,
+        ))
+        return items[0] if items else None
+    except Exception as e:
+        logger.error(
+            "Error resolving bound trip for tenant=%s user=%s session=%s: %s",
+            tenant_id,
+            user_id,
+            session_id,
+            e,
+        )
+        raise
+
+
+def _is_controlled_demo4_trip(trip: Dict[str, Any]) -> bool:
+    """Return whether a Trip is owned by a controlled Demo 4 fixture."""
+    marker_values = (
+        trip.get("sessionId"),
+        trip.get("fixture_version"),
+        trip.get("burst_version"),
+        trip.get("controlled_namespace"),
+    )
+    return any(
+        isinstance(value, str) and value.casefold().startswith("controlled-demo4-")
+        for value in marker_values
+    )
+
+
+def _contains_trip_reference(message: str, trip: Dict[str, Any]) -> bool:
+    message_casefolded = message.casefold()
+    trip_id = str(trip.get("tripId") or trip.get("id") or "").strip()
+    if trip_id and re.search(
+        rf"(?<![\w-]){re.escape(trip_id.casefold())}(?![\w-])",
+        message_casefolded,
+    ):
+        return True
+
+    message_tokens = re.findall(r"\w+", message_casefolded)
+    destination = str(trip.get("destination") or "").strip()
+    references = (destination, destination.split(",", 1)[0])
+    for reference in references:
+        reference_tokens = re.findall(r"\w+", reference.casefold())
+        if reference_tokens and any(
+            message_tokens[index:index + len(reference_tokens)] == reference_tokens
+            for index in range(len(message_tokens) - len(reference_tokens) + 1)
+        ):
+            return True
+    return False
+
+
+def get_operational_trips_referenced_in_message(
+    tenant_id: str,
+    user_id: str,
+    user_message: str,
+) -> List[Dict[str, Any]]:
+    """Return operational Trips explicitly referenced by destination or exact ID."""
+    if trips_container is None:
+        raise RuntimeError("Trips container is unavailable")
+
+    query = """
+    SELECT * FROM c
+    WHERE c.tenantId = @tenantId
+      AND c.userId = @userId
+    """
+    try:
+        items = list(trips_container.query_items(
+            query=query,
+            parameters=[
+                {"name": "@tenantId", "value": tenant_id},
+                {"name": "@userId", "value": user_id},
+            ],
+            enable_cross_partition_query=True,
+        ))
+    except Exception as e:
+        logger.error(
+            "Error resolving operational trips for tenant=%s user=%s: %s",
+            tenant_id,
+            user_id,
+            e,
+        )
+        raise
+
+    candidates = [
+        item
+        for item in items
+        if not _is_controlled_demo4_trip(item)
+        and _contains_trip_reference(user_message, item)
+    ]
+    return sorted(
+        candidates,
+        key=lambda item: (
+            str(item.get("createdAt") or ""),
+            str(item.get("tripId") or item.get("id") or ""),
+        ),
+        reverse=True,
+    )
+
+
+def resolve_trip_for_request(
+    tenant_id: str,
+    user_id: str,
+    session_id: str,
+    user_message: str,
+) -> Optional[Dict[str, Any]]:
+    """Resolve a bound Trip first, then one unique explicit operational reference."""
+    bound_trip = get_bound_trip_for_session(tenant_id, user_id, session_id)
+    if bound_trip:
+        return bound_trip
+
+    matches = get_operational_trips_referenced_in_message(
+        tenant_id,
+        user_id,
+        user_message,
+    )
+    if len(matches) == 1:
+        return matches[0]
+    if len(matches) > 1:
+        logger.warning(
+            "Multiple operational trips matched tenant=%s user=%s session=%s; "
+            "leaving request unbound",
+            tenant_id,
+            user_id,
+            session_id,
+        )
+    return None
 
 
 # ============================================================================
@@ -951,7 +1182,46 @@ def get_user_by_id(user_id: str, tenant_id: str) -> Optional[Dict[str, Any]]:
         return None
     except Exception as e:
         logger.error(f"Error reading user {user_id}: {e}")
+        raise
+
+
+def update_user_preferences(
+    user_id: str,
+    tenant_id: str,
+    preferences: Dict[str, str]
+) -> Optional[Dict[str, Any]]:
+    """Merge travel preferences into an existing tenant-scoped user profile."""
+    if not users_container:
+        raise Exception("Cosmos DB users container not available")
+
+    try:
+        user = users_container.read_item(
+            item=user_id,
+            partition_key=user_id
+        )
+    except CosmosResourceNotFoundError:
+        logger.warning(f"⚠️  User not found: {user_id}")
         return None
+
+    if user.get("tenantId") != tenant_id:
+        logger.warning(f"⚠️  Tenant mismatch for user {user_id}: expected {tenant_id}")
+        return None
+
+    merged_preferences = {
+        **(user.get("preferences") or {}),
+        **preferences,
+    }
+    updated_at = datetime.now(UTC).isoformat()
+    updated_user = users_container.patch_item(
+        item=user_id,
+        partition_key=user_id,
+        patch_operations=[
+            {"op": "set", "path": "/preferences", "value": merged_preferences},
+            {"op": "set", "path": "/updatedAt", "value": updated_at},
+        ],
+    )
+    logger.info(f"✅ Updated preferences for user: {user_id}")
+    return updated_user
 
 
 # ============================================================================

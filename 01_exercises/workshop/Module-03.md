@@ -29,6 +29,8 @@ By the end of this module you will:
 - Wire a process-wide **`AsyncCosmosMemoryClient`** singleton into FastAPI's lifespan
 - Expose the toolkit's `add_turn`, `recall_memories`, and `get_user_summary` operations as MCP tools so the agents can both *capture* and *recall* memory through ordinary tool calls
 - Teach the supervisor (via its prompt) when to call `recall_memories` and `add_turn`
+- Keep persisted profile preferences authoritative when inferred conversational memory conflicts
+- Delete only the exact selected memory record by using its stored memory type
 
 ---
 
@@ -187,6 +189,15 @@ That's the checkpointer wired. State is now persistent. Next: short-term and lon
 
 ## Activity 3: Build the async memory client wrapper
 
+Before continuing, verify all workshop requirement files use the compatible beta
+pair below. These versions are intentionally exact because the deletion API is
+type-aware:
+
+```text
+prompty==2.0.0b3
+azure-cosmos-agent-memory==0.2.0b3
+```
+
 Open `01_exercises/python/src/app/services/agent_memory.py` and replace its entire contents with:
 
 ```python
@@ -208,6 +219,62 @@ load_dotenv(override=False)
 
 _client: AsyncCosmosMemoryClient | None = None
 _init_lock = asyncio.Lock()
+
+
+class MemoryNotFoundError(LookupError):
+    """Raised when an exact toolkit memory record cannot be found."""
+
+
+def _memory_field(memory: object, *names: str) -> object | None:
+    for name in names:
+        if isinstance(memory, dict) and name in memory:
+            return memory[name]
+        value = getattr(memory, name, None)
+        if value is not None:
+            return value
+    return None
+
+
+async def delete_memory_by_id(
+    client: AsyncCosmosMemoryClient,
+    *,
+    memory_id: str,
+    user_id: str,
+    thread_id: str,
+) -> None:
+    """Delete only the exact memory, using its stored toolkit type."""
+    memories = await client.get_memories(
+        memory_id=memory_id,
+        user_id=user_id,
+        thread_id=thread_id,
+        include_superseded=True,
+    )
+    memory = next(
+        (
+            item
+            for item in memories
+            if _memory_field(item, "id", "memory_id") == memory_id
+            and _memory_field(item, "user_id") == user_id
+            and _memory_field(item, "thread_id") == thread_id
+        ),
+        None,
+    )
+    if memory is None:
+        raise MemoryNotFoundError(
+            f"Memory {memory_id!r} was not found for user {user_id!r} "
+            f"and thread {thread_id!r}"
+        )
+
+    memory_type = _memory_field(memory, "type", "memory_type")
+    if not isinstance(memory_type, str) or not memory_type:
+        raise ValueError(f"Memory {memory_id!r} has no valid memory type")
+
+    await client.delete_cosmos(
+        memory_id,
+        user_id=user_id,
+        thread_id=thread_id,
+        memory_type=memory_type,
+    )
 
 
 def _get_required_env(name: str) -> str:
@@ -285,10 +352,14 @@ The `agent_memory.py` module is lazy - it only connects on the first `await get_
 
 ### Step 1: Add the import
 
-Open `travel_agents_api.py` and find `from src.app.services.agent_memory import get_memory_client`, and uncomment this line: 
+Open `travel_agents_api.py` and import the shared memory client and exact-delete helper:
 
 ```python
-from src.app.services.agent_memory import get_memory_client
+from src.app.services.agent_memory import (
+    MemoryNotFoundError,
+    delete_memory_by_id,
+    get_memory_client,
+)
 ```
 
 ### Step 2: Warm up the client at startup
@@ -355,12 +426,15 @@ async def delete_memory(user_id: str, memory_id: str, thread_id: Optional[str] =
 
     try:
         client = await get_memory_client()
-        await client.delete_cosmos(
+        await delete_memory_by_id(
+            client,
             memory_id=memory_id,
-            thread_id=thread_id,
             user_id=user_id,
+            thread_id=thread_id,
         )
         return Response(status_code=204)
+    except MemoryNotFoundError as e:
+        raise HTTPException(status_code=404, detail="Memory not found") from e
     except Exception as e:
         logger.error(f"Error deleting memory: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to delete memory: {str(e)}")
@@ -387,6 +461,17 @@ async def get_user_summary(user_id: str):
         logger.error(f"Error fetching user summary: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to fetch user summary: {str(e)}")
 ```
+
+The helper first performs an exact lookup using `memory_id`, `user_id`, and
+`thread_id`, reads that record's stored `type`, and then calls
+`delete_cosmos(..., memory_type=record_type)`. A missing or mismatched record is
+an isolated `404`; it must never broaden the delete to another memory.
+
+Persisted `User.preferences` and inferred memory have different ownership.
+Persisted profile values are authoritative for overlapping keys. The inferred
+summary may fill facts that are absent from the profile, or facts explicitly
+scoped to a particular trip or conversation, but it must not override the
+persisted profile.
 
 ### Step 4: Wire the Memory Capture
 
@@ -2079,6 +2164,62 @@ load_dotenv(override=False)
 
 _client: AsyncCosmosMemoryClient | None = None
 _init_lock = asyncio.Lock()
+
+
+class MemoryNotFoundError(LookupError):
+    """Raised when an exact toolkit memory record cannot be found."""
+
+
+def _memory_field(memory: object, *names: str) -> object | None:
+    for name in names:
+        if isinstance(memory, dict) and name in memory:
+            return memory[name]
+        value = getattr(memory, name, None)
+        if value is not None:
+            return value
+    return None
+
+
+async def delete_memory_by_id(
+    client: AsyncCosmosMemoryClient,
+    *,
+    memory_id: str,
+    user_id: str,
+    thread_id: str,
+) -> None:
+    """Delete only the exact memory, using its stored toolkit type."""
+    memories = await client.get_memories(
+        memory_id=memory_id,
+        user_id=user_id,
+        thread_id=thread_id,
+        include_superseded=True,
+    )
+    memory = next(
+        (
+            item
+            for item in memories
+            if _memory_field(item, "id", "memory_id") == memory_id
+            and _memory_field(item, "user_id") == user_id
+            and _memory_field(item, "thread_id") == thread_id
+        ),
+        None,
+    )
+    if memory is None:
+        raise MemoryNotFoundError(
+            f"Memory {memory_id!r} was not found for user {user_id!r} "
+            f"and thread {thread_id!r}"
+        )
+
+    memory_type = _memory_field(memory, "type", "memory_type")
+    if not isinstance(memory_type, str) or not memory_type:
+        raise ValueError(f"Memory {memory_id!r} has no valid memory type")
+
+    await client.delete_cosmos(
+        memory_id,
+        user_id=user_id,
+        thread_id=thread_id,
+        memory_type=memory_type,
+    )
 
 
 def _get_required_env(name: str) -> str:

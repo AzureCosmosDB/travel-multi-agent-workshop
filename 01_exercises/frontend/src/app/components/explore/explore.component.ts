@@ -45,6 +45,8 @@ export class ExploreComponent implements OnInit, OnDestroy, AfterViewChecked {
   // Pickers
   showDatePicker = false;
   showTravelersPicker = false;
+  isStartingTrip = false;
+  tripStarted = false;
   
   // Filters - Updated to support multi-select
   filters = {
@@ -56,6 +58,10 @@ export class ExploreComponent implements OnInit, OnDestroy, AfterViewChecked {
   };
 
   private subscriptions = new Subscription();
+  private routeSessionId: string | null = null;
+  private routeSessionValidated = false;
+  private startTripRequestId: string | null = null;
+  private startTripAttemptKey: string | null = null;
 
   constructor(
     private travelApi: TravelApiService,
@@ -68,6 +74,33 @@ export class ExploreComponent implements OnInit, OnDestroy, AfterViewChecked {
 
     // Check for city query param
     this.route.queryParams.subscribe(params => {
+      this.startDate = params['startDate'] || this.startDate;
+      this.endDate = params['endDate'] || this.endDate;
+      this.travelers = {
+        adults: this.parseTravelerCount(params['adults'], 1),
+        children: this.parseTravelerCount(params['children'], 0),
+        pets: this.parseTravelerCount(params['pets'], 0)
+      };
+      this.routeSessionId = params['sessionId'] || null;
+      this.routeSessionValidated = !this.routeSessionId;
+      if (this.routeSessionId) {
+        this.tripStarted = true;
+        this.currentThread = null;
+        this.travelApi.getThread(this.routeSessionId).subscribe({
+          next: (thread) => {
+            const restoredId = thread.sessionId || thread.threadId;
+            if (restoredId === this.routeSessionId) {
+              this.routeSessionValidated = true;
+              this.currentThread = thread;
+              this.tripStarted = true;
+            }
+          },
+          error: (error) => {
+            this.currentThread = null;
+            console.error('Error restoring trip session:', error);
+          }
+        });
+      }
       if (params['city']) {
         const cityName = params['city'];
         // Find and select the city
@@ -108,7 +141,11 @@ export class ExploreComponent implements OnInit, OnDestroy, AfterViewChecked {
     // Subscribe to current thread
     this.subscriptions.add(
       this.travelApi.currentThread$.subscribe(thread => {
-        this.currentThread = thread;
+        const threadId = thread?.sessionId || thread?.threadId || null;
+        if (!this.routeSessionId ||
+            (this.routeSessionValidated && threadId === this.routeSessionId)) {
+          this.currentThread = thread;
+        }
       })
     );
 
@@ -122,6 +159,10 @@ export class ExploreComponent implements OnInit, OnDestroy, AfterViewChecked {
 
   openChat(): void {
     if (!this.currentThread) {
+      if (this.routeSessionId) {
+        alert('Unable to restore this trip session. Please return home and start again.');
+        return;
+      }
       this.travelApi.createThread().subscribe({
         next: (thread) => {
           this.currentThread = thread;
@@ -465,12 +506,14 @@ export class ExploreComponent implements OnInit, OnDestroy, AfterViewChecked {
 
   // Start Trip - Filter places by selected city
   startTrip(): void {
-    console.log('🚀 startTrip() called');
-    console.log('Selected city:', this.selectedCity);
-    console.log('Available cities:', this.cities);
-    
+    if (this.routeSessionId || this.isStartingTrip || this.tripStarted) {
+      return;
+    }
     if (!this.selectedCity) {
       alert('Please select a city first');
+      return;
+    }
+    if (!this.hasValidDateRange()) {
       return;
     }
 
@@ -478,17 +521,79 @@ export class ExploreComponent implements OnInit, OnDestroy, AfterViewChecked {
       c.displayName === this.selectedCity
     );
 
-    console.log('Found city object:', city);
-
     if (city) {
-      console.log('Loading places for city:', city.name);
-      this.currentCityName = city.name; // Store the city name for filtering
-      this.loadPlacesForCity(city.name);
-      this.travelApi.setSelectedCity(city.name);
+      const requestId = this.getStartTripRequestId();
+      this.isStartingTrip = true;
+      this.travelApi.startTrip({
+        requestId,
+        destination: this.selectedCity,
+        startDate: this.startDate,
+        endDate: this.endDate
+      }).subscribe({
+        next: (result) => {
+          this.isStartingTrip = false;
+          this.tripStarted = true;
+          this.routeSessionId = result.session.sessionId;
+          this.routeSessionValidated = true;
+          this.currentThread = result.session;
+          this.currentCityName = city.name;
+          this.loadPlacesForCity(city.name);
+          this.travelApi.setSelectedCity(city.name);
+        },
+        error: (error) => {
+          this.isStartingTrip = false;
+          console.error('Error starting trip:', error);
+          alert('Failed to start trip. Please try again.');
+        }
+      });
     } else {
-      console.error('❌ City not found in cities array!');
       alert('City not found. Please select from the dropdown.');
     }
+  }
+
+  private getStartTripRequestId(): string {
+    const attemptKey = JSON.stringify([
+      this.selectedCity.trim(),
+      this.startDate,
+      this.endDate
+    ]);
+    if (!this.startTripRequestId || this.startTripAttemptKey !== attemptKey) {
+      this.startTripRequestId = crypto.randomUUID();
+      this.startTripAttemptKey = attemptKey;
+    }
+    return this.startTripRequestId;
+  }
+
+  private hasValidDateRange(): boolean {
+    if (!this.startDate || !this.endDate) {
+      alert('Please select valid start and end dates');
+      return false;
+    }
+    const start = this.parseDate(this.startDate);
+    const end = this.parseDate(this.endDate);
+    if (!start || !end) {
+      alert('Please select valid start and end dates');
+      return false;
+    }
+    if (end < start) {
+      alert('End date must be on or after start date');
+      return false;
+    }
+    return true;
+  }
+
+  private parseDate(value: string): Date | null {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+    const [year, month, day] = value.split('-').map(Number);
+    const parsed = new Date(Date.UTC(year, month - 1, day));
+    return parsed.getUTCFullYear() === year &&
+      parsed.getUTCMonth() === month - 1 &&
+      parsed.getUTCDate() === day ? parsed : null;
+  }
+
+  private parseTravelerCount(value: unknown, fallback: number): number {
+    const parsed = Number(value);
+    return Number.isInteger(parsed) && parsed >= 0 ? parsed : fallback;
   }
 
   loadPlacesForCity(cityName: string): void {

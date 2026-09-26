@@ -1,0 +1,26 @@
+{
+  "schema_version": 2,
+  "baseline_commit": "b62e7b0868094b209f9ee48c84b8ed68dcd8a440",
+  "baseline_source": "git object database; never the working tree",
+  "preexisting_page_count": 7,
+  "preexisting_visual_count": 108,
+  "frozen_fields": [
+    "page name/displayName/width/height",
+    "visual folder ID and name",
+    "position including x/y/z/width/height/tabOrder",
+    "visual type",
+    "parent group",
+    "layout",
+    "visual and container style",
+    "navigation configuration"
+  ],
+  "allowed_new_slicers": {
+    "1cb8e89d583fa5784a65": "a3d79bc23917f695b7ef",
+    "1ec0950511c6f38d7609": "93b3c3442b5050b2fef1",
+    "b219be7fdc6775327c11": "e15ed62efb7e59092c64",
+    "cec777f691a5019c61b3": "c55565f335827bc5cae6",
+    "db6a6a2ea325e58c2d72": "a445fcac71bc1aa09e7b",
+    "e6312147fd3d30e6248b": "ffc3ffa562f8a74e7d23",
+    "fe153ccbd76573b28722": "3f72c5e4ea0a2a2df481"
+  }
+}

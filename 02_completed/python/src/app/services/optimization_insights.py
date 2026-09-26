@@ -13,12 +13,14 @@ directly against Cosmos, so the snapshot can be (re)built with **no Fabric, mirr
 """
 from __future__ import annotations
 
+import json
 import logging
 from datetime import datetime, timezone
 from typing import Any
 
 
 INSIGHTS_CONTAINER = "OptimizationInsights"
+RECOMPUTABLE_GOVERNANCE_TYPES = frozenset({"controlled_demo4_derived"})
 
 # --- Reserved partition keys (NOT tenants) -------------------------------------------
 # OptimizationInsights is partitioned by /tenantId. A real *tenant* is a customer/workspace
@@ -163,6 +165,14 @@ def build_recommendation_rows(tenant_id: str) -> list[dict]:
     from src.app import optimization_agent_api
 
     opportunities, _, _ = optimization_agent_api._opportunities(tenant_id)
+    opportunities_by_id: dict[str, dict] = {}
+    for opportunity in opportunities:
+        opportunity_id = opportunity.get("opportunity_id")
+        if not opportunity_id:
+            continue
+        if opportunity_id in opportunities_by_id:
+            raise ValueError(f"duplicate canonical opportunity_id: {opportunity_id}")
+        opportunities_by_id[str(opportunity_id)] = opportunity
     manual_opportunity = next(
         (
             opportunity
@@ -172,12 +182,32 @@ def build_recommendation_rows(tenant_id: str) -> list[dict]:
         None,
     )
     for order, card in enumerate(rec.build_recommendations(tenant_id)):
+        card = dict(card)
         scenario = card.get("scenario")
+        card_opportunity_id = card.get("opportunity_id")
+        matching_opportunity = (
+            opportunities_by_id.get(str(card_opportunity_id))
+            if card_opportunity_id
+            else None
+        )
         is_manual = scenario == "tool-call-dedup" and manual_opportunity is not None
+        projected_saving = (
+            matching_opportunity.get("saving")
+            if matching_opportunity is not None
+            else card.get("estimated_saving_usd")
+        )
+        card["estimated_saving_usd"] = round(float(projected_saving or 0.0), 6)
+        if matching_opportunity is not None:
+            card["opportunity_id"] = matching_opportunity.get("opportunity_id")
         rows.append({
             "id": f"reccard::{tenant_id}::{scenario}",
             "type": "recommendation_card", "tenantId": tenant_id,
             "scenario": scenario, "scenario_id": card.get("scenario_id"),
+            "opportunity_id": (
+                matching_opportunity.get("opportunity_id")
+                if matching_opportunity is not None
+                else None
+            ),
             "order": order,
             "note": f"{order + 1} · {card.get('title')}",
             # Flat display fields so BI can render the card without reaching into
@@ -192,8 +222,14 @@ def build_recommendation_rows(tenant_id: str) -> list[dict]:
                 if is_manual
                 else card.get("status") or "insight"
             ),
+            "policy_status": card.get("policy_status"),
+            "dataset_phase": card.get("dataset_phase"),
+            "display_state": card.get("display_state"),
+            "state_valid": card.get("state_valid"),
+            "state_reason": card.get("state_reason"),
             "maturity": card.get("maturity"),
-            "estimated_saving_usd": card.get("estimated_saving_usd") or 0,
+            "estimated_saving_usd": card["estimated_saving_usd"],
+            "saving_kind": card.get("saving_kind") or "Estimated",
             # Flattened evidence summary + caveat so the BI cards can show the same
             # headline numbers / yellow limitation line the Console does (the nested
             # `evidence`/`estimate_caveat` don't surface over the mirror).
@@ -339,35 +375,13 @@ OPTIMIZATION_SCENARIOS = [
 ]
 
 
-def _policy_status(db, scenario: str) -> str:
+def _policy_status(db, scenario: str, tenant_id: str | None = None) -> str:
     try:
-        p = db.get_container_client("OptimizationPolicies").read_item(scenario, scenario)
+        policy_id = f"{tenant_id}::{scenario}" if tenant_id else scenario
+        p = db.get_container_client("OptimizationPolicies").read_item(policy_id, scenario)
         return p.get("status", "not_proposed")
     except Exception:  # noqa: BLE001
         return "not_proposed"
-
-
-def _model_selection_counterfactual(db) -> tuple[int, float, float]:
-    """Counterfactual over ALL captured turns (every tenant): price each turn under the
-    model it actually ran on vs. the all-premium baseline (gpt-5.1). Returns
-    (turns, baseline_cost, actual_cost)."""
-    from src.app.services import optimization_recommendations as rec
-
-    pricing = rec.load_pricing()
-    baseline = pricing.get("gpt-5.1", {"input": 1.25, "output": 10.00})
-    turns = list(db.get_container_client("OptimizationTurns").query_items(
-        query="SELECT c.model_deployment, c.model_name, c.input_tokens, c.output_tokens FROM c",
-        enable_cross_partition_query=True,
-    ))
-    actual_cost = baseline_cost = 0.0
-    for d in turns:
-        i = int(d.get("input_tokens") or 0)
-        o = int(d.get("output_tokens") or 0)
-        dep = d.get("model_deployment") or d.get("model_name") or "gpt-5.1"
-        pin, pout = rec._price_for(pricing, dep)
-        actual_cost += (i * pin + o * pout) / 1_000_000
-        baseline_cost += (i * baseline["input"] + o * baseline["output"]) / 1_000_000
-    return len(turns), baseline_cost, actual_cost
 
 
 def build_optimization_result_rows(db) -> list[dict]:
@@ -383,25 +397,38 @@ def build_optimization_result_rows(db) -> list[dict]:
     turn-grain estimate lives on the Discovered Opportunities page. Keyed by scenario + measured
     analytically — the tenant is never the axis for "which optimization am I looking at".
     """
+    from src.app.services.controlled_demo4 import evaluate_controlled_demo4
+
     now = _now()
-    n, baseline_cost, actual_cost = _model_selection_counterfactual(db)
-    saving = baseline_cost - actual_cost
+    evaluation = evaluate_controlled_demo4(db, "analytics")
+    measurement = evaluation.get("measurement")
     rows: list[dict] = []
     for scenario, title, method in OPTIMIZATION_SCENARIOS:
         row = {
             "id": f"result::{scenario}",
             "type": "optimization_result", "tenantId": MEASUREMENT_PARTITION,
             "scenario": scenario, "title": title, "method": method,
-            "status": _policy_status(db, scenario), "computed_at": now,
+            "policy_status": _policy_status(
+                db, scenario, "analytics" if scenario == "model-selection" else None
+            ),
+            "computed_at": now,
         }
         if scenario == "model-selection":
             row.update({
-                "turns": n,
-                "baseline_cost_usd": round(baseline_cost, 4),
-                "actual_cost_usd": round(actual_cost, 4),
-                "saving_usd": round(saving, 4),
-                "saving_pct": round(100 * saving / baseline_cost, 1) if baseline_cost else 0.0,
+                "method": "Measured",
+                "measurement_kind": "Measured",
+                "measurement_scope": "Analytics controlled after burst",
+                "measurement_tenant": "analytics",
+                "measurement_status": evaluation["measurement_status"],
+                "dataset_phase": evaluation["dataset_phase"],
+                "display_state": evaluation["display_state"],
+                "state_valid": evaluation["state_valid"],
+                "state_reason": evaluation["state_reason"],
+                "turns": 0,
             })
+            if evaluation["measurement_status"] == "measured" and measurement is not None:
+                row.update(measurement)
+                row["turns"] = measurement["observed_count"]
         elif scenario == "memory-retention":
             # Measured from recall telemetry: the input tokens recalls avoided by dropping
             # pruned (superseded) memories from their top-k, priced at the default input rate.
@@ -412,6 +439,10 @@ def build_optimization_result_rows(db) -> list[dict]:
                 "turns": ms["recalls"],
                 "baseline_cost_usd": 0.0, "actual_cost_usd": 0.0,
                 "saving_usd": ms["saving_usd"], "saving_pct": 0.0,
+                "measurement_kind": "Measured",
+                "measurement_status": "measured",
+                "measurement_scope": "Global memory recall telemetry",
+                "scope_label": "Global",
                 "avoided_recall_tokens": ms["avoided_tokens"],
                 "note": ("Measured from recall telemetry — input tokens avoided by dropping "
                          "pruned memories from a recall's top-k. Reads $0 until the memory-"
@@ -419,8 +450,9 @@ def build_optimization_result_rows(db) -> list[dict]:
             })
         else:
             row.update({
-                "turns": 0, "baseline_cost_usd": 0.0, "actual_cost_usd": 0.0,
-                "saving_usd": 0.0, "saving_pct": 0.0,
+                "turns": 0,
+                "measurement_kind": "Governed",
+                "measurement_status": "missing",
                 "note": ("Governed-path fix (human-reviewed prompt/code PR) - no in-app policy "
                          "to apply, so no measured before/after here; see the turn-grain estimate "
                          "on the Discovered Opportunities page."),
@@ -510,31 +542,156 @@ def build_memory_intelligence_rows(db) -> list[dict]:
 
 
 
-def recompute_insights(tenant_id: str, db: Any = None) -> dict:
-    """Recompute all OptimizationInsights rows for ``tenant_id`` with the tested app
-    diagnostics and upsert them to Cosmos. Fabric-independent — the same row shapes the
-    Module-09 notebook writes, computed in-process from Cosmos alone. Returns a summary dict."""
-    from azure.cosmos import PartitionKey
+def _delete_partition_rows(container: Any, tenant_id: str) -> int:
+    from src.app.services.controlled_demo4 import FIXTURE_VERSION
 
+    rows = list(container.query_items(
+        query=(
+            "SELECT c.id, c.fixture_version, c.controlled_namespace "
+            "FROM c WHERE c.tenantId=@tenant"
+        ),
+        parameters=[{"name": "@tenant", "value": tenant_id}],
+        enable_cross_partition_query=True,
+    ))
+    namespace_tenant = (
+        "shared" if tenant_id.startswith("_global_") else tenant_id
+    )
+    controlled = [
+        row for row in rows
+        if row.get("fixture_version") == FIXTURE_VERSION
+        and row.get("controlled_namespace")
+        == f"{FIXTURE_VERSION}:derived:{namespace_tenant}"
+    ]
+    for row in controlled:
+        container.delete_item(item=row["id"], partition_key=tenant_id)
+    return len(controlled)
+
+
+def _delete_recomputable_governance_rows(container: Any, tenant_id: str) -> int:
+    """Delete only explicitly derived governance rows, never human-owned state."""
+    from src.app.services.controlled_demo4 import FIXTURE_VERSION
+
+    rows = list(container.query_items(
+        query=(
+            "SELECT c.id, c.type, c.fixture_version, c.controlled_namespace "
+            "FROM c WHERE c.tenantId=@tenant"
+        ),
+        parameters=[{"name": "@tenant", "value": tenant_id}],
+        enable_cross_partition_query=True,
+    ))
+    derived = [
+        row for row in rows
+        if row.get("type") in RECOMPUTABLE_GOVERNANCE_TYPES
+        and row.get("fixture_version") == FIXTURE_VERSION
+        and row.get("controlled_namespace")
+        == f"{FIXTURE_VERSION}:derived:{tenant_id}"
+    ]
+    for row in derived:
+        container.delete_item(item=row["id"], partition_key=tenant_id)
+    return len(derived)
+
+
+def _tenant_rows(tenant_id: str) -> list[dict]:
+    rows: list[dict] = []
+    rows += build_insight_rows(tenant_id)
+    rows += build_agent_opportunity_rows(tenant_id)
+    rows += build_recommendation_rows(tenant_id)
+    return rows
+
+
+def _controlled_state_row(db: Any, tenant_id: str) -> dict:
+    """Project the source-derived controlled state into the report snapshot."""
+    from src.app.services.controlled_demo4 import (
+        assert_evaluation_schema,
+        evaluate_controlled_demo4,
+    )
+
+    state = evaluate_controlled_demo4(db, tenant_id)
+    assert_evaluation_schema(state)
+    return {
+        "id": f"state::{tenant_id}",
+        "type": "controlled_demo4_state",
+        "tenantId": tenant_id,
+        "policy_status": state["policy_status"],
+        "dataset_phase": state["dataset_phase"],
+        "display_state": state["display_state"],
+        "state_valid": bool(state["state_valid"]),
+        "state_reason": state["state_reason"],
+        "measurement_status": state["measurement_status"],
+        "fixture_version": state["fixture_version"],
+        "burst_version": state["burst_version"],
+        "burst_anchor": state["burst_anchor"],
+        "burst_window_minutes": state["burst_window_minutes"],
+        "baseline_expected_count": int(state["baseline_expected_count"]),
+        "baseline_observed_count": int(state["baseline_observed_count"]),
+        "burst_expected_count": int(state["burst_expected_count"]),
+        "burst_observed_count": int(state["burst_observed_count"]),
+        "model_counts_json": json.dumps(state["model_counts"], sort_keys=True),
+        "computed_at": _now(),
+    }
+
+
+def recompute_controlled_demo4(db: Any = None) -> dict:
+    """Replace controlled tenant rows in Analytics/shared/Marvel order using existing containers."""
     if db is None:
         from src.app.services import azure_cosmos_db as _cosmos
         db = _cosmos.database
     if db is None:
         raise RuntimeError("Cosmos database is not configured")
 
-    container = db.create_container_if_not_exists(
-        id=INSIGHTS_CONTAINER, partition_key=PartitionKey(path="/tenantId"))
+    insights = db.get_container_client(INSIGHTS_CONTAINER)
+    governance = db.get_container_client("OptimizationGovernance")
 
-    rows: list = []
-    rows += build_insight_rows(tenant_id)
-    rows += build_agent_opportunity_rows(tenant_id)
-    rows += build_recommendation_rows(tenant_id)
-    rows += build_optimization_result_rows(db)
-    rows += build_memory_intelligence_rows(db)
-    for r in rows:
-        container.upsert_item(r)
+    from src.app.services.controlled_demo4 import FIXTURE_VERSION
 
-    by_type: dict = {}
-    for r in rows:
-        by_type[r["type"]] = by_type.get(r["type"], 0) + 1
-    return {"tenant": tenant_id, "rows_written": len(rows), "by_type": by_type}
+    analytics_rows = _tenant_rows("analytics") + [_controlled_state_row(db, "analytics")]
+    shared_rows = build_optimization_result_rows(db) + build_memory_intelligence_rows(db)
+    for row in analytics_rows:
+        row["fixture_version"] = FIXTURE_VERSION
+        row["controlled_namespace"] = f"{FIXTURE_VERSION}:derived:analytics"
+    for row in shared_rows:
+        row["fixture_version"] = FIXTURE_VERSION
+        row["controlled_namespace"] = f"{FIXTURE_VERSION}:derived:shared"
+    deleted = {
+        "analytics_insights": _delete_partition_rows(insights, "analytics"),
+        "analytics_governance": _delete_recomputable_governance_rows(
+            governance, "analytics"
+        ),
+        "shared_optimizations": _delete_partition_rows(insights, MEASUREMENT_PARTITION),
+        "shared_memory": _delete_partition_rows(insights, MEMORY_PARTITION),
+    }
+    for row in analytics_rows:
+        insights.upsert_item(row)
+    for row in shared_rows:
+        insights.upsert_item(row)
+
+    marvel_rows = _tenant_rows("marvel") + [_controlled_state_row(db, "marvel")]
+    for row in marvel_rows:
+        row["fixture_version"] = FIXTURE_VERSION
+        row["controlled_namespace"] = f"{FIXTURE_VERSION}:derived:marvel"
+    deleted["marvel_insights"] = _delete_partition_rows(insights, "marvel")
+    deleted["marvel_governance"] = _delete_recomputable_governance_rows(
+        governance, "marvel"
+    )
+    for row in marvel_rows:
+        insights.upsert_item(row)
+
+    all_rows = analytics_rows + shared_rows + marvel_rows
+    by_type: dict[str, int] = {}
+    for row in all_rows:
+        by_type[row["type"]] = by_type.get(row["type"], 0) + 1
+    return {
+        "tenants": ["analytics", "marvel"],
+        "order": ["analytics", "shared", "marvel"],
+        "shared_written_once": True,
+        "rows_written": len(all_rows),
+        "deleted": deleted,
+        "by_type": by_type,
+    }
+
+
+def recompute_insights(tenant_id: str, db: Any = None) -> dict:
+    """Compatibility entry point; controlled tenants always use the safe two-tenant order."""
+    if tenant_id in {"analytics", "marvel"}:
+        return recompute_controlled_demo4(db)
+    raise ValueError(f"unsupported controlled recompute tenant: {tenant_id}")

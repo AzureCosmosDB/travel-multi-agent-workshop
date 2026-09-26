@@ -2,6 +2,9 @@
 
 **[< Agent Analytics](./Module-07.md#module-07---agent-analytics-visibility-insight)** - **[Fabric Analytics & Reverse-ETL >](./Module-09.md#module-09---fabric-analytics-reverse-etl)**
 
+> **Marvel-only learner boundary.** Every learner exercise in this module uses the Marvel tenant and dataset.
+> The Analytics tenant is reserved for explicitly marked presenter/reference material.
+
 ## Introduction
 
 In Module 07 you made your agent's behavior **visible**: you instrumented every turn, explored a signal in the web analytics portal, detected the model-selection opportunity. That's the first half of the loop:
@@ -16,7 +19,7 @@ This module closes it. You'll **apply** the recommended optimization with one cl
 
 - Understand why **policies** are the safe surface for automated optimization, and how apply/revert stay reversible
 - Understand and test the reusable decision that classifies each turn (trivial / routine / complex)
-- **Apply** two reversible policies (L4/L5) — model selection and memory retention — and **verify** their effect from data
+- **Apply** and verify the reversible model-selection policy
 - Contrast it with a **human-governed L3** optimization (a prompt fix) — the risk model in practice
 
 ## Module Exercises
@@ -44,7 +47,8 @@ The provided `optimization.py` implements policies as documents in the `Optimiza
 - only an **active + enabled** policy changes behavior — so the default is always safe;
 - **apply** and **revert** are one call each, versioned, with an audit trail.
 
-You'll use this machinery for two reversible policies now — model selection and memory retention — and see the *contrast* with a human-governed prompt change in Activity 5.
+You'll use this machinery for model selection now, optionally extend it to memory
+retention, and see the *contrast* with a human-governed prompt change in Activity 5.
 
 ---
 
@@ -228,13 +232,29 @@ Comment out the original call and add this new version below so it looks like th
 
 ## Activity 4: Apply the Autonomous Optimizations
 
-The web analytics portal surfaces two **reversible policies** in the marvel dataset — **model selection** and **memory retention**. Both are the *safe surface* from Activity 1: bounded, audited, one-click-reversible data changes, so both are **autonomous-capable (L4/L5)**. You'll apply each one here and leave them on.
+The web analytics portal surfaces two **reversible policies** — **model selection** and **memory
+retention**. Both are bounded and audited. Model selection is the required learner path; memory
+retention is a separate optional extension.
 
 ### Apply model selection
 
 You already have the **web analytics portal** open from [Module 07, Activity 3](./Module-07.md#module-07---agent-analytics-visibility-insight) (<http://localhost:8060>). Keep **Dataset → marvel** and **Source → Live (recompute)** so the portal reads the current raw turns, then on the **model-selection** card click **Apply**. The card's status flips to `active` and the supervisor immediately starts choosing a model per turn — no restart needed.
 
-> **One click, fully reversible.** Apply/Revert are single, audited state changes on the `OptimizationPolicies` container — which is exactly why they're safe to make from a button. The same card carries a **Revert** button to undo it. Remember the policy is **app-wide (global)**: it takes effect across every dataset at once. *(These buttons call `POST /optimizations/model-selection/apply` and `/revert` under the hood — that's the seam to automate later — but for this workshop, use the portal.)*
+> **One click, fully reversible.** Apply/Revert are single, audited state changes on the
+> `OptimizationPolicies` container — which is exactly why they are safe to make from a button. The
+> same card carries a **Revert** button. In this learner exercise, verify only the current Marvel
+> behavior; policy-storage and isolation architecture are outside the activity. *(The buttons call
+> the apply/revert API seam under the hood, but use the portal here.)*
+
+<!-- BEGIN PRESENTER REFERENCE -->
+> **Controlled reference-solution path.** Learners may continue with the three ordinary web-app
+> turns below. Presenters using the completed/reference solution instead select **Analytics**,
+> Apply, generate `controlled-demo4-after-v1` at inclusive `2026-09-24T13:00:00Z` with 200 turns
+> over 20 minutes and exact mix nano=20, mini=110, premium=70, then explicitly Recompute. The
+> controlled baseline comes from `controlled-demo4-v1`: both tenants have 200 all-premium turns
+> across 20 minute buckets and funnel `192 → 184 → 92 → 56`, `29.2%`, largest cause
+> `city_friction`. Never use Freshen Turn Times in that path.
+<!-- END PRESENTER REFERENCE -->
 
 ### Generate new traffic from the web app
 
@@ -267,7 +287,8 @@ Two honest lessons as you read the numbers:
 1. **The reasoning-token caveat.** `gpt-5-nano` is a *reasoning* model — it can spend a few hundred hidden "reasoning" output tokens even on "hi". A naive "cheaper model saves money" projection ignores that. In practice nano's very low **input** price still makes the trivial turn cheaper — but you only *know* from the measured result. **Always verify; never ship an estimate as a result.**
 2. **Cost per outcome.** The `complex` tier (`gpt-5.1`) is *more* expensive per turn. Whether it's worth it depends on whether better itineraries raise **conversion** — lowering cost per *confirmed trip*, not per turn. Judge the optimization on the outcome metric, not the token bill — which is exactly what the **Cost / outcome** tile tracks.
 
-### Apply memory retention
+<!-- BEGIN PRESENTER REFERENCE -->
+### Optional reference extension — apply memory retention
 
 The second autonomous policy is on a *different dimension* — memory hygiene, not model cost. As users chat, the memory subsystem extracts preferences and **supersedes** older ones when they change (you built this in the memory modules). Over time the superseded entries pile up, and each recall would feed the agent stale preferences it then pays **context tokens** to read. The **memory-retention** card reads that signal: `total_memories`, how many are `superseded`, and the stale share (`superseded_pct`).
 
@@ -286,7 +307,7 @@ def prune_and_measure_recall(records, user_id, thread_id=None, query="", top_k=1
             avoided += _count_tokens(str(d.get("content") or ""))   # tiktoken cl100k_base
         else:
             kept.append(d)
-    if excluded:  # one best-effort ApiEvent under the global _global_memory partition
+    if excluded:  # one best-effort ApiEvent for the memory-retention measurement
         cosmos.record_api_event(
             session_id=thread_id or "unknown", tenant_id="_global_memory",
             provider="memory", operation="recall_pruned_avoided",
@@ -332,7 +353,7 @@ from src.app.services.optimization import prune_and_measure_recall
 
 **Restart the MCP server** (Terminal 1) so the change loads — unlike the API, `mcp_http_server.py` doesn't auto-reload. *(The provided `optimization` service already aggregates these events into the memory-retention card's saving — nothing else to change.)*
 
-Now apply the policy and watch it pay off:
+If you choose this optional extension, apply the policy and watch it pay off:
 
 1. On the **memory-retention** card, click **Apply**.
 2. The status flips to `active` and the card reports how many memories were pruned (for example *"pruned 15 superseded memories"*).
@@ -360,13 +381,33 @@ This is the approach the toolkit maintainer recommends on [AzureCosmosDB/AgentMe
 
 It's the **same class** as model selection: the prune is a **reversible mark**, not a delete — the embedding vector is never rewritten, and **Revert** un-marks every pruned memory (restoring it on the next recall). A bounded, audited, one-click-reversible data change → **autonomous-capable (L4/L5)**.
 
-> **Global signal, not tenant-scoped.** Memory is keyed by *user*, not tenant, so this card reads the same across datasets — applying it is a global memory-hygiene action.
+> **User-owned memory signal.** This optional card measures memory hygiene for the current user's
+> recalled records. Keep the learner exercise in Marvel; broader deployment scope is outside this
+> module.
+<!-- END PRESENTER REFERENCE -->
 
-### Reversible at any time — but leave them on
+### Reversible at any time
 
-You *don't* need to revert either policy here. **Leave both capability-tiered model selection and memory retention active for the rest of the workshop** — they're the optimizations you just applied and measured, and there's no reason to switch a working optimization back off. Reverting now would only undo it with nothing left to measure afterward.
+Each card carries a **Revert** button. Model-selection Revert affects future routing; it does not
+rewrite already captured turns. Memory-retention Revert unmarks pruned memories on the next recall.
+There is no prerequisite to leave either policy active for Module 09.
 
-What matters is knowing the **escape hatch exists**: each card carries a **Revert** button — one click restores `complexity_tier=default, deployment=gpt-5.1` (model selection) or un-prunes every marked memory (retention) on the very next turn/recall. **That reversibility — a single, audited state change on the `OptimizationPolicies` container — is exactly what makes these policies safe to automate.** In [Module 09](./Module-09.md), the notebook writes the reverse-ETL snapshot that the portal's **Reverse-ETL (notebook)** source reads; Power BI remains an optional report, but the portal is the recommended place to apply and revert policies in this workshop.
+<!-- BEGIN PRESENTER REFERENCE -->
+For controlled Demo 4, the exact data-state labels are:
+
+| Source data | Policy context | Display state |
+|---|---|---|
+| Marvel all-premium | active or reverted | `Not Applied · Before` |
+| Analytics all-premium | active | `Policy Active · Awaiting Traffic · Before` |
+| Complete Analytics burst | active | `Applied · After` |
+| Complete Analytics burst | reverted | `Policy Reverted · After Traffic Captured` |
+
+Incomplete, missing, duplicate, conflicting, malformed-token, unknown-deployment, or
+wrong-model-mix expected rows are invalid, never successful Before/After. Controlled Analytics
+burst savings are **Measured**; recommendations/cards/volume are **Projected** or **Estimated**.
+Policy, memory, and shared scope are **Global** where applicable. A shared result shown under
+Marvel must identify Analytics measurement while Marvel remains Before.
+<!-- END PRESENTER REFERENCE -->
 
 You've now completed the loop for two **lower-risk, autonomous-capable** optimizations (maturity L3 today — you approved them). Reaching **L4/L5** means letting an automated quality gate approve or auto-revert them *without* a human — the autonomous step we build toward once the analytical substrate is in place ([Module 09](./Module-09.md)) and close on in **Module 10**.
 
@@ -417,9 +458,10 @@ The same analytics loop surfaces both — but the **apply** step respects each o
 - [ ] `classify_complexity_tier` passes the Activity 2 self-check.
 - [ ] With the model-selection policy **applied**, `hi` / `hotels in amsterdam` / an itinerary request route to `gpt-5-nano` / `gpt-5-mini` / `gpt-5.1` (visible in `OptimizationTurns`).
 - [ ] The portal's **Model Selection** tab shows the per-complexity-tier cost breakdown; you can explain the reasoning-token caveat and cost-per-outcome.
-- [ ] You **applied memory retention** and can explain it soft-prunes superseded memories (a reversible mark) for cheaper, higher-signal recall.
-- [ ] You **instrumented `recall_memories`** to record the input tokens each prune avoids, and after re-running the three prompts you saw a **measured** memory-retention saving in the portal (not an estimate — $0 until applied and recalled).
-- [ ] You can point to the **Revert** button on either policy and explain what one click restores — but you **leave both active** for the rest of the workshop (nothing is measured after a revert).
+- [ ] Optional: you applied memory retention and can explain its reversible soft-prune.
+- [ ] Optional: you instrumented `recall_memories`; measured memory saving stays `$0` until actual
+  post-apply recall telemetry exists.
+- [ ] You can explain that Revert changes future policy behavior without erasing captured After data.
 - [ ] You can read the **agent-path cost concentration** lens (where tokens concentrate vs. per-turn cost) and name the action it points to (tiering, trimming redundant calls).
 - [ ] You can contrast an **autonomous policy** (one-click, reversible) vs a **governed prompt/code fix** (*proposed* and measured offline, then human-reviewed via PR) and say why each maxes out at a different maturity level.
 
@@ -433,7 +475,9 @@ The same analytics loop surfaces both — but the **apply** step respects each o
 
 ## What You Learned
 
-You closed the optimization loop: you **built** the decision, **applied** two reversible policies — model selection and memory retention — with one click each, and **verified** the results honestly (measuring, not guessing). You saw why *policies* — not prompts or code — are the safe surface for automation, and contrasted an autonomous change with a human-governed one. What still keeps today's applies at **L3 (assisted)** is that *you* judged them; reaching **L4/L5 (autonomous, self-correcting)** means an automated **quality gate** approves or auto-reverts each change without a human — the step we build toward once the analytical substrate is in place in **Module 09 (Fabric Analytics & Reverse-ETL)**, and close on in **Module 10**.
+You closed the model-selection optimization loop and optionally explored memory retention.
+You verified results honestly (measuring, not guessing), saw why policies are the safe surface for
+automation, and contrasted an autonomous-capable policy with a human-governed change.
 
 ### Return to **[Home](./Home.md#build-a-multi-agent-workshop)**
 

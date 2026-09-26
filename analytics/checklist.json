@@ -1,0 +1,92 @@
+{
+  "schema_version": 1,
+  "source": "Multi-Agent Travel Demo.docx",
+  "demo_order": ["Frontend application", "Cosmos, mirroring, and SQL endpoint", "Fabric notebook", "User Data Function", "Power BI and web analytics portal"],
+  "items": [
+    {
+      "id": "word-01",
+      "demo": 1,
+      "order": 1,
+      "source_item": "Demo 1: The front end app",
+      "browser": {
+        "instance": "Travel app",
+        "tab": "Explore",
+        "location": "Seeded user signed in; Profile and Memories reachable"
+      },
+      "target": {
+        "document": "analytics/docs/demo-script.md",
+        "section": "Demo 1 — Frontend application",
+        "anchor": "demo-1-frontend-application"
+      },
+      "requirements": ["conceptual-talk-track", "browser-target"]
+    },
+    {
+      "id": "word-02",
+      "demo": 2,
+      "order": 2,
+      "source_item": "Demo 2: Data in Cosmos and Mirroring into Fabric",
+      "browser": {
+        "instance": "Azure portal",
+        "tab": "Cosmos Data Explorer",
+        "location": "TravelAssistant database"
+      },
+      "target": {
+        "document": "analytics/docs/demo-script.md",
+        "section": "Demo 2 — Cosmos, mirroring, and SQL endpoint",
+        "anchor": "demo-2-cosmos-mirroring-and-sql-endpoint"
+      },
+      "requirements": ["conceptual-talk-track", "browser-target", "runtime-truth", "operational-preparation"]
+    },
+    {
+      "id": "word-03",
+      "demo": 3,
+      "order": 3,
+      "source_item": "Demo 3: The Notebook",
+      "browser": {
+        "instance": "Fabric",
+        "tab": "Notebook",
+        "location": "Completed ConversionFunnelReverseETL notebook at the top"
+      },
+      "target": {
+        "document": "analytics/docs/demo-script.md",
+        "section": "Demo 3 — Fabric notebook",
+        "anchor": "demo-3-fabric-notebook"
+      },
+      "requirements": ["conceptual-talk-track", "browser-target", "runtime-truth"]
+    },
+    {
+      "id": "word-04",
+      "demo": 4,
+      "order": 4,
+      "source_item": "Demo 4: User Data Functions",
+      "browser": {
+        "instance": "Fabric",
+        "tab": "User Data Function",
+        "location": "optimization-apply-loop, with apply, revert, and internal status-write functions visible"
+      },
+      "target": {
+        "document": "analytics/docs/demo-script.md",
+        "section": "Demo 4 — User Data Function",
+        "anchor": "demo-4-user-data-function"
+      },
+      "requirements": ["conceptual-talk-track", "browser-target", "runtime-truth", "live-vs-prepared"]
+    },
+    {
+      "id": "word-05",
+      "demo": 5,
+      "order": 5,
+      "source_item": "Demo 5: Power BI & Analytics Web Portal",
+      "browser": {
+        "instance": "Hosted app",
+        "tab": "Web analytics portal",
+        "location": "Overview; Optimizations, Model Selection, Memory, Agents, Business, and Governance reachable"
+      },
+      "target": {
+        "document": "analytics/docs/demo-script.md",
+        "section": "Demo 5 — Power BI and web analytics portal",
+        "anchor": "demo-5-power-bi-and-web-analytics-portal"
+      },
+      "requirements": ["conceptual-talk-track", "browser-target", "runtime-truth", "operational-preparation", "live-vs-prepared"]
+    }
+  ]
+}

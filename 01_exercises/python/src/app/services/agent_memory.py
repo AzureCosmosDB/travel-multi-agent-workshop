@@ -18,6 +18,62 @@ _client: AsyncCosmosMemoryClient | None = None
 _init_lock = asyncio.Lock()
 
 
+class MemoryNotFoundError(LookupError):
+    """Raised when an exact toolkit memory record cannot be found."""
+
+
+def _memory_field(memory: object, *names: str) -> object | None:
+    for name in names:
+        if isinstance(memory, dict) and name in memory:
+            return memory[name]
+        value = getattr(memory, name, None)
+        if value is not None:
+            return value
+    return None
+
+
+async def delete_memory_by_id(
+    client: AsyncCosmosMemoryClient,
+    *,
+    memory_id: str,
+    user_id: str,
+    thread_id: str,
+) -> None:
+    """Delete an exact memory using the type required by the toolkit contract."""
+    memories = await client.get_memories(
+        memory_id=memory_id,
+        user_id=user_id,
+        thread_id=thread_id,
+        include_superseded=True,
+    )
+    memory = next(
+        (
+            item
+            for item in memories
+            if _memory_field(item, "id", "memory_id") == memory_id
+            and _memory_field(item, "user_id") == user_id
+            and _memory_field(item, "thread_id") == thread_id
+        ),
+        None,
+    )
+    if memory is None:
+        raise MemoryNotFoundError(
+            f"Memory {memory_id!r} was not found for user {user_id!r} "
+            f"and thread {thread_id!r}"
+        )
+
+    memory_type = _memory_field(memory, "type", "memory_type")
+    if not isinstance(memory_type, str) or not memory_type:
+        raise ValueError(f"Memory {memory_id!r} has no valid memory type")
+
+    await client.delete_cosmos(
+        memory_id,
+        user_id=user_id,
+        thread_id=thread_id,
+        memory_type=memory_type,
+    )
+
+
 def _get_required_env(name: str) -> str:
     value = os.environ[name]
     if not value:

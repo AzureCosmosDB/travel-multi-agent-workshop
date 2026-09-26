@@ -72,16 +72,17 @@ describe('LoginComponent', () => {
     
     errorComponent.componentInstance.ngOnInit();
     
-    expect(errorComponent.componentInstance.errorMessage).toBe('Failed to load users');
+    expect(errorComponent.componentInstance.errorMessage).toBe('Failed to load users. Please try again.');
     expect(errorComponent.componentInstance.isLoading).toBeFalse();
   });
 
-  it('should select user and navigate to home', () => {
+  it('should select user and navigate to explore', () => {
     component.selectedUserId = 'user1';
     component.onUserSelect();
+    component.onLogin();
 
     expect(mockTravelApiService.setCurrentUser).toHaveBeenCalledWith(mockUsers[0]);
-    expect(mockRouter.navigate).toHaveBeenCalledWith(['/home']);
+    expect(mockRouter.navigate).toHaveBeenCalledWith(['/explore']);
   });
 
   it('should not navigate if no user selected', () => {
@@ -113,7 +114,7 @@ describe('LoginComponent', () => {
 
     component.createNewUser();
 
-    expect(component.errorMessage).toBe('User ID, name, and email are required');
+    expect(component.errorMessage).toBe('Please fill in all required fields (User ID, Name, Email)');
     expect(mockTravelApiService.createUser).not.toHaveBeenCalled();
   });
 
@@ -140,10 +141,10 @@ describe('LoginComponent', () => {
     mockTravelApiService.createUser.and.returnValue(of(newUser));
     component.createNewUser();
 
-    expect(component.isLoading).toBeFalse();
+    expect(component.isLoading).toBeTrue();
     expect(mockTravelApiService.createUser).toHaveBeenCalled();
     expect(mockTravelApiService.setCurrentUser).toHaveBeenCalledWith(newUser);
-    expect(mockRouter.navigate).toHaveBeenCalledWith(['/home']);
+    expect(mockRouter.navigate).toHaveBeenCalledWith(['/explore']);
   });
 
   it('should handle error when creating user', () => {
@@ -162,7 +163,7 @@ describe('LoginComponent', () => {
     );
     component.createNewUser();
 
-    expect(component.errorMessage).toBe('Failed to create user');
+    expect(component.errorMessage).toBe('Failed to create user. Please try again.');
     expect(component.isLoading).toBeFalse();
     expect(mockRouter.navigate).not.toHaveBeenCalled();
   });
@@ -210,7 +211,7 @@ describe('LoginComponent', () => {
     fixture.detectChanges();
 
     const compiled = fixture.nativeElement as HTMLElement;
-    const loadingDiv = compiled.querySelector('.bg-blue-50');
+    const loadingDiv = compiled.querySelector('.text-center.py-8');
     expect(loadingDiv).toBeTruthy();
     expect(loadingDiv?.textContent).toContain('Loading...');
   });

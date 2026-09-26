@@ -1,8 +1,8 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { ProfileComponent } from './profile.component';
 import { TravelApiService } from '../../services/travel-api.service';
-import { of } from 'rxjs';
-import { Memory, UserSummary } from '../../models/travel.models';
+import { of, throwError } from 'rxjs';
+import { Memory, User, UserSummary } from '../../models/travel.models';
 
 describe('ProfileComponent', () => {
   let component: ProfileComponent;
@@ -47,14 +47,32 @@ describe('ProfileComponent', () => {
     tags: []
   };
 
+  const mockUser: User = {
+    id: 'user1',
+    userId: 'user1',
+    tenantId: 'marvel',
+    name: 'Test User',
+    createdAt: new Date().toISOString(),
+    preferences: {
+      budget: 'moderate',
+      mobility: 'walk',
+      dietary: 'vegetarian',
+      timeOfDay: 'any'
+    }
+  };
+
   beforeEach(async () => {
     mockApiService = jasmine.createSpyObj('TravelApiService', [
       'getUserId',
+      'getUserProfile',
+      'updatePreferences',
       'getMemories',
       'getUserSummary',
       'deleteMemory'
     ]);
     mockApiService.getUserId.and.returnValue('user1');
+    mockApiService.getUserProfile.and.returnValue(of(mockUser));
+    mockApiService.updatePreferences.and.returnValue(of(mockUser));
     mockApiService.getMemories.and.returnValue(of(mockMemories));
     mockApiService.getUserSummary.and.returnValue(of(mockSummary));
     mockApiService.deleteMemory.and.returnValue(of(void 0));
@@ -93,9 +111,41 @@ describe('ProfileComponent', () => {
     expect(component.preferences.budget).toBe('moderate');
   });
 
-  it('should save preferences', () => {
+  it('should load persisted preferences', () => {
+    expect(mockApiService.getUserProfile).toHaveBeenCalled();
+    expect(component.preferences.dietary).toBe('vegetarian');
+  });
+
+  it('should save preferences through the API', () => {
     component.savePreferences();
-    expect(component).toBeTruthy();
+    expect(mockApiService.updatePreferences).toHaveBeenCalledWith(component.preferences);
+    expect(component.preferenceMessage).toBe('Preferences saved.');
+    expect(component.preferenceError).toBe('');
+  });
+
+  it('should reload Tony as vegetarian after saving and reopening the profile', () => {
+    component.preferences.dietary = 'vegetarian';
+    component.savePreferences();
+    fixture.destroy();
+
+    mockApiService.getUserProfile.and.returnValue(of(mockUser));
+    fixture = TestBed.createComponent(ProfileComponent);
+    component = fixture.componentInstance;
+    fixture.detectChanges();
+
+    expect(mockApiService.getUserProfile).toHaveBeenCalled();
+    expect(component.preferences.dietary).toBe('vegetarian');
+  });
+
+  it('should surface save failures without reporting success', () => {
+    mockApiService.updatePreferences.and.returnValue(
+      throwError(() => new Error('Cosmos unavailable'))
+    );
+
+    component.savePreferences();
+
+    expect(component.preferenceMessage).toBe('');
+    expect(component.preferenceError).toBe('Failed to save preferences.');
   });
 
   it('should delete memory', () => {

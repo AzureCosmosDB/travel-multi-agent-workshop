@@ -1,0 +1,62 @@
+{
+  "selected_tenants": [
+    "analytics",
+    "marvel",
+    "no-opportunity"
+  ],
+  "insights": [
+    {
+      "tenant": "analytics",
+      "type": "agent_opportunity",
+      "saving_usd": 18.176147,
+      "state": "active",
+      "title": "Model selection opportunity"
+    },
+    {
+      "tenant": "marvel",
+      "type": "agent_opportunity",
+      "saving_usd": 13.17991,
+      "state": "not_proposed",
+      "title": "Model selection opportunity"
+    },
+    {
+      "tenant": "analytics",
+      "type": "recommendation_card",
+      "saving_usd": 18.176147,
+      "state": "active",
+      "title": "Model selection recommendation"
+    },
+    {
+      "tenant": "marvel",
+      "type": "recommendation_card",
+      "saving_usd": 13.17991,
+      "state": "not_proposed",
+      "title": "Model selection recommendation"
+    },
+    {
+      "tenant": "no-opportunity",
+      "type": "recommendation_card",
+      "saving_usd": 7.5,
+      "state": "not_proposed",
+      "title": "Recommendation without a ranked opportunity"
+    },
+    {
+      "tenant": "analytics",
+      "type": "optimization_result",
+      "scenario": "model-selection",
+      "measurement_tenant": "analytics",
+      "saving_usd": 2.8005,
+      "state": "reverted",
+      "measurement_complete": true
+    },
+    {
+      "tenant": "zero-saving",
+      "type": "optimization_result",
+      "scenario": "model-selection",
+      "measurement_tenant": "zero-saving",
+      "saving_usd": 0,
+      "state": "reverted",
+      "measurement_complete": true
+    }
+  ]
+}

@@ -19,7 +19,20 @@ describe('TripsComponent', () => {
       startDate: '2024-06-01',
       endDate: '2024-06-07',
       status: 'planning',
-      days: [],
+      days: [
+        {
+          dayNumber: 2,
+          date: '2024-06-02',
+          breakfast: {
+            activity: 'Vegetalia Gòtic',
+            time: '08:30-09:30'
+          },
+          morning: {
+            activity: 'Gothic Quarter walking tour',
+            time: '10:00-12:00'
+          }
+        }
+      ],
       createdAt: new Date().toISOString()
     },
     {
@@ -95,6 +108,17 @@ describe('TripsComponent', () => {
     const compiled = fixture.nativeElement as HTMLElement;
     const buttons = compiled.querySelectorAll('button');
     expect(buttons.length).toBeGreaterThan(0);
+  });
+
+  it('should render persisted breakfast activity and time before morning', () => {
+    component.viewTrip(mockTrips[0]);
+    fixture.detectChanges();
+
+    const content = (fixture.nativeElement as HTMLElement).textContent ?? '';
+    expect(content).toContain('Breakfast');
+    expect(content).toContain('Vegetalia Gòtic');
+    expect(content).toContain('08:30-09:30');
+    expect(content.indexOf('Breakfast')).toBeLessThan(content.indexOf('Morning'));
   });
 
   it('should display empty state when no trips', () => {

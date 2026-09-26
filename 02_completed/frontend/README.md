@@ -189,7 +189,7 @@ npm run test:coverage
 
 ## Related Documentation
 
-- [Backend API Development Notes](../python/DEVELOPMENT_NOTES.md)
+- [Completed Solution Backend and Local Development](../README.md#local-dev-three-terminals)
 - [Angular Documentation](https://angular.io/docs)
 - [Tailwind CSS](https://tailwindcss.com/docs)
 

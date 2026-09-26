@@ -28,7 +28,9 @@ To deploy the complete travel multi-agent assistant to your Azure account:
    ```bash
    azd auth login
    ```
-4. **Provision and deploy** — `azd up` provisions all Azure resources, seeds Cosmos DB, and (because `deployHostedApp` defaults to **true** here) deploys the hosted app:
+4. **Provision and deploy** — `azd up` provisions all Azure resources, may seed an empty
+   environment or idempotently ensure initial seed records, and (because `deployHostedApp`
+   defaults to **true** here) deploys the hosted app:
    ```bash
    azd up
    ```
@@ -86,6 +88,38 @@ cd frontend; npm install; npm start
 ```
 
 URLs: API docs `:8000/docs`, MCP `:8080`, frontend `:4200`.
+
+## Presenter flow
+
+The authoritative runbook is
+[`analytics/docs/demo-script.md`](../analytics/docs/demo-script.md). It follows this five-demo
+order:
+
+1. Frontend application.
+2. Cosmos Data Explorer, Fabric mirroring, and the SQL analytics endpoint.
+3. Completed Fabric notebook.
+4. `optimization-apply-loop` User Data Function.
+5. Power BI plus the web analytics portal.
+
+Prepare separate tabs for the travel app, Cosmos Data Explorer, mirrored database, SQL endpoint,
+notebook, User Data Function, Power BI report, and web analytics portal. The User Data Function
+tab must expose apply, revert, and the internal status-write function.
+
+`azd up` does **not** invoke controlled reset, generate controlled traffic, or silently restage an
+existing demo. Use the portal's controlled Reset only as an explicit operator action after a
+durable backup and identity/inventory preflight.
+
+### Portal Live and Prepared modes
+
+- **Portal Live:** reset, validate the direct source, recompute, wait for mirror convergence,
+  Apply, generate the approved Analytics burst, validate, recompute, and refresh Power BI. Run
+  these steps serially and fail closed on any mismatch.
+- **Prepared Fabric / Power BI:** prepare and validate off-stage. Do not reset, apply/revert,
+  generate traffic, freshen timestamps, or run the full notebook during the presentation unless
+  that exact mutation was rehearsed.
+
+Marvel remains the unchanged Before comparison while the controlled Analytics demonstration moves
+to After. Policies affect future behavior; reverting does not erase captured observations.
 
 ## Configure, run & demo this solution
 
