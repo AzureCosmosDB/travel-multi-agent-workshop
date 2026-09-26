@@ -12,7 +12,6 @@ Reads from ``data/``:
     - hotels_all_cities.json       → Places container (~490 hotels)
     - restaurants_all_cities.json  → Places container (~980 restaurants)
     - activities_all_cities.json   → Places container (~1,470 activities)
-    - breakfast_demo_places.json   → Places container (1 breakfast demo place)
     - trips.json                   → Trips container
     - turns.json                   → memories_turns container
     - memories.json                → memories container (toolkit-shape records)
@@ -184,16 +183,13 @@ def seed_places(container) -> None:
     hotels = load_json_file("hotels_all_cities.json")
     restaurants = load_json_file("restaurants_all_cities.json")
     activities = load_json_file("activities_all_cities.json")
-    breakfast_demo_places = load_json_file("breakfast_demo_places.json")
-    all_places = hotels + restaurants + activities + breakfast_demo_places
+    all_places = hotels + restaurants + activities
     if not all_places:
         print("   ⚠️  No places to seed")
         return
     print(
         f"   📊 hotels={len(hotels)}, restaurants={len(restaurants)}, "
-        f"activities={len(activities)}, "
-        f"breakfast_demo_places={len(breakfast_demo_places)}, "
-        f"total={len(all_places)}"
+        f"activities={len(activities)}, total={len(all_places)}"
     )
     upload_items_concurrent(container, all_places, "places")
 
