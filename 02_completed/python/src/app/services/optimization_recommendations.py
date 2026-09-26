@@ -111,6 +111,14 @@ def _query_debug(tenant_id: str) -> list[dict]:
     )
 
 
+def _controlled_state(tenant_id: str, policy_status: str | None = None) -> dict[str, Any]:
+    if tenant_id not in {"analytics", "marvel"} or cosmos.database is None:
+        return {}
+    from src.app.services.controlled_demo4 import evaluate_controlled_demo4
+
+    return evaluate_controlled_demo4(cosmos.database, tenant_id, policy_status=policy_status)
+
+
 def build_model_selection_recommendation(tenant_id: str) -> dict[str, Any]:
     """Build the model selection candidate card from Debug turn logs for a tenant."""
     dbg = _query_debug(tenant_id)
@@ -151,18 +159,28 @@ def build_model_selection_recommendation(tenant_id: str) -> dict[str, Any]:
     cost_proposed = (cand_in * nano["input"] + cand_out * nano["output"]) / 1_000_000
     est_saving = round(cost_now - cost_proposed, 4)
 
-    active = optimization_policy.get_active_policy(MODEL_SELECTION_SCENARIO)
+    active = optimization_policy.get_active_policy(MODEL_SELECTION_SCENARIO, tenant_id)
     status = "active" if active else (
-        (optimization_policy.get_policy(MODEL_SELECTION_SCENARIO) or {}).get("status", "not_proposed")
+        (optimization_policy.get_policy(MODEL_SELECTION_SCENARIO, tenant_id) or {}).get(
+            "status",
+            "not_proposed",
+        )
     )
+    controlled_state = _controlled_state(tenant_id, status)
 
     return {
         "scenario": MODEL_SELECTION_SCENARIO,
         "scenario_id": "model-selection",
+        "opportunity_id": "opp-modelfit-supervisor",
         "title": "Capability-tiered model selection",
         "dimension": "model selection · cost efficiency",
         "maturity": "L4/L5 (lower-risk autonomous policy)",
         "status": status,
+        "policy_status": status,
+        "dataset_phase": controlled_state.get("dataset_phase"),
+        "display_state": controlled_state.get("display_state"),
+        "state_valid": controlled_state.get("state_valid"),
+        "state_reason": controlled_state.get("state_reason"),
         "evidence": {
             "total_turns": total,
             "downgrade_candidates": candidates,
@@ -170,6 +188,7 @@ def build_model_selection_recommendation(tenant_id: str) -> dict[str, Any]:
             "model_distribution": models,
         },
         "estimated_saving_usd": est_saving,
+        "saving_kind": "Projected",
         "estimate_caveat": (
             "ESTIMATE only. gpt-5-nano is a reasoning model that emits billed "
             "reasoning tokens, so these premium-but-short turns may not actually be "
@@ -342,10 +361,18 @@ def read_recommendations_from_insights(tenant_id: str) -> list[dict[str, Any]] |
         if not card:
             continue
         scenario = card.get("scenario")
-        active = optimization_policy.get_active_policy(scenario)
-        card["status"] = "active" if active else (
-            (optimization_policy.get_policy(scenario) or {}).get("status", card.get("status", "not_proposed"))
+        policy_tenant = tenant_id if scenario == MODEL_SELECTION_SCENARIO else None
+        active = optimization_policy.get_active_policy(scenario, policy_tenant)
+        policy_status = "active" if active else (
+            (optimization_policy.get_policy(scenario, policy_tenant) or {}).get(
+                "status",
+                card.get("status", "not_proposed"),
+            )
         )
+        card["status"] = policy_status
+        card["policy_status"] = policy_status
+        if scenario == MODEL_SELECTION_SCENARIO:
+            card.update(_controlled_state(tenant_id, policy_status))
         card["source"] = "fabric"
         card["computed_at"] = r.get("computed_at")
         cards.append(card)
@@ -371,6 +398,7 @@ def read_metrics_from_insights(tenant_id: str) -> dict[str, Any] | None:
     metrics = dict(rows[0].get("metrics") or {})
     if not metrics:
         return None
+    metrics.update(_controlled_state(tenant_id))
     metrics["source"] = "fabric"
     metrics["computed_at"] = rows[0].get("computed_at")
     return metrics
@@ -475,7 +503,9 @@ def read_optimization_result_from_insights(tenant_id: str) -> dict[str, Any] | N
         return None
     try:
         rows = list(container.query_items(
-            query="SELECT * FROM d WHERE d.type='optimization_result'",
+            query=("SELECT * FROM d WHERE d.tenantId=@tenant "
+                   "AND d.type='optimization_result'"),
+            parameters=[{"name": "@tenant", "value": "_global_optimizations"}],
             enable_cross_partition_query=True,
         ))
     except Exception as exc:  # noqa: BLE001
@@ -483,10 +513,49 @@ def read_optimization_result_from_insights(tenant_id: str) -> dict[str, Any] | N
         return None
     if not rows:
         return None
+    dataset_state = _controlled_state(tenant_id)
     results = sorted(
-        [{k: v for k, v in r.items() if not k.startswith("_")} for r in rows],
+        [
+            {k: v for k, v in r.items() if not k.startswith("_")}
+            for r in rows
+            if r.get("measurement_tenant") == tenant_id
+        ],
         key=lambda r: r.get("scenario", ""))
-    return {"source": "fabric", "results": results}
+    if dataset_state.get("state_valid") is not True:
+        monetary_fields = {
+            "baseline_cost_usd",
+            "actual_cost_usd",
+            "saving_usd",
+            "saving_pct",
+            "baseline_cost_usd_unrounded",
+            "actual_cost_usd_unrounded",
+            "saving_usd_unrounded",
+            "saving_pct_unrounded",
+        }
+        results = [
+            {
+                key: value
+                for key, value in {
+                    **result,
+                    "measurement_status": "invalid",
+                }.items()
+                if key not in monetary_fields
+            }
+            if result.get("measurement_kind") == "Measured"
+            else result
+            for result in results
+        ]
+    return {
+        "tenant_id": tenant_id,
+        "source": "fabric",
+        "dataset_state": dataset_state,
+        "results": results,
+        "note": (
+            None
+            if dataset_state.get("state_valid") is True
+            else "controlled measurement is invalid; monetary fields are omitted"
+        ),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -676,10 +745,14 @@ def build_memory_retention_recommendation(tenant_id: str) -> dict[str, Any]:
         "maturity": "L4/L5 (lower-risk autonomous policy)",
         "apply_mode": "policy",
         "status": status,
+        "policy_status": status,
+        "scope_label": "Global",
+        "measurement_scope": "Global memory recall telemetry",
         # MEASURED (not estimated): the input tokens recalls actually avoided by dropping
         # pruned memories, priced at the default input rate. $0 until the policy is applied
         # and recalls run — deliberately never a fabricated pre-apply estimate.
         "estimated_saving_usd": savings["saving_usd"],
+        "saving_kind": "Measured",
         "evidence": {
             "total_memories": total,
             "superseded_memories": n_sup,
@@ -891,20 +964,25 @@ def _converted_sessions(tenant_id: str) -> set:
 
 
 def count_confirmed_trips(tenant_id: str) -> int:
-    """Count of booked-trip outcomes for a tenant = Trip docs with status
-    confirmed/completed (Option A). Tenant-scoped and independent of ``sessionId``
-    (analytics trips carry a null sessionId), matching the Power BI ``Confirmed Trips``
-    measure once that measure is tenant-scoped via TREATAS.
-    """
+    """Count confirmed/completed Trips owned by the canonical controlled fixture."""
     if cosmos.database is None:
         cosmos.initialize_cosmos_client()
     if cosmos.database is None:
         return 0
     try:
+        from src.app.services.controlled_demo4 import controlled_fixture_session_prefix
+
         rows = list(cosmos.database.get_container_client("Trips").query_items(
             query=("SELECT VALUE COUNT(1) FROM d WHERE d.tenantId=@t "
+                   "AND STARTSWITH(d.sessionId, @fixture_session_prefix) "
                    "AND (d.status='confirmed' OR d.status='completed')"),
-            parameters=[{"name": "@t", "value": tenant_id}],
+            parameters=[
+                {"name": "@t", "value": tenant_id},
+                {
+                    "name": "@fixture_session_prefix",
+                    "value": controlled_fixture_session_prefix(tenant_id),
+                },
+            ],
             enable_cross_partition_query=True,
         ))
         return int(rows[0]) if rows else 0
@@ -1170,6 +1248,7 @@ def build_turn_metrics(tenant_id: str) -> dict[str, Any]:
         "confirmed_outcomes": confirmed,
         "cost_per_outcome_usd": round(est_cost / confirmed, 4) if confirmed else None,
         "by_tier": sorted(by_tier.values(), key=lambda r: -r["cost"]),
+        **_controlled_state(tenant_id),
     }
 
 

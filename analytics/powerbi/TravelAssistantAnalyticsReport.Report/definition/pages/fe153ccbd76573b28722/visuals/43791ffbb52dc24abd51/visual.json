@@ -303,7 +303,7 @@
             "text": {
               "expr": {
                 "Literal": {
-                  "Value": "'Why sessions don't convert — abandonment cause by sessions'"
+                  "Value": "'Why sessions don't convert \u2014 abandonment cause by sessions'"
                 }
               }
             },
@@ -398,62 +398,6 @@
   },
   "filterConfig": {
     "filters": [
-      {
-        "name": "6c07dff8512e4a72889e",
-        "field": {
-          "Column": {
-            "Expression": {
-              "SourceRef": {
-                "Entity": "TravelAssistant OptimizationInsights"
-              }
-            },
-            "Property": "tenantId"
-          }
-        },
-        "type": "Categorical",
-        "filter": {
-          "Version": 2,
-          "From": [
-            {
-              "Name": "t",
-              "Entity": "TravelAssistant OptimizationInsights",
-              "Type": 0
-            }
-          ],
-          "Where": [
-            {
-              "Condition": {
-                "In": {
-                  "Expressions": [
-                    {
-                      "Column": {
-                        "Expression": {
-                          "SourceRef": {
-                            "Source": "t"
-                          }
-                        },
-                        "Property": "tenantId"
-                      }
-                    }
-                  ],
-                  "Values": [
-                    [
-                      {
-                        "Literal": {
-                          "Value": "'analytics'"
-                        }
-                      }
-                    ]
-                  ]
-                }
-              }
-            }
-          ]
-        },
-        "howCreated": "User",
-        "isHiddenInViewMode": true,
-        "isLockedInViewMode": true
-      },
       {
         "name": "8d54b79902a0ef447b31",
         "field": {

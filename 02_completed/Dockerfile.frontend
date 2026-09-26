@@ -2,8 +2,11 @@ FROM node:20-alpine AS build
 
 WORKDIR /app
 
+ARG NPM_CONFIG_REGISTRY=https://registry.npmjs.org/
+
 COPY frontend/package.json frontend/package-lock.json* ./
-RUN npm install
+RUN npm ci --include=dev --registry="${NPM_CONFIG_REGISTRY}" \
+    && test -x node_modules/.bin/ng
 
 COPY frontend/ ./
 RUN npm run build -- --configuration production
@@ -22,10 +25,9 @@ COPY analytics-portal/index.html /usr/share/nginx/html/analytics/index.html
 # Copy nginx config template and entrypoint
 COPY frontend/nginx.conf.template /etc/nginx/nginx.conf.template
 COPY frontend/docker-entrypoint.sh /docker-entrypoint-custom.sh
-RUN chmod +x /docker-entrypoint-custom.sh
+RUN sed -i 's/\r$//' /docker-entrypoint-custom.sh && chmod +x /docker-entrypoint-custom.sh
 
 EXPOSE 80
 
 ENTRYPOINT ["/docker-entrypoint-custom.sh"]
 CMD ["nginx", "-g", "daemon off;"]
-

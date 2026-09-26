@@ -102,9 +102,13 @@ def _opportunities(tenant_id: str) -> tuple[list[dict], float, dict]:
         # seams have no runtime policy, so their applied-state is "n/a".
         scenario = c["target"] if c.get("seam") == "config" else None
         if scenario:
-            applied = optimization_policy.get_active_policy(scenario)
+            policy_tenant = tenant_id if scenario == "model-selection" else None
+            applied = optimization_policy.get_active_policy(scenario, policy_tenant)
             c["applied_state"] = "active" if applied else (
-                (optimization_policy.get_policy(scenario) or {}).get("status", "not_proposed"))
+                (optimization_policy.get_policy(scenario, policy_tenant) or {}).get(
+                    "status",
+                    "not_proposed",
+                ))
         else:
             c["applied_state"] = "n/a"
         enriched.append(c)

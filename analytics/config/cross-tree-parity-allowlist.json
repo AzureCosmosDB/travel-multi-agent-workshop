@@ -1,0 +1,136 @@
+{
+  "schema_version": 1,
+  "file_pairs": [
+    {
+      "left": "01_exercises/python/src/app/traveller_context.py",
+      "right": "02_completed/python/src/app/traveller_context.py"
+    },
+    {
+      "left": "01_exercises/python/src/app/services/agent_memory.py",
+      "right": "02_completed/python/src/app/services/agent_memory.py"
+    },
+    {
+      "left": "01_exercises/python/src/app/prompts/supervisor.prompty",
+      "right": "02_completed/python/src/app/prompts/supervisor.prompty"
+    },
+    {
+      "left": "01_exercises/frontend/src/app/services/travel-api.service.ts",
+      "right": "02_completed/frontend/src/app/services/travel-api.service.ts"
+    },
+    {
+      "left": "01_exercises/frontend/src/app/models/travel.models.ts",
+      "right": "02_completed/frontend/src/app/models/travel.models.ts"
+    },
+    {
+      "left": "01_exercises/python/tests/test_memory_dependency_compatibility.py",
+      "right": "02_completed/python/tests/test_memory_dependency_compatibility.py"
+    },
+    {
+      "left": "01_exercises/python/tests/test_user_preferences_service.py",
+      "right": "02_completed/python/tests/test_user_preferences_service.py"
+    },
+    {
+      "left": "01_exercises/python/tests/test_traveller_context.py",
+      "right": "02_completed/python/tests/test_traveller_context.py"
+    }
+  ],
+  "allowances": [
+    {
+      "left": "01_exercises/python/src/app/trip_planning.py",
+      "right": "02_completed/python/src/app/trip_planning.py",
+      "reason": "Reviewed storage-adapter signatures differ while shared endpoint tests enforce the same replay, conflict, healing, and compensation behavior.",
+      "owner": "Travel workshop maintainers",
+      "review_condition": "Remove when both trees use the same Cosmos create-result facade."
+    },
+    {
+      "left": "01_exercises/python/src/app/travel_agents_api.py",
+      "right": "02_completed/python/src/app/travel_agents_api.py",
+      "reason": "The completed API includes post-workshop analytics surfaces and a different streaming architecture; shared contracts are covered by named mirrored tests.",
+      "owner": "Travel workshop maintainers",
+      "review_condition": "Review whenever shared profile, memory, trip, or completion endpoints change."
+    },
+    {
+      "left": "01_exercises/python/src/app/services/azure_cosmos_db.py",
+      "right": "02_completed/python/src/app/services/azure_cosmos_db.py",
+      "reason": "The completed tree has reviewed tracing and request-id adapter differences required by its runtime architecture.",
+      "owner": "Travel workshop maintainers",
+      "review_condition": "Remove after a common persistence facade is introduced."
+    },
+    {
+      "left": "01_exercises/python/src/app/travel_agents.py",
+      "right": "02_completed/python/src/app/travel_agents.py",
+      "reason": "Agent construction differs structurally between learner scaffolding and the completed graph while shared wrapper behavior is tested.",
+      "owner": "Travel workshop maintainers",
+      "review_condition": "Review whenever tool wrapping, active-trip binding, or tenant model selection changes."
+    },
+    {
+      "left": "01_exercises/python/data/seed_data.py",
+      "right": "02_completed/python/data/seed_data.py",
+      "reason": "Completed-only analytics derivation remains intentionally absent from the learner tree; canonical paired records are validated separately.",
+      "owner": "Travel workshop maintainers",
+      "review_condition": "Review whenever shared seed inputs or canonical record membership changes."
+    }
+  ],
+  "seed_manifest": [
+    {
+      "name": "analytics-debug-canonical",
+      "left": "01_exercises/python/data/debug.json",
+      "right": "02_completed/python/data/debug.json",
+      "id_field": "id",
+      "record_ids": [
+        "f76692a4-85c3-4eec-b3e7-ec32bbf80328",
+        "19e5e883-2fda-4319-803d-bd1a10d98352",
+        "397f8455-de31-4fe1-a9ce-b64030b00bd1"
+      ],
+      "remove_fields": []
+    },
+    {
+      "name": "marvel-message-canonical",
+      "left": "01_exercises/python/data/messages.json",
+      "right": "02_completed/python/data/messages.json",
+      "id_field": "id",
+      "record_ids": [
+        "msg_0191182c93e7",
+        "msg_9dce0601ff16",
+        "msg_9df84f9d1655"
+      ],
+      "remove_fields": []
+    },
+    {
+      "name": "analytics-message-canonical",
+      "left": "01_exercises/python/data/messages.json",
+      "right": "02_completed/python/data/messages.json",
+      "id_field": "id",
+      "record_ids": [
+        "msg_3aaf30a66b4a",
+        "msg_2dbc4c96a61d",
+        "msg_8125e0e407c3"
+      ],
+      "remove_fields": []
+    },
+    {
+      "name": "marvel-session-canonical",
+      "left": "01_exercises/python/data/sessions.json",
+      "right": "02_completed/python/data/sessions.json",
+      "id_field": "id",
+      "record_ids": [
+        "session_3a623f260c35",
+        "session_98388fcdd313",
+        "session_918f3950361a"
+      ],
+      "remove_fields": []
+    },
+    {
+      "name": "analytics-session-canonical",
+      "left": "01_exercises/python/data/sessions.json",
+      "right": "02_completed/python/data/sessions.json",
+      "id_field": "id",
+      "record_ids": [
+        "session_de3a60a34817",
+        "session_2334554b757e",
+        "session_42de59da9ba8"
+      ],
+      "remove_fields": []
+    }
+  ]
+}

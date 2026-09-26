@@ -195,9 +195,10 @@
       <div>
         <button 
           (click)="startTrip()"
-          class="px-5 py-2.5 rounded-2xl bg-cosmos-primary text-white hover:bg-blue-600 transition shadow-md hover:shadow-lg"
+          [disabled]="isStartingTrip"
+          class="px-5 py-2.5 rounded-2xl bg-cosmos-primary text-white hover:bg-blue-600 transition shadow-md hover:shadow-lg disabled:opacity-60 disabled:cursor-not-allowed"
         >
-          Start a trip
+          {{ isStartingTrip ? 'Starting trip...' : 'Start a trip' }}
         </button>
       </div>
     </div>

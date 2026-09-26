@@ -19,6 +19,8 @@ lower-risk optimizations safe to automate (maturity Level 4/5).
 from __future__ import annotations
 
 import logging
+import os
+from functools import wraps
 from typing import Any, Optional
 
 from fastapi import APIRouter, HTTPException
@@ -27,6 +29,16 @@ from pydantic import BaseModel
 from src.app.services import optimization_policy
 from src.app.services import fabric_capacity
 from src.app.services import demo_data
+from src.app.services.lifecycle_coordinator import (
+    CosmosLifecycleCoordinator,
+    LifecycleLeaseBusy,
+    LifecycleLeaseUnavailable,
+)
+from src.app.services.controlled_demo4 import (
+    BURST_ANCHOR,
+    BURST_VERSION,
+    FIXTURE_VERSION,
+)
 from src.app.services.optimization_recommendations import (
     build_recommendations,
     build_turn_metrics,
@@ -50,6 +62,82 @@ from src.app.services.optimization_recommendations import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/optimizations", tags=["optimizations"])
+
+_LIFECYCLE_TIMEOUT_SECONDS = max(
+    0.01, float(os.getenv("CONTROLLED_DEMO_LOCK_TIMEOUT_SECONDS", "2"))
+)
+_LIFECYCLE_LEASE_TTL_SECONDS = min(
+    3600.0, max(1.0, float(os.getenv("CONTROLLED_DEMO_LEASE_TTL_SECONDS", "900")))
+)
+_LIFECYCLE_COORDINATOR = CosmosLifecycleCoordinator(
+    acquisition_timeout_seconds=_LIFECYCLE_TIMEOUT_SECONDS,
+    lease_ttl_seconds=_LIFECYCLE_LEASE_TTL_SECONDS,
+)
+
+
+def _serialized_lifecycle(operation: str):
+    """Serialize every controlled lifecycle mutation with a bounded wait."""
+    def decorate(function):
+        @wraps(function)
+        def wrapped(*args, **kwargs):
+            try:
+                lease = _LIFECYCLE_COORDINATOR.acquire(operation)
+            except LifecycleLeaseBusy as exc:
+                raise HTTPException(
+                    status_code=423,
+                    detail={
+                        "code": "controlled_demo_lifecycle_busy",
+                        "operation": operation,
+                        "reason": "lock_acquisition_timeout",
+                        "timeout_seconds": _LIFECYCLE_TIMEOUT_SECONDS,
+                    },
+                ) from exc
+            except LifecycleLeaseUnavailable as exc:
+                raise HTTPException(
+                    status_code=503,
+                    detail={
+                        "code": "controlled_demo_lifecycle_unavailable",
+                        "operation": operation,
+                        "reason": "coordination_storage_unavailable",
+                    },
+                ) from exc
+            try:
+                return function(*args, **kwargs)
+            except HTTPException:
+                raise
+            except Exception as exc:  # noqa: BLE001
+                logger.exception("%s lifecycle operation failed", operation)
+                raise HTTPException(
+                    status_code=500,
+                    detail={
+                        "code": "controlled_demo_lifecycle_failed",
+                        "operation": operation,
+                        "error": str(exc),
+                    },
+                ) from exc
+            finally:
+                try:
+                    released = _LIFECYCLE_COORDINATOR.release(lease)
+                except LifecycleLeaseUnavailable as exc:
+                    raise HTTPException(
+                        status_code=503,
+                        detail={
+                            "code": "controlled_demo_lifecycle_unavailable",
+                            "operation": operation,
+                            "reason": "coordination_storage_unavailable",
+                        },
+                    ) from exc
+                if not released:
+                    raise HTTPException(
+                        status_code=503,
+                        detail={
+                            "code": "controlled_demo_lifecycle_unavailable",
+                            "operation": operation,
+                            "reason": "lease_ownership_lost",
+                        },
+                    )
+        return wrapped
+    return decorate
 
 # Known scenario -> default proposed params provider, so /propose can seed
 # without a body. Model selection reads the config-driven defaults at call time.
@@ -77,19 +165,50 @@ _SCENARIO_META: dict[str, dict[str, str]] = {
 class ProposeBody(BaseModel):
     params: Optional[dict[str, Any]] = None
     by: str = "analytics"
+    tenant_id: str = "analytics"
 
 
 class ActionBody(BaseModel):
     by: str = "dashboard"
+    tenant_id: str = "analytics"
+
+
+def _policy_applies_to_tenant(policy: dict[str, Any], tenant_id: str) -> bool:
+    scenario = policy.get("scenario") or policy.get("scenario_id") or policy.get("id")
+    explicit_tenant = policy.get("tenant_id") or policy.get("tenantId")
+    if explicit_tenant:
+        return str(explicit_tenant).casefold() == tenant_id.casefold()
+    if scenario == MODEL_SELECTION_SCENARIO:
+        target = os.getenv("MODEL_SELECTION_TENANT", "analytics").strip() or "analytics"
+        return tenant_id.casefold() == target.casefold()
+    return scenario == MEMORY_RETENTION_SCENARIO
+
+
+def _policy_tenant(scenario: str, tenant_id: str) -> Optional[str]:
+    return tenant_id if scenario == MODEL_SELECTION_SCENARIO else None
 
 
 @router.get("/policies")
-def list_policies() -> dict[str, Any]:
+def list_policies(tenant_id: Optional[str] = None) -> dict[str, Any]:
     # `capabilities` lets the portal feature-detect optional server actions (e.g. the
     # in-process insights recompute below, present on the completed solution) and hide
     # controls the running API doesn't support — so the shared portal stays clean when
     # served against the workshop scaffold.
-    return {"policies": optimization_policy.list_policies(),
+    policies = optimization_policy.list_policies()
+    if tenant_id:
+        policies = [policy for policy in policies if _policy_applies_to_tenant(policy, tenant_id)]
+        scoped_scenarios = {
+            policy.get("scenario")
+            for policy in policies
+            if policy.get("tenant_id") or policy.get("tenantId")
+        }
+        policies = [
+            policy
+            for policy in policies
+            if (policy.get("tenant_id") or policy.get("tenantId"))
+            or policy.get("scenario") not in scoped_scenarios
+        ]
+    return {"policies": policies,
             "capabilities": {"recompute_insights": True, "reset_state": True, "generate_traffic": True}}
 
 
@@ -136,6 +255,7 @@ def refresh_demo_times(window_minutes: int = 120) -> dict[str, Any]:
 
 # --- In-process reverse-ETL: (re)build the OptimizationInsights snapshot, no Fabric ---
 @router.post("/insights")
+@_serialized_lifecycle("recompute")
 def recompute_insights(tenant: str = "analytics") -> dict[str, Any]:
     """Recompute the ``OptimizationInsights`` snapshot for ``tenant`` in-process and upsert
     it to Cosmos — the same reverse-ETL the Module-09 Fabric notebook performs, but computed
@@ -143,7 +263,11 @@ def recompute_insights(tenant: str = "analytics") -> dict[str, Any]:
     Governance views, which read the snapshot. Mirrors analytics/fabric/compute_insights.py."""
     try:
         from src.app.services import optimization_insights
-        return optimization_insights.recompute_insights(tenant)
+        if tenant not in {"analytics", "marvel"}:
+            raise ValueError(f"unsupported controlled recompute tenant: {tenant}")
+        return optimization_insights.recompute_controlled_demo4()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:  # noqa: BLE001
         logger.exception("insights recompute failed")
         raise HTTPException(status_code=500, detail=f"Insights recompute failed: {exc}")
@@ -151,17 +275,11 @@ def recompute_insights(tenant: str = "analytics") -> dict[str, Any]:
 
 # --- Reset the runtime optimization state (governance + insights) for a clean demo ---
 @router.post("/reset")
-def reset_optimization(tenant: Optional[str] = None) -> dict[str, Any]:
-    """Reset the demo to a clean 'before-optimization' state: clear runtime state —
-    OptimizationGovernance (stale approvals) + OptimizationInsights (stale snapshot) — AND
-    normalize every captured turn back to the single-premium baseline (so the model donut shows
-    one model and 'apply model-selection -> tier' reads as a clean before/after). Does NOT touch
-    tokens, the funnel signal, or app data. Follow with POST /optimizations/insights to rebuild
-    the snapshot."""
+@_serialized_lifecycle("reset")
+def reset_optimization() -> dict[str, Any]:
+    """Restore the deterministic two-tenant controlled Demo 4 baseline."""
     try:
-        cleared = demo_data.reset_optimization_state(tenant)
-        baseline = demo_data.restore_baseline_turns(tenant)
-        return {**cleared, "baseline": baseline}
+        return demo_data.reset_controlled_demo4()
     except Exception as exc:  # noqa: BLE001
         logger.exception("optimization reset failed")
         raise HTTPException(status_code=500, detail=f"Optimization reset failed: {exc}")
@@ -169,13 +287,34 @@ def reset_optimization(tenant: Optional[str] = None) -> dict[str, Any]:
 
 # --- Generate synthetic traffic (policy-aware) to drive the apply -> re-measure loop ---
 @router.post("/traffic")
-def generate_demo_traffic(tenant: str = "analytics", count: int = 150, minutes: int = 5) -> dict[str, Any]:
+@_serialized_lifecycle("traffic")
+def generate_demo_traffic(
+    tenant: str = "analytics",
+    count: int = 150,
+    minutes: int = 5,
+    controlled: bool = False,
+    fixture_version: str = FIXTURE_VERSION,
+    burst_version: str = BURST_VERSION,
+    anchor: str = BURST_ANCHOR,
+) -> dict[str, Any]:
     """Write a burst of synthetic turns (policy-aware: baseline single-model until model-selection
     is applied, capability-tiered once active) into the last ``minutes``, dual-writing Debug +
     OptimizationTurns so every live view reflects it. In-process equivalent of
     analytics/scripts/traffic_simulator.py --mode direct."""
     try:
-        return demo_data.generate_traffic(tenant, count=count, minutes=minutes)
+        return demo_data.generate_traffic(
+            tenant,
+            count=count,
+            minutes=minutes,
+            controlled=controlled,
+            fixture_version=fixture_version,
+            burst_version=burst_version,
+            anchor=anchor,
+        )
+    except demo_data.ControlledTrafficInactiveError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:  # noqa: BLE001
         logger.exception("traffic generation failed")
         raise HTTPException(status_code=500, detail=f"Traffic generation failed: {exc}")
@@ -202,7 +341,13 @@ def get_recommendations(tenant_id: str, source: str = "auto") -> dict[str, Any]:
             recs, used = [], "fabric"
         else:
             recs, used = build_recommendations(tenant_id), "live"
-    return {"tenant_id": tenant_id, "source": used, "recommendations": recs}
+    from src.app.services.optimization_recommendations import _controlled_state
+    return {
+        "tenant_id": tenant_id,
+        "source": used,
+        "dataset_state": _controlled_state(tenant_id),
+        "recommendations": recs,
+    }
 
 
 @router.get("/{tenant_id}/metrics")
@@ -231,7 +376,9 @@ def get_optimization_result(tenant_id: str) -> dict[str, Any]:
     """
     res = read_optimization_result_from_insights(tenant_id)
     if res is None:
+        from src.app.services.optimization_recommendations import _controlled_state
         return {"tenant_id": tenant_id, "source": "fabric", "results": [],
+                "dataset_state": _controlled_state(tenant_id),
                 "note": "no measured result yet; run the analytics loop"}
     return res
 
@@ -289,8 +436,8 @@ def get_agent_paths(tenant_id: str) -> dict[str, Any]:
 
 
 @router.get("/{scenario}/policy")
-def get_scenario_policy(scenario: str) -> dict[str, Any]:
-    doc = optimization_policy.get_policy(scenario)
+def get_scenario_policy(scenario: str, tenant_id: str = "analytics") -> dict[str, Any]:
+    doc = optimization_policy.get_policy(scenario, _policy_tenant(scenario, tenant_id))
     if doc is None:
         raise HTTPException(status_code=404, detail=f"No policy for scenario '{scenario}'")
     return doc
@@ -315,6 +462,9 @@ def propose(scenario: str, body: Optional[ProposeBody] = None) -> dict[str, Any]
         "gate": {"metric": "e2e_quality", "threshold": 4.0},
         "proposed_by": body.by,
     }
+    policy_tenant = _policy_tenant(scenario, body.tenant_id)
+    if policy_tenant:
+        doc["tenant_id"] = policy_tenant
     saved = optimization_policy.propose_policy(doc)
     if saved is None:
         raise HTTPException(status_code=503, detail="Policy store unavailable")
@@ -322,6 +472,7 @@ def propose(scenario: str, body: Optional[ProposeBody] = None) -> dict[str, Any]
 
 
 @router.post("/{scenario}/apply")
+@_serialized_lifecycle("apply")
 def apply(scenario: str, body: Optional[ActionBody] = None) -> dict[str, Any]:
     body = body or ActionBody()
     # tool-call-dedup is a MANUAL (human-deployed) prompt optimization: you review the diff
@@ -335,9 +486,14 @@ def apply(scenario: str, body: Optional[ActionBody] = None) -> dict[str, Any]:
                    "There is no in-app apply.",
         )
     # Auto-seed a proposal if none exists yet, so apply is genuinely one-click.
-    if optimization_policy.get_policy(scenario) is None:
-        propose(scenario, ProposeBody(by=body.by))
-    saved = optimization_policy.apply_policy(scenario, by=body.by)
+    policy_tenant = _policy_tenant(scenario, body.tenant_id)
+    if optimization_policy.get_policy(scenario, policy_tenant) is None:
+        propose(scenario, ProposeBody(by=body.by, tenant_id=body.tenant_id))
+    saved = optimization_policy.apply_policy(
+        scenario,
+        by=body.by,
+        tenant_id=policy_tenant,
+    )
     if saved is None:
         raise HTTPException(status_code=404, detail=f"No policy to apply for '{scenario}'")
     # Memory retention applies a side effect: soft-prune superseded memories (reversible).
@@ -347,6 +503,7 @@ def apply(scenario: str, body: Optional[ActionBody] = None) -> dict[str, Any]:
 
 
 @router.post("/{scenario}/revert")
+@_serialized_lifecycle("revert")
 def revert(scenario: str, body: Optional[ActionBody] = None) -> dict[str, Any]:
     body = body or ActionBody()
     # tool-call-dedup is a MANUAL prompt optimization: nothing is applied in-app, so nothing
@@ -357,7 +514,11 @@ def revert(scenario: str, body: Optional[ActionBody] = None) -> dict[str, Any]:
             detail="This is a Manual (human-deployed) prompt optimization; there is no in-app "
                    "applied policy to revert — roll back via the decision endpoint (governance).",
         )
-    saved = optimization_policy.revert_policy(scenario, by=body.by)
+    saved = optimization_policy.revert_policy(
+        scenario,
+        by=body.by,
+        tenant_id=_policy_tenant(scenario, body.tenant_id),
+    )
     if saved is None:
         raise HTTPException(status_code=404, detail=f"No policy to revert for '{scenario}'")
     if scenario == MEMORY_RETENTION_SCENARIO:

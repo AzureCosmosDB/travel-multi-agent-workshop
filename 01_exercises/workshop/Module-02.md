@@ -14,6 +14,13 @@ The moment a traveller says *"Plan me a vegetarian 3-day trip to Tokyo with a ho
 - compose a **structured itinerary** with day-by-day slots and place IDs
 - write the trip back to Cosmos DB through the existing MCP `create_new_trip` / `update_trip` tools
 
+The same orchestration applies when a traveller asks to add a hotel, restaurant or other meal,
+or activity to an **existing** trip whose status is `planning`. The runtime must first resolve one
+authoritative existing trip, discover a concrete candidate, read the current itinerary, and merge
+only the requested change. If zero or multiple planning trips are plausible, the assistant
+clarifies instead of creating or mutating a trip. Module 05 uses the trace to verify that the trip
+ID, dates, planning status, unrelated itinerary fields, and total trip count stay unchanged.
+
 You don't want the supervisor doing all of that in one giant prompt - each of those jobs needs its own focused instructions, its own model bind, and its own tool surface. So we'll add two **specialized sub-agents** that the supervisor invokes as if they were tools:
 
 1. **`find_places`** - a one-shot selector that wraps the MCP `discover_places` / `discover_itinerary` tools. It owns the prompt that tells the model how to translate constraints into a hybrid-search call.

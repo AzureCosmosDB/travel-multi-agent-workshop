@@ -19,6 +19,8 @@ Fabric + Power BI + Azure REST APIs:
     - upload the reverse-ETL notebook (Module 09) with its parameters pre-filled
       (Cosmos + mirror SQL endpoint). The report uses DirectQuery over the mirror SQL
       endpoint, so no separate Direct Lake semantic model is created.
+    - create/update a Data Pipeline controller that runs Analytics first (including
+      shared global work), then Marvel (tenant work only)
     - deploy the translytical Apply/Revert User Data Function (Cosmos endpoint injected,
       azure-cosmos installed) + grant the deploying user Cosmos data-plane write, so
       Power BI buttons drive the optimization apply-loop with no manual portal steps
@@ -37,21 +39,28 @@ from __future__ import annotations
 
 import argparse
 import base64
+import hashlib
 import json
 import os
 import re
 import subprocess
 import sys
 import time
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Optional
 
 import requests
+from fabric_assets import (
+    PIPELINE_DISPLAY_NAME,
+    demo_tenant_pipeline_definition,
+    validate_demo_tenant_pipeline_definition,
+)
 
 try:
     from azure.identity import DefaultAzureCredential
-except ImportError:  # pragma: no cover
-    print("azure-identity is required: pip install azure-identity", file=sys.stderr)
-    raise
+except ImportError:  # pragma: no cover - staging preflight remains usable without Azure SDK
+    DefaultAzureCredential = None
 
 FABRIC_API = "https://api.fabric.microsoft.com/v1"
 PBI_API = "https://api.powerbi.com/v1.0/myorg"
@@ -68,22 +77,150 @@ COSMOS_DATA_CONTRIBUTOR = "00000000-0000-0000-0000-000000000002"
 # `memories` powers the Memory Intelligence report page (salience / health / supersession).
 MIRROR_TABLES = ["OptimizationTurns", "NodeExecutions", "Trips", "OptimizationPolicies", "OptimizationGovernance", "Configuration", "Messages", "ApiEvents", "OptimizationInsights", "memories"]
 
+HERE = Path(__file__).resolve().parent
+ROOT = HERE.parents[1]
+EVIDENCE: dict[str, Any] = {}
+ACTIVE_ARGS: argparse.Namespace | None = None
+
+
+def _utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _tree_sha256(path: Path) -> str:
+    if not path.is_dir():
+        raise FileNotFoundError(f"source definition directory not found: {path}")
+    digest = hashlib.sha256()
+    files = sorted(candidate for candidate in path.rglob("*") if candidate.is_file())
+    if not files:
+        raise FileNotFoundError(f"source definition directory is empty: {path}")
+    for item in files:
+        digest.update(item.relative_to(path).as_posix().encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(item.read_bytes())
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
+def _source_hashes(args: argparse.Namespace) -> dict[str, str]:
+    notebook = Path(args.notebook)
+    if args.solution and not notebook.stem.endswith("_solution"):
+        notebook = notebook.with_name(f"{notebook.stem}_solution{notebook.suffix}")
+    sources = {
+        "notebook": hashlib.sha256(notebook.read_bytes()).hexdigest(),
+        "pipeline": hashlib.sha256(
+            json.dumps(
+                demo_tenant_pipeline_definition(
+                    "{{FABRIC_WORKSPACE_ID}}", "{{FABRIC_NOTEBOOK_ID}}"
+                ),
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        ).hexdigest(),
+        "udf": _tree_sha256(HERE / "udf"),
+        "semantic_model": _tree_sha256(Path(args.semantic_model_source)),
+        "report": _tree_sha256(Path(args.report_source)),
+    }
+    return sources
+
+
+def _initialize_evidence(args: argparse.Namespace) -> None:
+    global EVIDENCE
+    EVIDENCE = {
+        "schema_version": 1,
+        "status": "Unverified",
+        "environment": args.environment,
+        "started_utc": _utc_now(),
+        "completed_utc": None,
+        "reason": "",
+        "ids": {
+            "workspace": None,
+            "mirror": None,
+            "notebook": None,
+            "pipeline": None,
+            "udf": None,
+            "semantic_model": None,
+            "report": None,
+        },
+        "source_definition_hashes": {},
+        "query_evidence": {"semantic_model": None, "report": None},
+    }
+    EVIDENCE["source_definition_hashes"] = _source_hashes(args)
+
+
+def _write_evidence(args: argparse.Namespace, status: str, reason: str = "") -> None:
+    EVIDENCE["status"] = status
+    EVIDENCE["reason"] = reason
+    EVIDENCE["completed_utc"] = _utc_now()
+    path = Path(args.evidence_output)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8", newline="\n") as stream:
+        json.dump(EVIDENCE, stream, indent=2, sort_keys=True)
+        stream.write("\n")
+    print(f"FABRIC_STAGING_EVIDENCE={path}")
+    print(f"FABRIC_STAGING_STATUS={status}")
+
+
+def _record_ids(**ids: str | None) -> None:
+    for key, value in ids.items():
+        if value:
+            EVIDENCE["ids"][key] = value
+
 
 # --------------------------------------------------------------------------- creds
 class Tokens:
-    """Lazily-cached AAD tokens for the three APIs we call."""
+    """Lazily cached tokens, preferring the active Azure PowerShell context on Windows."""
 
     def __init__(self) -> None:
+        if DefaultAzureCredential is None:
+            raise RuntimeError(
+                "azure-identity is unavailable; install deployment dependencies before provisioning"
+            )
         self._cred = DefaultAzureCredential(exclude_interactive_browser_credential=False)
         self._cache: dict[str, tuple[str, float]] = {}
+
+    @staticmethod
+    def _powershell(scope: str) -> tuple[str, float]:
+        resource = scope[: -len(".default")] if scope.endswith("/.default") else scope
+        escaped = resource.replace("'", "''")
+        script = (
+            f"$r=Get-AzAccessToken -ResourceUrl '{escaped}';"
+            "if($r.Token -is [securestring]){"
+            "$p=[Runtime.InteropServices.Marshal]::SecureStringToBSTR($r.Token);"
+            "try{$token=[Runtime.InteropServices.Marshal]::PtrToStringBSTR($p)}"
+            "finally{[Runtime.InteropServices.Marshal]::ZeroFreeBSTR($p)}}"
+            "else{$token=$r.Token};"
+            "[ordered]@{token=$token;expiresOn=$r.ExpiresOn.ToUnixTimeSeconds()}|"
+            "ConvertTo-Json -Compress"
+        )
+        completed = subprocess.run(
+            ["pwsh", "-NoProfile", "-NonInteractive", "-Command", script],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if completed.returncode or not completed.stdout.strip():
+            raise RuntimeError(completed.stderr.strip() or "Get-AzAccessToken failed")
+        payload = json.loads(completed.stdout)
+        return payload["token"], float(payload["expiresOn"])
 
     def get(self, scope: str) -> str:
         tok, exp = self._cache.get(scope, (None, 0.0))
         if tok and time.time() < exp - 120:
             return tok
-        t = self._cred.get_token(scope)
-        self._cache[scope] = (t.token, t.expires_on)
-        return t.token
+        if os.name == "nt":
+            try:
+                tok, exp = self._powershell(scope)
+                self._cache[scope] = (tok, exp)
+                return tok
+            except Exception as exc:
+                log(
+                    f"Azure PowerShell token unavailable for {scope}; "
+                    f"using safe fallback ({type(exc).__name__})"
+                )
+        token = self._cred.get_token(scope)
+        self._cache[scope] = (token.token, token.expires_on)
+        return token.token
 
     def headers(self, scope: str) -> dict[str, str]:
         return {"Authorization": f"Bearer {self.get(scope)}", "Content-Type": "application/json"}
@@ -103,11 +240,41 @@ def b64(obj: Any) -> str:
     return base64.b64encode(json.dumps(obj).encode("utf-8")).decode("ascii")
 
 
-def req(method: str, url: str, headers: dict, *, json_body: Any = None, ok=(200, 201, 202)) -> requests.Response:
-    r = requests.request(method, url, headers=headers, json=json_body, timeout=120)
-    if r.status_code not in ok:
+def req(
+    method: str,
+    url: str,
+    headers: dict,
+    *,
+    json_body: Any = None,
+    ok=(200, 201, 202),
+    retry_safe: bool = False,
+) -> requests.Response:
+    method = method.upper()
+    retry_safe = retry_safe or method in {"GET", "PUT", "PATCH", "DELETE"}
+    attempts = 4 if retry_safe else 1
+    for attempt in range(1, attempts + 1):
+        try:
+            r = requests.request(
+                method, url, headers=headers, json=json_body, timeout=120
+            )
+        except (requests.ConnectionError, requests.Timeout):
+            if attempt == attempts:
+                raise
+            time.sleep(min(2 ** (attempt - 1), 8))
+            continue
+        if r.status_code in ok:
+            return r
+        if (
+            retry_safe
+            and r.status_code in {408, 429, 500, 502, 503, 504}
+            and attempt < attempts
+        ):
+            retry_after = r.headers.get("Retry-After", "")
+            delay = int(retry_after) if retry_after.isdigit() else min(2 ** (attempt - 1), 8)
+            time.sleep(delay)
+            continue
         raise RuntimeError(f"{method} {url} -> {r.status_code}: {r.text[:600]}")
-    return r
+    raise AssertionError("Fabric request retry loop exited unexpectedly")
 
 
 def poll_lro(resp: requests.Response, headers: dict, timeout: int = 600) -> Optional[dict]:
@@ -120,12 +287,12 @@ def poll_lro(resp: requests.Response, headers: dict, timeout: int = 600) -> Opti
     deadline = time.time() + timeout
     while time.time() < deadline:
         time.sleep(int(resp.headers.get("Retry-After", "5")))
-        s = requests.get(loc, headers=headers, timeout=60)
+        s = req("GET", loc, headers, ok=(200, 202))
         status = s.json().get("status") if s.text else None
         if status in ("Succeeded", "Completed"):
             result_url = s.headers.get("Location")
             if result_url:
-                rr = requests.get(result_url, headers=headers, timeout=60)
+                rr = req("GET", result_url, headers, ok=(200, 202))
                 return rr.json() if rr.text else None
             return s.json()
         if status in ("Failed", "Cancelled"):
@@ -139,6 +306,29 @@ def az(args: list[str]) -> str:
     if r.returncode != 0:
         raise RuntimeError(f"az {' '.join(args)} failed: {r.stderr.strip()[:500]}")
     return r.stdout.strip()
+
+
+def azure_context() -> dict[str, str]:
+    """Resolve subscription and tenant without relying on the Azure CLI cache."""
+    if os.name == "nt":
+        script = (
+            "$c=Get-AzContext;"
+            "if($null -eq $c){exit 1};"
+            "[ordered]@{subscription=$c.Subscription.Id;tenant=$c.Tenant.Id}|"
+            "ConvertTo-Json -Compress"
+        )
+        completed = subprocess.run(
+            ["pwsh", "-NoProfile", "-NonInteractive", "-Command", script],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if completed.returncode == 0 and completed.stdout.strip():
+            return json.loads(completed.stdout)
+    return {
+        "subscription": az(["account", "show", "--query", "id", "-o", "tsv"]),
+        "tenant": az(["account", "show", "--query", "tenantId", "-o", "tsv"]),
+    }
 
 
 def load_azd_env() -> dict[str, str]:
@@ -481,7 +671,7 @@ def update_mirror_tables(tok: Tokens, ws_id: str, mid: str, db_name: str) -> boo
     """
     hdr = tok.headers(FABRIC_SCOPE)
     resp = req("POST", f"{FABRIC_API}/workspaces/{ws_id}/mirroredDatabases/{mid}/getDefinition",
-               hdr, json_body={}, ok=(200, 202))
+               hdr, json_body={}, ok=(200, 202), retry_safe=True)
     res = poll_lro(resp, hdr) or (resp.json() if resp.text else {})
     parts = res.get("definition", {}).get("parts", [])
     part = next((p for p in parts if p.get("path") == "mirroring.json"), None)
@@ -503,7 +693,7 @@ def update_mirror_tables(tok: Tokens, ws_id: str, mid: str, db_name: str) -> boo
 
     log(f"adding table(s) to mirror: {', '.join(missing)}")
     r = req("POST", f"{FABRIC_API}/workspaces/{ws_id}/mirroredDatabases/{mid}/updateDefinition",
-            hdr, json_body={"definition": {"parts": parts}}, ok=(200, 202))
+            hdr, json_body={"definition": {"parts": parts}}, ok=(200, 202), retry_safe=True)
     poll_lro(r, hdr)
     log("mirror definition updated")
     return True
@@ -592,12 +782,57 @@ def upload_notebook(tok: Tokens, ws_id: str, nb_path: str, params: dict[str, str
             hdr,
             json_body={"definition": body["definition"]},
             ok=(200, 202),
+            retry_safe=True,
         )
         return existing["id"]
     log("creating notebook...")
     resp = req("POST", f"{FABRIC_API}/workspaces/{ws_id}/notebooks", hdr, json_body=body, ok=(200, 201, 202))
     result = poll_lro(resp, hdr) or resp.json()
     return result.get("id")
+
+
+def provision_demo_tenant_pipeline(tok: Tokens, ws_id: str, notebook_id: str) -> str:
+    """Create/update the sequential two-tenant notebook controller."""
+    hdr = tok.headers(FABRIC_SCOPE)
+    definition = demo_tenant_pipeline_definition(ws_id, notebook_id)
+    validate_demo_tenant_pipeline_definition(definition, ws_id, notebook_id)
+    definition_part = {
+        "path": "pipeline-content.json",
+        "payload": b64(definition),
+        "payloadType": "InlineBase64",
+    }
+    items = req("GET", f"{FABRIC_API}/workspaces/{ws_id}/dataPipelines", hdr).json().get("value", [])
+    existing = next((p for p in items if p.get("displayName") == PIPELINE_DISPLAY_NAME), None)
+    if existing:
+        log(f"updating demo-tenant pipeline '{PIPELINE_DISPLAY_NAME}'...")
+        resp = req(
+            "POST",
+            f"{FABRIC_API}/workspaces/{ws_id}/dataPipelines/{existing['id']}/updateDefinition",
+            hdr,
+            json_body={"definition": {"parts": [definition_part]}},
+            ok=(200, 202),
+            retry_safe=True,
+        )
+        poll_lro(resp, hdr)
+        return existing["id"]
+
+    log(f"creating demo-tenant pipeline '{PIPELINE_DISPLAY_NAME}'...")
+    resp = req(
+        "POST",
+        f"{FABRIC_API}/workspaces/{ws_id}/dataPipelines",
+        hdr,
+        json_body={
+            "displayName": PIPELINE_DISPLAY_NAME,
+            "description": "Sequential refresh for the Analytics and Marvel demo tenants",
+            "definition": {"parts": [definition_part]},
+        },
+        ok=(200, 201, 202),
+    )
+    result = poll_lro(resp, hdr) or (resp.json() if resp.text else {})
+    pipeline_id = result.get("id")
+    if not pipeline_id:
+        raise RuntimeError("Fabric did not return an id for the demo-tenant pipeline")
+    return pipeline_id
 
 
 def deploy_udf(tok: Tokens, ws_id: str, udf_src_path: str, cosmos_endpoint: str, db_name: str,
@@ -657,7 +892,8 @@ def deploy_udf(tok: Tokens, ws_id: str, udf_src_path: str, cosmos_endpoint: str,
         log("updating existing User Data Function definition...")
         resp = req("POST",
                    f"{FABRIC_API}/workspaces/{ws_id}/userDataFunctions/{existing['id']}/updateDefinition",
-                   hdr, json_body={"definition": body["definition"]}, ok=(200, 202))
+                   hdr, json_body={"definition": body["definition"]}, ok=(200, 202),
+                   retry_safe=True)
         poll_lro(resp, hdr)
         udf_id = existing["id"]
     else:
@@ -758,6 +994,7 @@ def _create_or_update_fabric_item(
             hdr,
             json_body=definition,
             ok=(200, 202),
+            retry_safe=True,
         )
         poll_lro(response, hdr)
         return existing["id"]
@@ -812,7 +1049,22 @@ def deploy_powerbi_report_sources(
         tok, ws_id, "Report", display_name, report_parts
     )
     _bind_directquery_sso(tok, ws_id, model_id)
-    _verify_dataset(tok, ws_id, model_id, "TravelAssistant OptimizationInsights")
+    _verify_dataset(
+        tok,
+        ws_id,
+        model_id,
+        "TravelAssistant OptimizationInsights",
+        evidence_key="semantic_model",
+    )
+    _verify_dataset(
+        tok,
+        ws_id,
+        model_id,
+        "TravelAssistant OptimizationInsights",
+        evidence_key="report",
+        evidence_context={"report_id": report_id, "semantic_model_id": model_id},
+    )
+    _record_ids(semantic_model=model_id, report=report_id)
     log(f"Power BI semantic model ready: {model_id}")
     log(f"Power BI report ready: {report_id}")
     return model_id, report_id
@@ -932,7 +1184,15 @@ def _report_insights_entity(report_path: str) -> str:
     return ""
 
 
-def _verify_dataset(tok: Tokens, ws_id: str, ds_id: str, entity: str = "") -> None:
+def _verify_dataset(
+    tok: Tokens,
+    ws_id: str,
+    ds_id: str,
+    entity: str = "",
+    *,
+    evidence_key: str = "semantic_model",
+    evidence_context: Optional[dict[str, str]] = None,
+) -> None:
     """Run a DAX query and fail unless the imported report can read the mirror."""
     hdr = tok.headers(PBI_SCOPE)
     dax = f"EVALUATE ROW(\"rows\", COUNTROWS('{entity}'))" if entity else "EVALUATE {1}"
@@ -948,6 +1208,14 @@ def _verify_dataset(tok: Tokens, ws_id: str, ds_id: str, entity: str = "") -> No
         rows = r.json()["results"][0]["tables"][0]["rows"][0]
     except Exception:  # pragma: no cover
         pass
+    evidence = {
+        "dataset_id": ds_id,
+        "query": dax,
+        "http_status": r.status_code,
+        "result": rows,
+    }
+    evidence.update(evidence_context or {})
+    EVIDENCE["query_evidence"][evidence_key] = evidence
     log("dataset query check: OK - report reads the mirror"
         + (f" ({entity}: {rows})" if entity else ""))
 
@@ -955,14 +1223,19 @@ def _verify_dataset(tok: Tokens, ws_id: str, ds_id: str, entity: str = "") -> No
 # --------------------------------------------------------------------------- main
 def resolve_config(args: argparse.Namespace) -> dict[str, str]:
     env = load_azd_env()
+    context: dict[str, str] = {}
+    if not (args.subscription or env.get("AZURE_SUBSCRIPTION_ID")) or not (
+        args.tenant or env.get("AZURE_TENANT_ID")
+    ):
+        context = azure_context()
     endpoint = args.cosmos_endpoint or env.get("COSMOSDB_ENDPOINT", "")
     account = args.cosmos_account
     if not account and endpoint:
         account = endpoint.replace("https://", "").split(".")[0]
     cfg = {
         "rg": args.resource_group or env.get("RG_NAME", ""),
-        "sub": args.subscription or env.get("AZURE_SUBSCRIPTION_ID", "") or (az(["account", "show", "--query", "id", "-o", "tsv"]) if not args.subscription else args.subscription),
-        "tenant_id": args.tenant or env.get("AZURE_TENANT_ID", "") or az(["account", "show", "--query", "tenantId", "-o", "tsv"]),
+        "sub": args.subscription or env.get("AZURE_SUBSCRIPTION_ID", "") or context.get("subscription", ""),
+        "tenant_id": args.tenant or env.get("AZURE_TENANT_ID", "") or context.get("tenant", ""),
         "capacity_name": args.capacity or env.get("FABRIC_CAPACITY_NAME", ""),
         "workspace_name": args.workspace,
         "cosmos_account": account or "",
@@ -973,8 +1246,35 @@ def resolve_config(args: argparse.Namespace) -> dict[str, str]:
     return cfg
 
 
-def main() -> None:
+def main() -> int:
+    global ACTIVE_ARGS
     p = argparse.ArgumentParser(description="Provision Fabric analytics for Travel Assistant optimization")
+    p.add_argument(
+        "--environment",
+        choices=["development", "staging"],
+        default="development",
+        help="deployment contract; staging requires source deployment and blocking verification",
+    )
+    p.add_argument(
+        "--verify-semantic-model",
+        action="store_true",
+        help="require a successful semantic-model query before staging is Verified",
+    )
+    p.add_argument(
+        "--verify-report",
+        action="store_true",
+        help="require source-controlled report binding/query evidence before staging is Verified",
+    )
+    p.add_argument(
+        "--evidence-output",
+        default=str(ROOT / ".local" / "fabric-provision-staging-evidence.json"),
+        help="machine-readable provisioning evidence JSON",
+    )
+    p.add_argument(
+        "--no-cloud",
+        action="store_true",
+        help="perform source/evidence preflight only and exit Unverified without cloud calls",
+    )
     p.add_argument("--workspace", default="Multi-Agent Travel Workshop", help="new workspace display name")
     p.add_argument("--capacity", help="Fabric capacity display name (default from azd FABRIC_CAPACITY_NAME)")
     p.add_argument("--resource-group", help="Cosmos resource group (default azd RG_NAME)")
@@ -1004,22 +1304,78 @@ def main() -> None:
                    default=os.path.join(powerbi_dir, "TravelAssistantAnalyticsReport.SemanticModel"),
                    help="TMDL semantic-model definition directory")
     p.add_argument("--phase", choices=["1", "2", "3", "report", "all"], default="all",
-                   help="1=workspace+identity+rbac, 2=+mirror+notebook+udf, 3=all+report "
+                   help="1=workspace+identity+rbac, 2=reuse workspace+update mirror/notebook/udf, 3=all+report "
                         "deployment, report=ONLY deploy the report (reuses the persisted "
                         "FABRIC_WORKSPACE_ID/FABRIC_MIRROR_ID)")
     args = p.parse_args()
+    ACTIVE_ARGS = args
     if args.solution:
         base, ext = os.path.splitext(args.notebook)
         if not base.endswith("_solution"):
             args.notebook = f"{base}_solution{ext}"
+    _initialize_evidence(args)
+
+    if args.environment == "staging":
+        if args.phase != "all":
+            _write_evidence(args, "Unverified", "staging requires --phase all")
+            return 2
+        if not (args.verify_semantic_model and args.verify_report):
+            _write_evidence(
+                args,
+                "Unverified",
+                "staging requires --verify-semantic-model and --verify-report",
+            )
+            return 2
+        if args.report or args.pbit:
+            _write_evidence(
+                args,
+                "Unverified",
+                "staging requires source-controlled PBIR/TMDL deployment, not PBIX/PBIT import",
+            )
+            return 2
+        if args.no_cloud:
+            _write_evidence(
+                args,
+                "Unverified",
+                "cloud execution intentionally disabled; staging remains blocking",
+            )
+            return 2
+        if not args.connection_id:
+            _write_evidence(
+                args,
+                "Unverified",
+                "staging requires an explicit Cosmos connection id",
+            )
+            return 2
 
     cfg = resolve_config(args)
-    missing = [k for k in ("rg", "sub", "capacity_name", "cosmos_account") if not cfg.get(k)]
+    required = ["rg", "sub", "cosmos_account"]
+    if args.phase in {"1", "3", "all"}:
+        required.append("capacity_name")
+    missing = [key for key in required if not cfg.get(key)]
     if missing:
+        if args.environment == "staging":
+            _write_evidence(
+                args,
+                "Unverified",
+                f"missing staging configuration: {', '.join(missing)}",
+            )
+            return 2
         die(f"missing config: {missing} (set via azd env or CLI flags)")
     log(f"config: {json.dumps({k: v for k, v in cfg.items()}, indent=0)}")
 
     tok = Tokens()
+    if args.environment == "staging":
+        try:
+            for scope in (FABRIC_SCOPE, PBI_SCOPE, ARM_SCOPE):
+                tok.get(scope)
+        except Exception as exc:
+            _write_evidence(
+                args,
+                "Unverified",
+                f"cloud credentials unavailable: {type(exc).__name__}: {exc}",
+            )
+            return 2
 
     # ---- report-only phase (reuses the workspace/mirror from a prior phase-1/2 run) ----
     if args.phase == "report":
@@ -1041,7 +1397,7 @@ def main() -> None:
             print(json.dumps({
                 "workspaceId": ws_id, "report": os.path.basename(report_path)
             }, indent=2))
-            return
+            return 0
 
         udf_id = env.get("FABRIC_UDF_ID", "")
         if not udf_id:
@@ -1080,18 +1436,28 @@ def main() -> None:
         }, indent=2))
         return
 
-    # ---- Phase 1 (fully automated) ----
-    capacity_id = wait_for_capacity(tok, cfg["capacity_name"])
-    ws_id = get_or_create_workspace(tok, cfg["workspace_name"], capacity_id)
-    persist_env({"FABRIC_WORKSPACE_ID": ws_id, "FABRIC_CAPACITY_NAME": cfg["capacity_name"]})
-    sp = provision_workspace_identity(tok, ws_id)
-    grant_cosmos_rbac(cfg["cosmos_account"], cfg["rg"], cfg["sub"], sp or "", cfg.get("app_identity_oid", ""))
-    enable_cosmos_bypass(cfg["cosmos_account"], cfg["rg"], cfg["tenant_id"], ws_id)
-    log(f"PHASE 1 COMPLETE. workspace={ws_id}")
+    # ---- Phase 1 (fully automated) or existing-topology reuse ----
+    if args.phase == "2":
+        existing = load_azd_env()
+        ws_id = existing.get("FABRIC_WORKSPACE_ID", "")
+        if not ws_id:
+            die("phase 2 reuses existing topology and requires FABRIC_WORKSPACE_ID")
+        capacity_id = existing.get("FABRIC_CAPACITY_ID", "")
+        sp = None
+        log(f"PHASE 1 SKIPPED. reusing workspace={ws_id}")
+    else:
+        capacity_id = wait_for_capacity(tok, cfg["capacity_name"])
+        ws_id = get_or_create_workspace(tok, cfg["workspace_name"], capacity_id)
+        _record_ids(workspace=ws_id)
+        persist_env({"FABRIC_WORKSPACE_ID": ws_id, "FABRIC_CAPACITY_NAME": cfg["capacity_name"]})
+        sp = provision_workspace_identity(tok, ws_id)
+        grant_cosmos_rbac(cfg["cosmos_account"], cfg["rg"], cfg["sub"], sp or "", cfg.get("app_identity_oid", ""))
+        enable_cosmos_bypass(cfg["cosmos_account"], cfg["rg"], cfg["tenant_id"], ws_id)
+        log(f"PHASE 1 COMPLETE. workspace={ws_id}")
 
     if args.phase == "1":
         print(json.dumps({"workspaceId": ws_id, "capacityId": capacity_id, "workspaceIdentitySp": sp}, indent=2))
-        return
+        return 0
 
     # ---- Phase 2 (needs the manual OAuth2 connection) ----
     connection_id = args.connection_id
@@ -1108,9 +1474,10 @@ def main() -> None:
         connection_id = input("Paste the Cosmos connection id (or blank to stop after phase 1): ").strip()
         if not connection_id:
             log("no connection id provided; stopping after phase 1.")
-            return
+            return 0
 
     mirror_id = get_or_create_mirror(tok, ws_id, connection_id, cfg["db_name"])
+    _record_ids(workspace=ws_id, mirror=mirror_id)
     persist_env({"FABRIC_MIRROR_ID": mirror_id})
 
     # Pre-fill the Module 09 notebook's parameters (Cosmos + the mirror SQL endpoint);
@@ -1125,20 +1492,35 @@ def main() -> None:
         "SQL_EP": sql_ep,
         "SQL_DB": f"{cfg['db_name']}Analytics",
     }
-    upload_notebook(tok, ws_id, args.notebook, nb_params)
+    notebook_id = upload_notebook(tok, ws_id, args.notebook, nb_params)
+    if not notebook_id:
+        die("Phase 2 requires the reverse-ETL notebook before creating its controller pipeline")
+    pipeline_id = provision_demo_tenant_pipeline(tok, ws_id, notebook_id)
+    _record_ids(notebook=notebook_id, pipeline=pipeline_id)
+    persist_env({
+        "FABRIC_NOTEBOOK_ID": notebook_id,
+        "FABRIC_DEMO_TENANTS_PIPELINE_ID": pipeline_id,
+    })
 
     # Deploy the translytical Apply/Revert User Data Function (and grant the deploying
     # user Cosmos data-plane write) so Power BI buttons work with no manual portal steps.
     udf_src = os.path.join(os.path.dirname(__file__), "udf", "optimization_policy_functions.py")
     udf_id = deploy_udf(tok, ws_id, udf_src, cfg["cosmos_endpoint"], cfg["db_name"])
     if udf_id:
+        _record_ids(udf=udf_id)
         persist_env({"FABRIC_UDF_ID": udf_id})
         grant_cosmos_data_contributor(cfg["cosmos_account"], cfg["rg"], cfg["sub"])
-    log(f"PHASE 2 COMPLETE. mirror={mirror_id}")
+    log(f"PHASE 2 COMPLETE. mirror={mirror_id} pipeline={pipeline_id}")
 
     if args.phase == "2":
-        print(json.dumps({"workspaceId": ws_id, "mirrorId": mirror_id, "udfId": udf_id}, indent=2))
-        return
+        print(json.dumps({
+            "workspaceId": ws_id,
+            "mirrorId": mirror_id,
+            "notebookId": notebook_id,
+            "demoTenantsPipelineId": pipeline_id,
+            "udfId": udf_id,
+        }, indent=2))
+        return 0
 
     # ---- Phase 3 (deploy the source-controlled Power BI report/model) ----
     report_path = args.pbit or args.report
@@ -1167,7 +1549,57 @@ def main() -> None:
         })
     log("ALL PHASES COMPLETE.")
     print(json.dumps({"workspaceId": ws_id, "mirrorId": mirror_id}, indent=2))
+    _record_ids(workspace=ws_id, mirror=mirror_id, notebook=notebook_id, pipeline=pipeline_id, udf=udf_id)
+    if args.environment == "staging":
+        missing_ids = [key for key, value in EVIDENCE["ids"].items() if not value]
+        if missing_ids:
+            _write_evidence(
+                args,
+                "Failed",
+                f"deployment completed without required ids: {', '.join(missing_ids)}",
+            )
+            return 1
+        if not all(EVIDENCE["query_evidence"].values()):
+            _write_evidence(
+                args,
+                "Failed",
+                "semantic-model/report query evidence is incomplete",
+            )
+            return 1
+        _write_evidence(args, "Verified")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        raise SystemExit(main())
+    except SystemExit as exc:
+        if (
+            ACTIVE_ARGS is not None
+            and ACTIVE_ARGS.environment == "staging"
+            and EVIDENCE
+            and EVIDENCE.get("completed_utc") is None
+            and int(exc.code or 0) != 0
+        ):
+            _write_evidence(
+                ACTIVE_ARGS,
+                "Unverified",
+                "provisioning exited before verified completion; inspect preceding error",
+            )
+        raise
+    except Exception as exc:
+        if ACTIVE_ARGS is not None and ACTIVE_ARGS.environment == "staging" and EVIDENCE:
+            text = f"{type(exc).__name__}: {exc}"
+            unverified_terms = (
+                "credential",
+                "capacity",
+                "connection",
+                "workspace",
+                "not found",
+                "missing",
+                "unavailable",
+                "timed out",
+            )
+            status = "Unverified" if any(term in text.lower() for term in unverified_terms) else "Failed"
+            _write_evidence(ACTIVE_ARGS, status, text)
+        raise

@@ -125,6 +125,16 @@
         </div>
 
         <div class="space-y-3 ml-13">
+          <!-- Breakfast -->
+          <div *ngIf="day.breakfast" class="flex gap-3 items-start">
+            <span class="text-2xl">☕</span>
+            <div class="flex-1">
+              <div class="font-medium text-sm text-gray-500">Breakfast</div>
+              <div class="font-semibold">{{ day.breakfast.activity }}</div>
+              <div *ngIf="day.breakfast.time" class="text-xs text-gray-500">{{ day.breakfast.time }}</div>
+            </div>
+          </div>
+
           <!-- Morning -->
           <div *ngIf="day.morning" class="flex gap-3 items-start">
             <span class="text-2xl">🌅</span>

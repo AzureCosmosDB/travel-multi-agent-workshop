@@ -303,7 +303,7 @@
             "text": {
               "expr": {
                 "Literal": {
-                  "Value": "'Conversion funnel — sessions: engaged → searched → planned → confirmed'"
+                  "Value": "'Conversion funnel \u2014 sessions: engaged \u2192 searched \u2192 planned \u2192 confirmed'"
                 }
               }
             },
@@ -398,62 +398,6 @@
   },
   "filterConfig": {
     "filters": [
-      {
-        "name": "4da4809a9430aeeb6688",
-        "field": {
-          "Column": {
-            "Expression": {
-              "SourceRef": {
-                "Entity": "TravelAssistant OptimizationInsights"
-              }
-            },
-            "Property": "tenantId"
-          }
-        },
-        "type": "Categorical",
-        "filter": {
-          "Version": 2,
-          "From": [
-            {
-              "Name": "t",
-              "Entity": "TravelAssistant OptimizationInsights",
-              "Type": 0
-            }
-          ],
-          "Where": [
-            {
-              "Condition": {
-                "In": {
-                  "Expressions": [
-                    {
-                      "Column": {
-                        "Expression": {
-                          "SourceRef": {
-                            "Source": "t"
-                          }
-                        },
-                        "Property": "tenantId"
-                      }
-                    }
-                  ],
-                  "Values": [
-                    [
-                      {
-                        "Literal": {
-                          "Value": "'analytics'"
-                        }
-                      }
-                    ]
-                  ]
-                }
-              }
-            }
-          ]
-        },
-        "howCreated": "User",
-        "isHiddenInViewMode": true,
-        "isLockedInViewMode": true
-      },
       {
         "name": "95454244ec0f713c7a9a",
         "field": {

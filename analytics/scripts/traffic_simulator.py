@@ -28,6 +28,7 @@ changes the stream. Override with --assume {auto,baseline,tiered}.
 Usage (repo root, Cosmos access via DefaultAzureCredential):
   python analytics/scripts/traffic_simulator.py --tenant analytics --rate 60 --minutes 10
   python analytics/scripts/traffic_simulator.py --tenant analytics --forever --rate 120
+  python analytics/scripts/traffic_simulator.py --controlled
 """
 from __future__ import annotations
 
@@ -76,6 +77,9 @@ CITIES = ["Amsterdam", "Paris", "Tokyo", "Rome", "Barcelona", "London", "New Yor
 DEFAULT_DEPLOYMENT = "gpt-5.1"
 DEFAULT_MODEL = "gpt-5.1-2025-11-13"
 MODEL_SELECTION_SCENARIO = "model-selection"
+CONTROLLED_FIXTURE_VERSION = "controlled-demo4-v1"
+CONTROLLED_BURST_VERSION = "controlled-demo4-after-v1"
+CONTROLLED_ANCHOR = "2026-09-24T13:00:00Z"
 
 
 def _pick_complexity_profile() -> dict:
@@ -88,7 +92,7 @@ def _pick_complexity_profile() -> dict:
     return COMPLEXITY_PROFILES[-1]
 
 
-def _model_selection_active(policies) -> bool:
+def _model_selection_active(policies, tenant: str) -> bool:
     """True iff the tenant's model-selection policy is active AND enabled.
 
     Reads the OptimizationPolicies container the app's apply-loop writes. Any
@@ -98,7 +102,10 @@ def _model_selection_active(policies) -> bool:
     if policies is None:
         return False
     try:
-        doc = policies.read_item(item=MODEL_SELECTION_SCENARIO, partition_key=MODEL_SELECTION_SCENARIO)
+        doc = policies.read_item(
+            item=f"{tenant}::{MODEL_SELECTION_SCENARIO}",
+            partition_key=MODEL_SELECTION_SCENARIO,
+        )
     except Exception:  # noqa: BLE001 -- 404 == no policy yet
         return False
     return doc.get("status") == "active" and bool((doc.get("params") or {}).get("enabled", False))
@@ -142,12 +149,12 @@ def _trip_doc(tenant: str, user: str) -> dict:
     }
 
 
-def _resolve_applied(assume: str, policies) -> bool:
+def _resolve_applied(assume: str, policies, tenant: str) -> bool:
     if assume == "baseline":
         return False
     if assume == "tiered":
         return True
-    return _model_selection_active(policies)  # auto
+    return _model_selection_active(policies, tenant)  # auto
 
 
 def run_direct(args) -> None:
@@ -160,7 +167,7 @@ def run_direct(args) -> None:
 
     interval = 60.0 / max(args.rate, 1)
     deadline = None if args.forever else time.monotonic() + args.minutes * 60
-    applied = _resolve_applied(args.assume, policies)
+    applied = _resolve_applied(args.assume, policies, args.tenant)
 
     def _mode_label(a: bool) -> str:
         if args.assume == "auto":
@@ -180,7 +187,7 @@ def run_direct(args) -> None:
             # Re-check the policy periodically so applying/reverting it mid-run
             # visibly flips the stream between baseline and tiered.
             if args.assume == "auto" and time.monotonic() - last_policy_check > 10:
-                new_applied = _model_selection_active(policies)
+                new_applied = _model_selection_active(policies, args.tenant)
                 if new_applied != applied:
                     print(f"[simulator] model policy changed -> {_mode_label(new_applied)}")
                 applied = new_applied
@@ -218,14 +225,26 @@ def run_app(args) -> None:
     n = 0
     while args.forever or time.monotonic() < deadline:
         user = f"demo-user-{random.randint(1, args.users)}"
-        session = f"sess-{uuid.uuid4().hex[:8]}"
         # create session then send a message
         try:
-            requests.post(f"{base}/tenant/{args.tenant}/user/{user}/sessions",
-                          params={"activeAgent": "orchestrator"}, timeout=30)
-            requests.post(f"{base}/tenant/{args.tenant}/user/{user}/sessions/{session}/completion",
-                          data=f'"{random.choice(msgs)}"',
-                          headers={"Content-Type": "application/json"}, timeout=120)
+            created = requests.post(
+                f"{base}/tenant/{args.tenant}/user/{user}/sessions",
+                params={"activeAgent": "orchestrator"},
+                timeout=30,
+            )
+            created.raise_for_status()
+            session = (created.json() or {}).get("sessionId")
+            if not isinstance(session, str) or not session.strip():
+                print("  app session creation returned no sessionId; skipping completion")
+                time.sleep(interval)
+                continue
+            completed = requests.post(
+                f"{base}/tenant/{args.tenant}/user/{user}/sessions/{session}/completion",
+                data=f'"{random.choice(msgs)}"',
+                headers={"Content-Type": "application/json"},
+                timeout=120,
+            )
+            completed.raise_for_status()
             n += 1
             if n % 5 == 0:
                 print(f"  sent {n} app turns")
@@ -233,6 +252,36 @@ def run_app(args) -> None:
             print("  app turn failed:", e)
         time.sleep(interval)
     print(f"[simulator] done: {n} app turns")
+
+
+def run_controlled(args) -> None:
+    """Invoke the API-owned shared deterministic manifest path."""
+    import requests
+
+    if args.tenant != "analytics":
+        raise SystemExit("controlled traffic is Analytics-only; use --tenant analytics")
+    base = args.endpoint.rstrip("/")
+    response = requests.post(
+        f"{base}/optimizations/traffic",
+        params={
+            "tenant": args.tenant,
+            "controlled": "true",
+            "fixture_version": args.fixture_version,
+            "burst_version": args.burst_version,
+            "anchor": args.anchor,
+            "count": args.count,
+            "minutes": args.window,
+        },
+        timeout=180,
+    )
+    response.raise_for_status()
+    result = response.json()
+    print(
+        "[simulator] controlled burst complete: "
+        f"{result['tenant']} {result['generated']} turns, "
+        f"models={result['by_model']}, version={result['burst_version']}, "
+        f"anchor={result['anchor']}"
+    )
 
 
 def main() -> None:
@@ -247,8 +296,18 @@ def main() -> None:
                     help="direct mode: auto reads the model-selection policy (baseline vs tiered); "
                          "baseline/tiered force the model mix regardless of policy")
     ap.add_argument("--endpoint", default="http://localhost:8000", help="API base (app mode)")
+    ap.add_argument("--controlled", action="store_true",
+                    help="replace the deterministic Analytics after-burst through the traffic API")
+    ap.add_argument("--fixture-version", default=CONTROLLED_FIXTURE_VERSION)
+    ap.add_argument("--burst-version", default=CONTROLLED_BURST_VERSION)
+    ap.add_argument("--anchor", default=CONTROLLED_ANCHOR)
+    ap.add_argument("--count", type=int, default=200, help="controlled burst turn count")
+    ap.add_argument("--window", type=int, default=20, help="controlled burst window in minutes")
     args = ap.parse_args()
-    (run_app if args.mode == "app" else run_direct)(args)
+    if args.controlled:
+        run_controlled(args)
+    else:
+        (run_app if args.mode == "app" else run_direct)(args)
 
 
 if __name__ == "__main__":

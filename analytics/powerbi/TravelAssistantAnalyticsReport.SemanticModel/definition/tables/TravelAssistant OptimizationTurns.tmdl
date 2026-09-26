@@ -32,7 +32,24 @@ table 'TravelAssistant OptimizationTurns'
 
 		annotation PBI_FormatHint = {"currencyCulture":"en-US"}
 
-	measure 'Confirmed Trips' = CALCULATE(COUNTROWS('TravelAssistant Trips'), 'TravelAssistant Trips'[status] = "confirmed" || 'TravelAssistant Trips'[status] = "completed")
+	measure 'Confirmed Trips' =
+			VAR _tenant = SELECTEDVALUE('Demo Tenant'[Tenant Key])
+			VAR _fixtureSessionPrefix = "controlled-demo4-v1-" & _tenant & "-session-"
+			RETURN
+			    CALCULATE(
+			        COUNTROWS('TravelAssistant Trips'),
+			        FILTER(
+			            'TravelAssistant Trips',
+			            (
+			                'TravelAssistant Trips'[status] = "confirmed"
+			                || 'TravelAssistant Trips'[status] = "completed"
+			            )
+			            && LEFT(
+			                'TravelAssistant Trips'[sessionId],
+			                LEN(_fixtureSessionPrefix)
+			            ) = _fixtureSessionPrefix
+			        )
+			    )
 		formatString: 0
 		lineageTag: 8ab98d68-0950-44af-a3af-5cb5c4539388
 

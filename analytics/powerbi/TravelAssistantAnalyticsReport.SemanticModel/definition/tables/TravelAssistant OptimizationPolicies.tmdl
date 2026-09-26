@@ -1,7 +1,24 @@
 table 'TravelAssistant OptimizationPolicies'
 	lineageTag: da14a438-0029-494f-b4c0-3e65ba35efcb
 
-	measure 'Active Policies' = CALCULATE(COUNTROWS('TravelAssistant OptimizationPolicies'), 'TravelAssistant OptimizationPolicies'[status] = "active")
+	measure 'Active Policies' =
+			VAR _tenant = SELECTEDVALUE('Demo Tenant'[Tenant Key], "analytics")
+			VAR _modelPolicyId = _tenant & "::model-selection"
+			VAR _modelSelectionActive =
+			    CALCULATE(
+			        COUNTROWS('TravelAssistant OptimizationPolicies'),
+			        REMOVEFILTERS('TravelAssistant OptimizationPolicies'),
+			        'TravelAssistant OptimizationPolicies'[status] = "active",
+			        'TravelAssistant OptimizationPolicies'[id] = _modelPolicyId
+			    )
+			VAR _memoryRetentionActive =
+			    CALCULATE(
+			        COUNTROWS('TravelAssistant OptimizationPolicies'),
+			        REMOVEFILTERS('TravelAssistant OptimizationPolicies'),
+			        'TravelAssistant OptimizationPolicies'[status] = "active",
+			        'TravelAssistant OptimizationPolicies'[id] = "memory-retention"
+			    )
+			RETURN _modelSelectionActive + _memoryRetentionActive
 		formatString: 0
 		lineageTag: ab879b63-cdef-4a56-ba55-2de44bf2c517
 

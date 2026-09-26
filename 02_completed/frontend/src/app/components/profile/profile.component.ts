@@ -2,7 +2,7 @@ import { Component, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { TravelApiService } from '../../services/travel-api.service';
-import { Memory, UserSummary } from '../../models/travel.models';
+import { Memory, TravelPreferences, UserSummary } from '../../models/travel.models';
 
 @Component({
     selector: 'app-profile',
@@ -13,8 +13,11 @@ import { Memory, UserSummary } from '../../models/travel.models';
 export class ProfileComponent implements OnInit {
   memories: Memory[] = [];
   userSummary: UserSummary | null = null;
+  isSavingPreferences = false;
+  preferenceMessage = '';
+  preferenceError = '';
   
-  preferences = {
+  preferences: TravelPreferences = {
     budget: 'moderate',
     mobility: 'walk',
     dietary: 'any',
@@ -24,8 +27,25 @@ export class ProfileComponent implements OnInit {
   constructor(private travelApi: TravelApiService) {}
 
   ngOnInit(): void {
+    this.loadPreferences();
     this.loadUserSummary();
     this.loadMemories();
+  }
+
+  loadPreferences(): void {
+    this.travelApi.getUserProfile().subscribe({
+      next: (user) => {
+        this.preferences = {
+          ...this.preferences,
+          ...user.preferences
+        };
+        this.preferenceError = '';
+      },
+      error: (error) => {
+        console.error('Error loading user preferences:', error);
+        this.preferenceError = 'Failed to load preferences.';
+      }
+    });
   }
 
   loadUserSummary(): void {
@@ -54,8 +74,24 @@ export class ProfileComponent implements OnInit {
   }
 
   savePreferences(): void {
-    console.log('Saving preferences:', this.preferences);
-    alert('Preferences saved! These will be used for future recommendations.');
+    this.isSavingPreferences = true;
+    this.preferenceMessage = '';
+    this.preferenceError = '';
+    this.travelApi.updatePreferences(this.preferences).subscribe({
+      next: (user) => {
+        this.preferences = {
+          ...this.preferences,
+          ...user.preferences
+        };
+        this.preferenceMessage = 'Preferences saved.';
+        this.isSavingPreferences = false;
+      },
+      error: (error) => {
+        console.error('Error saving preferences:', error);
+        this.preferenceError = 'Failed to save preferences.';
+        this.isSavingPreferences = false;
+      }
+    });
   }
 
   deleteMemory(memory: Memory): void {

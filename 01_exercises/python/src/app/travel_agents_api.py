@@ -59,15 +59,31 @@ from src.app.services.azure_cosmos_db import (
     sessions_container, messages_container, trips_container,
     places_container, debug_logs_container,
     aget_checkpoint_saver, close_async_cosmos_client, adelete_checkpoints_for_thread,
-    create_session_record, get_session_by_id,
+    create_session_record, delete_session_record, get_session_by_id,
     append_message, get_session_messages, query_places_hybrid,
-    get_trip, query_places_with_theme, query_places_filtered,
+    create_trip, delete_trip_record, get_trip, resolve_trip_for_request,
+    query_places_with_theme, query_places_filtered,
     patch_active_agent, update_session_activity,
-    create_user, get_all_users, get_user_by_id,
+    create_user, get_all_users, get_user_by_id, update_user_preferences,
     store_debug_log, get_debug_log, query_debug_logs
 )
 from src.app.travel_agents import setup_agents, build_agent_graph, cleanup_persistent_session
-from src.app.services.agent_memory import get_memory_client
+from src.app.services.agent_memory import (
+    MemoryNotFoundError,
+    delete_memory_by_id,
+    get_memory_client,
+)
+from src.app.traveller_context import (
+    add_active_trip_context,
+    build_traveller_context,
+    extract_summary_embedding,
+    use_traveller_context,
+)
+from src.app.trip_planning import (
+    TripRequestConflictError,
+    TripRequestValidationError,
+    start_trip_with_compensation,
+)
 
 # Load environment variables
 load_dotenv(override=False)
@@ -115,6 +131,7 @@ class MessageModel(BaseModel):
 class TripStatus(str, Enum):
     PLANNING = "planning"
     BOOKED = "booked"
+    CONFIRMED = "confirmed"
     COMPLETED = "completed"
     CANCELLED = "cancelled"
 
@@ -124,6 +141,7 @@ class Trip(BaseModel):
     tripId: str
     userId: str
     tenantId: str
+    sessionId: Optional[str] = None
     destination: str  # "Paris, France"
     startDate: str  # "2025-11-15"
     endDate: str  # "2025-11-19"
@@ -131,6 +149,20 @@ class Trip(BaseModel):
     days: List[Dict] = []  # Day-by-day itinerary
     status: str = TripStatus.PLANNING
     createdAt: Optional[str] = None
+
+
+class StartTripRequest(BaseModel):
+    requestId: Optional[str] = None
+    destination: str
+    startDate: str
+    endDate: str
+    activeAgent: str = "orchestrator"
+    title: Optional[str] = None
+
+
+class StartTripResponse(BaseModel):
+    session: Session
+    trip: Trip
 
 
 class Memory(BaseModel):
@@ -209,6 +241,8 @@ class User(BaseModel):
     address: Optional[Dict[str, Any]] = None
     email: Optional[str] = None
     createdAt: str
+    preferences: Optional[Dict[str, str]] = None
+    updatedAt: Optional[str] = None
 
 
 class CreateUserRequest(BaseModel):
@@ -220,6 +254,17 @@ class CreateUserRequest(BaseModel):
     phone: Optional[str] = None
     address: Optional[Dict[str, Any]] = None
     email: Optional[str] = None
+
+
+class UserPreferences(BaseModel):
+    budget: Optional[str] = None
+    mobility: Optional[str] = None
+    dietary: Optional[str] = None
+    timeOfDay: Optional[str] = None
+
+
+class UpdateUserPreferencesRequest(BaseModel):
+    preferences: UserPreferences
 
 
 # ============================================================================
@@ -458,6 +503,42 @@ def create_chat_session(tenantId: str, userId: str, activeAgent: str, title: str
     except Exception as e:
         logger.error(f"Error creating session: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to create session: {str(e)}")
+
+
+@app.post(
+    "/tenant/{tenantId}/user/{userId}/start-trip",
+    tags=[TRIP_TAG],
+    summary="Start Trip",
+    description="Atomically create a chat session and its bound blank trip",
+    response_model=StartTripResponse,
+    status_code=201,
+)
+def start_trip(tenantId: str, userId: str, request: StartTripRequest):
+    try:
+        session, trip = start_trip_with_compensation(
+            tenant_id=tenantId,
+            user_id=userId,
+            destination=request.destination,
+            start_date=request.startDate,
+            end_date=request.endDate,
+            active_agent=request.activeAgent,
+            title=request.title,
+            request_id=request.requestId,
+            create_session=create_session_record,
+            create_trip=create_trip,
+            get_trip=get_trip,
+            get_session=get_session_by_id,
+            delete_trip=delete_trip_record,
+            delete_session=delete_session_record,
+        )
+        return StartTripResponse(session=Session(**session), trip=Trip(**trip))
+    except TripRequestValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    except TripRequestConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except Exception as exc:
+        logger.error("Error starting trip: %s", exc)
+        raise HTTPException(status_code=500, detail=f"Failed to start trip: {str(exc)}")
 
 
 @app.get(
@@ -800,7 +881,8 @@ def store_debug_log_from_response(sessionId: str, tenantId: str, userId: str, re
 
         node_execs = []
         node_deployment, _ = optimization.select_deployment_for_turn(
-            [{"role": "user", "content": user_message_text}]
+            [{"role": "user", "content": user_message_text}],
+            tenant_id=tenantId,
         )
         for entry in response_data:
             for node_agent, node_details in entry.items():
@@ -1058,27 +1140,53 @@ async def _post_response_background(sessionId: str, tenantId: str, userId: str, 
     logger.info(f"✅ Background processing complete for session {sessionId}")
 
 
-async def _fetch_user_preference_vector(client: Any, user_id: str) -> list[float] | None:
-    """Fetch the user_summary embedding for preference-vector biasing in discover_places.
-
-    Returns None when the user has no summary yet, the summary lacks an embedding,
-    or any error occurs — preference biasing is best-effort, never a request blocker.
-    """
-    if not user_id:
-        return None
+async def _fetch_current_traveller_context(
+    client: Any,
+    tenant_id: str,
+    user_id: str,
+) -> tuple[dict[str, Any], list[float] | None]:
+    """Resolve safe persisted profile data and inferred memory for one turn."""
+    try:
+        profile_document = await asyncio.to_thread(
+            get_user_by_id,
+            user_id,
+            tenant_id,
+        )
+    except Exception as exc:
+        logger.warning(
+            "current traveller profile lookup failed tenant=%s user=%s: %s",
+            tenant_id,
+            user_id,
+            exc,
+        )
+        profile_document = None
     try:
         summary = await client.get_user_summary(user_id)
     except Exception as exc:
         logger.warning("user_summary lookup failed for user=%s: %s", user_id, exc)
-        return None
-    if summary is None:
-        return None
-    if isinstance(summary, list):
-        if not summary:
-            return None
-        summary = summary[0]
-    embedding = summary.get("embedding") if isinstance(summary, dict) else None
-    return embedding if isinstance(embedding, list) else None
+        summary = None
+    return (
+        build_traveller_context(profile_document, user_id, summary),
+        extract_summary_embedding(summary),
+    )
+
+
+async def _resolve_active_trip_context(
+    tenant_id: str,
+    user_id: str,
+    session_id: str,
+    user_message: str,
+    traveller_context: dict[str, Any] | None = None,
+) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+    """Resolve the request trip and expose only its safe prompt projection."""
+    active_trip = await asyncio.to_thread(
+        resolve_trip_for_request,
+        tenant_id,
+        user_id,
+        session_id,
+        user_message,
+    )
+    return active_trip, add_active_trip_context(traveller_context or {}, active_trip)
 
 
 @app.post(
@@ -1147,7 +1255,20 @@ async def get_chat_completion(
         raise HTTPException(status_code=400, detail="Request body cannot be empty")
 
     try:
+        client = await get_memory_client()
+        traveller_context, pref_vector = await _fetch_current_traveller_context(
+            client,
+            tenantId,
+            userId,
+        )
         # Configuration for LangGraph
+        active_trip, traveller_context = await _resolve_active_trip_context(
+            tenantId,
+            userId,
+            sessionId,
+            request_body,
+            traveller_context,
+        )
         config = {
             # Multi-agent turns loop (supervisor <-> find_places/itinerary), so the
             # default recursion limit of 25 is too low for a heavy "plan a trip" turn.
@@ -1156,7 +1277,11 @@ async def get_chat_completion(
                 "thread_id": sessionId,
                 "checkpoint_ns": "",
                 "userId": userId,
-                "tenantId": tenantId
+                "user_id": userId,
+                "tenantId": tenantId,
+                "tenant_id": tenantId,
+                "active_trip_id": active_trip.get("tripId") if active_trip else None,
+                "user_preference_vector": pref_vector,
             }
         }
 
@@ -1164,28 +1289,29 @@ async def get_chat_completion(
         checkpoints = [c async for c in _checkpointer.alist(config)]
         last_active_agent = "supervisor"
 
-        if not checkpoints:
-            # No previous state - start fresh
-            new_state = {"messages": [{"role": "user", "content": request_body}]}
-            response_data = await workflow.ainvoke(new_state, config, stream_mode="updates")
-        else:
-            # Resume from last checkpoint
-            last_checkpoint = checkpoints[-1]
-            last_state = last_checkpoint.checkpoint
+        with use_traveller_context(traveller_context):
+            if not checkpoints:
+                # No previous state - start fresh
+                new_state = {"messages": [{"role": "user", "content": request_body}]}
+                response_data = await workflow.ainvoke(new_state, config, stream_mode="updates")
+            else:
+                # Resume from last checkpoint
+                last_checkpoint = checkpoints[-1]
+                last_state = last_checkpoint.checkpoint
 
-            if "messages" not in last_state:
-                last_state["messages"] = []
+                if "messages" not in last_state:
+                    last_state["messages"] = []
 
-            last_state["messages"].append({"role": "user", "content": request_body})
+                last_state["messages"].append({"role": "user", "content": request_body})
 
-            # Get active agent from state
-            if "channel_versions" in last_state:
-                for channel, version in last_state["channel_versions"].items():
-                    if channel != "__start__" and version > 0:
-                        last_active_agent = channel
-                        break
+                # Get active agent from state
+                if "channel_versions" in last_state:
+                    for channel, version in last_state["channel_versions"].items():
+                        if channel != "__start__" and version > 0:
+                            last_active_agent = channel
+                            break
 
-            response_data = await workflow.ainvoke(last_state, config, stream_mode="updates")
+                response_data = await workflow.ainvoke(last_state, config, stream_mode="updates")
 
         # Generate debug log ID upfront so it's available in the response
         debug_log_id = str(uuid.uuid4())
@@ -1482,12 +1608,15 @@ async def delete_memory(user_id: str, memory_id: str, thread_id: Optional[str] =
 
     try:
         client = await get_memory_client()
-        await client.delete_cosmos(
+        await delete_memory_by_id(
+            client,
             memory_id=memory_id,
-            thread_id=thread_id,
             user_id=user_id,
+            thread_id=thread_id,
         )
         return Response(status_code=204)
+    except MemoryNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
     except Exception as e:
         logger.error(f"Error deleting memory: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to delete memory: {str(e)}")
@@ -1937,6 +2066,34 @@ def get_user(tenantId: str, userId: str):
     except Exception as e:
         logger.error(f"Error retrieving user: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.patch(
+    "/tenant/{tenantId}/users/{userId}/preferences",
+    tags=["User Management"],
+    summary="Update User Travel Preferences",
+    description="Merge travel preferences into an existing user profile",
+    response_model=User
+)
+def patch_user_preferences(
+        tenantId: str,
+        userId: str,
+        request: UpdateUserPreferencesRequest
+):
+    preferences = request.preferences.model_dump(exclude_none=True)
+    if not preferences:
+        raise HTTPException(status_code=422, detail="At least one preference is required")
+
+    try:
+        user_data = update_user_preferences(userId, tenantId, preferences)
+        if not user_data:
+            raise HTTPException(status_code=404, detail=f"User not found: {userId}")
+        return User(**user_data)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating preferences for user {userId}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to update user preferences: {e}")
 
 
 # ============================================================================

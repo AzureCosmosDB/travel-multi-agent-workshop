@@ -24,13 +24,17 @@ from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
 from langsmith import traceable
 from langchain_mcp_adapters.client import MultiServerMCPClient
-from langchain_mcp_adapters.tools import load_mcp_tools
+from langgraph.config import get_config
 from langgraph.prebuilt import create_react_agent
 from langgraph.checkpoint.memory import MemorySaver
 from pydantic import BaseModel, Field
 
 from src.app.services import optimization
 from src.app.services.azure_open_ai import model
+from src.app.traveller_context import (
+    _current_traveller_context,
+    render_supervisor_prompt,
+)
 
 
 # Setup logging - reduce clutter by setting specific loggers to WARNING
@@ -104,11 +108,44 @@ def _bind_parallel_tool_calls(base_model: Any) -> Any:
     return base_model
 
 
-def _create_agent(agent_model: Any, tools: list[Any], prompt_text: str, **kwargs: Any) -> Any:
+def _create_agent(agent_model: Any, tools: list[Any], prompt_text: Any, **kwargs: Any) -> Any:
     """Create a ReAct agent across LangGraph versions that renamed the prompt kwarg."""
     signature = inspect.signature(create_react_agent)
     prompt_kwarg = "state_modifier" if "state_modifier" in signature.parameters else "prompt"
     return create_react_agent(agent_model, tools, **{prompt_kwarg: prompt_text}, **kwargs)
+
+
+def _supervisor_prompt(state: dict[str, Any]) -> list[Any]:
+    """Add request-scoped traveller context to model input without changing graph state."""
+    messages = list(state.get("messages", []))
+    prompt = render_supervisor_prompt(
+        SUPERVISOR_BASE_PROMPT,
+        _current_traveller_context.get(),
+    )
+    return [SystemMessage(content=prompt), *messages]
+
+
+def _runtime_tenant_id() -> str | None:
+    """Read tenant identity from the active LangGraph invocation config."""
+    try:
+        config = get_config()
+    except RuntimeError:
+        return None
+
+    for source_name in ("configurable", "metadata"):
+        source = config.get(source_name, {}) or {}
+        tenant_id = source.get("tenant_id") or source.get("tenantId")
+        if tenant_id:
+            return str(tenant_id)
+    return None
+
+
+def _select_supervisor_model_for_state(state: dict[str, Any], supervisor_tools: list[Any]) -> Any:
+    selected = optimization.get_chat_model_for_turn(
+        state.get("messages"),
+        tenant_id=_runtime_tenant_id(),
+    )
+    return selected.bind_tools(supervisor_tools)
 
 
 def _looks_like_vector(value: Any) -> bool:
@@ -192,6 +229,31 @@ def _with_preference_vector_injection(tools: list[Any]) -> list[Any]:
 _IDENTITY_TRIP_TOOLS = ("create_new_trip", "update_trip", "get_trip_details")
 
 
+def _merge_trip_days(existing_days: Any, requested_days: Any) -> Any:
+    """Merge requested day slots without dropping unrelated saved itinerary data."""
+    if not isinstance(existing_days, list) or not isinstance(requested_days, list):
+        return requested_days
+    merged = [dict(day) if isinstance(day, dict) else day for day in existing_days]
+    positions = {
+        day.get("dayNumber", day.get("day")): index
+        for index, day in enumerate(merged)
+        if isinstance(day, dict) and day.get("dayNumber", day.get("day")) is not None
+    }
+    for requested in requested_days:
+        if not isinstance(requested, dict):
+            merged.append(requested)
+            continue
+        key = requested.get("dayNumber", requested.get("day"))
+        if key in positions:
+            current = dict(merged[positions[key]])
+            current.update(requested)
+            merged[positions[key]] = current
+        else:
+            positions[key] = len(merged)
+            merged.append(dict(requested))
+    return merged
+
+
 def _wrap_trip_tool(mcp_tool: Any) -> Any:
     """Force the request-scoped user_id / tenant_id onto trip MCP calls."""
     description = getattr(mcp_tool, "description", None) or "Trip tool."
@@ -206,6 +268,7 @@ def _wrap_trip_tool(mcp_tool: Any) -> Any:
         user_id = identity.get("user_id")
         tenant_id = identity.get("tenant_id")
         session_id = identity.get("session_id")
+        active_trip_id = identity.get("active_trip_id")
         # Always override with the true identity — never trust an LLM-supplied value.
         if user_id:
             kwargs["user_id"] = user_id
@@ -214,6 +277,28 @@ def _wrap_trip_tool(mcp_tool: Any) -> Any:
         # Stamp the session correlation key on trip creation (ADR-0010 §10.4).
         if session_id and tool_name == "create_new_trip":
             kwargs["session_id"] = session_id
+        if active_trip_id:
+            if tool_name == "create_new_trip":
+                return {
+                    "error": "A trip is already bound to this session. Fetch and update it.",
+                    "tripId": active_trip_id,
+                }
+            kwargs["trip_id"] = active_trip_id
+            if tool_name == "update_trip":
+                updates = dict(kwargs.get("updates") or {})
+                if not identity.get("allow_date_changes"):
+                    updates.pop("startDate", None)
+                    updates.pop("endDate", None)
+                    updates.pop("start_date", None)
+                    updates.pop("end_date", None)
+                updates.pop("status", None)
+                existing_trip = identity.get("existing_trip")
+                if isinstance(existing_trip, dict) and "days" in updates:
+                    updates["days"] = _merge_trip_days(
+                        existing_trip.get("days"),
+                        updates["days"],
+                    )
+                kwargs["updates"] = updates
         return await mcp_tool.ainvoke(kwargs, config=config)
 
     trip_tool_with_identity.__name__ = tool_name
@@ -309,12 +394,12 @@ class ItineraryInput(BaseModel):
     )
 
 
-# Global variables for MCP session management
+# The client is retained because get_tools() returns tools whose calls create
+# short-lived sessions from this client's server configuration.
 _mcp_client: MultiServerMCPClient | None = None
-_session_context: Any | None = None
-_persistent_session: Any | None = None
 
-# MCP tool subsets loaded once during startup
+# MCP tool definitions loaded once during startup. Each invocation opens its own
+# MCP session through MultiServerMCPClient.
 _mcp_session_tools: list[Any] = []
 _mcp_find_places_tools: list[Any] = []
 _mcp_itinerary_tools: list[Any] = []
@@ -518,6 +603,48 @@ async def create_or_update_itinerary_tool(
     if _itinerary_agent is None:
         raise RuntimeError("Travel agents have not been initialized")
 
+    effective_config = config or {"configurable": {}, "metadata": {}}
+    configurable = effective_config.get("configurable", {}) or {}
+    active_trip_id = configurable.get("active_trip_id")
+    explicit_date_change = dates is not None
+    if active_trip_id:
+        trip_id = str(active_trip_id)
+
+    identity = {
+        "user_id": configurable.get("user_id") or configurable.get("userId") or "",
+        "tenant_id": configurable.get("tenant_id") or configurable.get("tenantId") or "",
+        "session_id": (configurable.get("session_id") or configurable.get("sessionId")
+                       or configurable.get("thread_id") or ""),
+        "active_trip_id": str(active_trip_id) if active_trip_id else "",
+        "allow_date_changes": explicit_date_change,
+    }
+    identity_token = _current_identity.set(identity)
+    existing_trip: Any | None = None
+    if active_trip_id:
+        get_trip_tool = next(
+            (
+                candidate
+                for candidate in _mcp_itinerary_tools
+                if getattr(candidate, "name", "") == "get_trip_details"
+            ),
+            None,
+        )
+        if get_trip_tool is not None:
+            try:
+                existing_trip = await get_trip_tool.ainvoke(
+                    {
+                        "trip_id": str(active_trip_id),
+                        "user_id": identity["user_id"],
+                        "tenant_id": identity["tenant_id"],
+                    },
+                    config=_subagent_config(effective_config, "itinerary_trip_lookup"),
+                )
+            except Exception:
+                _current_identity.reset(identity_token)
+                raise
+    identity["existing_trip"] = existing_trip
+    _current_identity.reset(identity_token)
+
     payload = {
         "trip_id": trip_id,
         "destination": destination,
@@ -528,20 +655,23 @@ async def create_or_update_itinerary_tool(
         "notes": notes,
     }
     compact_payload = {key: value for key, value in payload.items() if value is not None}
-    user_msg = (
-        "Create or update the itinerary using this structured request. "
-        "Persist changes with the trip tools before reporting success.\n"
-        f"{json.dumps(compact_payload, ensure_ascii=False, default=str)}"
-    )
+    if active_trip_id:
+        user_msg = (
+            f"Update the authoritative existing trip {active_trip_id}. "
+            "First call get_trip_details, merge the requested itinerary changes into "
+            "the existing trip, then call update_trip. Do not create a new trip. "
+            "Preserve the existing startDate and endDate unless the structured request "
+            "contains an explicit dates value. Persist changes before reporting success.\n"
+            f"Authoritative current trip: {json.dumps(existing_trip, ensure_ascii=False, default=str)}\n"
+            f"{json.dumps(compact_payload, ensure_ascii=False, default=str)}"
+        )
+    else:
+        user_msg = (
+            "Create or update the itinerary using this structured request. "
+            "Persist changes with the trip tools before reporting success.\n"
+            f"{json.dumps(compact_payload, ensure_ascii=False, default=str)}"
+        )
     state = {"messages": [HumanMessage(content=user_msg)]}
-    effective_config = config or {"configurable": {}, "metadata": {}}
-    configurable = effective_config.get("configurable", {}) or {}
-    identity = {
-        "user_id": configurable.get("user_id") or configurable.get("userId") or "",
-        "tenant_id": configurable.get("tenant_id") or configurable.get("tenantId") or "",
-        "session_id": (configurable.get("session_id") or configurable.get("sessionId")
-                       or configurable.get("thread_id") or ""),
-    }
     identity_token = _current_identity.set(identity)
     try:
         result = await _itinerary_agent.ainvoke(
@@ -557,11 +687,12 @@ async def setup_agents(checkpointer=None):
     """
     Initialize the supervisor and internal sub-agents with their MCP tools.
 
-    This creates one persistent MCP session for the process. The topology is:
+    MCP tool definitions are loaded once, while each tool call creates a fresh
+    MCP session. The topology is:
     user -> supervisor ReAct agent -> find_places or create_or_update_itinerary tools,
     where each tool invokes an internal ReAct sub-agent.
     """
-    global _mcp_client, _session_context, _persistent_session
+    global _mcp_client
     global _mcp_session_tools, _mcp_find_places_tools, _mcp_itinerary_tools
     global _mcp_recall_memories_tool
     global _find_places_agent, _itinerary_agent, supervisor_agent
@@ -623,15 +754,13 @@ async def setup_agents(checkpointer=None):
     _mcp_client = MultiServerMCPClient(client_config)
     logger.info("✅ MCP Client initialized successfully")
 
-    # Create persistent session + load tools with timeouts. On a cold start the API
-    # can race ahead of the MCP server being ready; without a timeout the connect/
-    # load hangs indefinitely and blocks uvicorn startup (failing the health probe).
-    # A timeout makes it fail fast so the caller's retry logic recovers.
-    _session_context = _mcp_client.session("travel_tools")
-    _persistent_session = await asyncio.wait_for(_session_context.__aenter__(), timeout=30)
-
-    # Load all MCP tools once for this persistent session
-    all_tools = await asyncio.wait_for(load_mcp_tools(_persistent_session), timeout=30)
+    # On a cold start the API can race ahead of the MCP server. Keep discovery
+    # bounded so the caller's existing startup retry loop can recover, while the
+    # returned tools create a fresh MCP session for every invocation.
+    all_tools = await asyncio.wait_for(
+        _mcp_client.get_tools(server_name="travel_tools"),
+        timeout=30,
+    )
 
     logger.info("[DEBUG] All tools registered from Travel Assistant MCP server:")
     for mcp_tool in all_tools:
@@ -695,12 +824,12 @@ async def setup_agents(checkpointer=None):
         # LangGraph does NOT auto-bind `tools` for dynamic (callable) models —
         # only for a statically-passed model. So the callable must bind the
         # supervisor tools itself, or the model can never emit tool calls.
-        return optimization.get_chat_model_for_turn(state.get("messages")).bind_tools(supervisor_tools)
+        return _select_supervisor_model_for_state(state, supervisor_tools)
 
     supervisor_agent = _create_agent(
         _select_supervisor_model,
         tools=supervisor_tools,
-        prompt_text=SUPERVISOR_BASE_PROMPT,
+        prompt_text=_supervisor_prompt,
         checkpointer=supervisor_checkpointer,
     )
 
@@ -708,22 +837,25 @@ async def setup_agents(checkpointer=None):
 
 
 async def cleanup_persistent_session():
-    """Clean up the persistent MCP session when the application shuts down."""
-    global _session_context, _persistent_session, supervisor_agent
+    """Clear initialized agent, tool, and MCP client references on shutdown.
+
+    The name is retained for compatibility with existing API and workshop callers.
+    MCP tools now create and close their own sessions per invocation.
+    """
+    global _mcp_client, supervisor_agent
     global _find_places_agent, _itinerary_agent
+    global _mcp_session_tools, _mcp_find_places_tools, _mcp_itinerary_tools
+    global _mcp_recall_memories_tool
 
-    if _session_context is not None and _persistent_session is not None:
-        try:
-            await _session_context.__aexit__(None, None, None)
-            logger.info("✅ MCP persistent session cleaned up successfully")
-        except Exception as e:
-            logger.error(f"Error cleaning up MCP session: {e}")
-
-    _session_context = None
-    _persistent_session = None
+    _mcp_client = None
+    _mcp_session_tools = []
+    _mcp_find_places_tools = []
+    _mcp_itinerary_tools = []
+    _mcp_recall_memories_tool = None
     supervisor_agent = None
     _find_places_agent = None
     _itinerary_agent = None
+    logger.info("✅ Travel agent references cleared successfully")
 
 
 def build_agent_graph():

@@ -2,11 +2,17 @@
 
 **[< Agent Optimization](./Module-08.md#module-08---agent-optimization-apply-autonomy)** - **[Lessons Learned & The Future >](./Module-10.md#module-10---lessons-learned-the-future-of-agentic-systems)**
 
+> **Marvel-only learner boundary.** Every learner exercise in this module uses the Marvel tenant and dataset.
+> The Analytics tenant is reserved for explicitly marked presenter/reference material.
+
 ## Introduction
 
 In Modules 07–08 you instrumented the agent, surfaced recommendations, and applied a reversible optimization — all on **Azure Cosmos DB**, the app's **operational** store. Cosmos is the right home for the live agent: single-digit-millisecond reads/writes on the request path, global distribution, schema-flexible documents.
 
-But the *heavy* analytics — a **conversion funnel** across every session, trends over time, cross-tenant rollups — is a different workload. You should **not** run large aggregations on the transactional path: it doesn't scale, it burns request-unit budget, and a runaway analytical query shouldn't be able to slow the agent that's serving customers.
+But the *heavy* analytics — a **conversion funnel** across every session, trends over time, and
+portfolio rollups — is a different workload. You should **not** run large aggregations on the
+transactional path: it doesn't scale, it burns request-unit budget, and a runaway analytical query
+shouldn't be able to slow the agent that's serving customers.
 
 The answer is **two planes, one zero-ETL bridge**:
 
@@ -48,6 +54,47 @@ By the end you will be able to:
 
 ---
 
+## Learner path and controlled presenter path
+
+The learner activities below provision Fabric, edit notebook TODOs, and run the notebook to learn
+the analytical pattern. The completed/reference solution's controlled Demo 4 operator commands are
+separate; learners should not manually reset or reseed data.
+
+`analytics/fabric/_gen_funnel_notebook.py` is the sole authoritative source for both
+`ConversionFunnelReverseETL.ipynb` and `ConversionFunnelReverseETL_solution.ipynb`. Never edit
+either notebook JSON directly. Regenerate both and validate delivered-byte identity from the
+repository root:
+
+```powershell
+python analytics\fabric\_gen_funnel_notebook.py
+python analytics\fabric\validate_fabric_assets.py --double-generate
+```
+
+<!-- BEGIN PRESENTER REFERENCE -->
+**Portal Live mode (reference solution):** controlled Reset `controlled-demo4-v1`; inspect live/raw
+baseline while derived rows are absent; select Analytics and Apply; generate
+`controlled-demo4-after-v1` at inclusive `2026-09-24T13:00:00Z`, 200 turns over 20 minutes with
+nano=20, mini=110, premium=70; explicitly Recompute; compare frozen Marvel Before and Analytics
+After. Never use **Freshen Turn Times** in this controlled flow.
+
+**Prepared Fabric / Power BI mode:** prepare and validate off-stage. Do not reset, apply/revert,
+generate traffic, use Freshen Turn Times, or run the full notebook on stage unless the exact action
+was separately rehearsed.
+
+The controlled Reset reseeds exactly `OptimizationTurns`, `Debug`, `NodeExecutions`, `Sessions`,
+`Messages`, and fixture-owned `Trips`; protects operational Trips without a controlled fixture
+session prefix; clears tenant-derived `OptimizationInsights` and
+`OptimizationGovernance`; reverts the existing model-selection policies for the controlled
+tenants; and preserves `Users`, `Memories`, `Checkpoints`, `ApiEvents`, unrelated tenants, and
+protected stores. Before mutation, take a complete backup. Same-parameter reruns are deterministic
+and idempotent; targeted rollback restores only the backed-up controlled rows and policy.
+
+Both baseline tenants must have 200 all-premium turns across 20 populated minute buckets and funnel
+`192 → 184 → 92 → 56`, `29.2%`, largest cause `city_friction`.
+The controlled confirmed-trip metric counts only fixture-owned session IDs, remains exactly 56,
+and leaves operational travel-app Trips available to user trip endpoints.
+<!-- END PRESENTER REFERENCE -->
+
 ## Activity 1: The Two Planes and the Mirror
 
 A **mirrored database** is a zero-ETL, near-real-time copy of your Cosmos analytics containers inside Fabric's OneLake. Analytics read *that* copy — never the transactional account. In the next activity you will create it; for now, understand what it is and why it exists.
@@ -65,13 +112,18 @@ Two things to internalize:
 
 You will create the Fabric workspace, the Cosmos mirror, and upload this module's notebook using a single PowerShell script. It reads your deployment settings from your `azd` environment automatically, so you only supply a workspace name and — for one unavoidable portal step — a connection id.
 
-> **⏱️ First, start a live traffic stream — so the portal has data by the time you switch sources.** Provisioning and the mirror's first sync take a few minutes; rather than run traffic *then* wait, start it **now** in a **separate terminal** and leave it running while you work through this module. It streams turns straight into Cosmos, so by **Activity 5** the mirror and notebook snapshot have plenty to show. From the **`analytics/scripts`** folder:
+> **Learner exercise only — not the controlled presenter flow.** To create ordinary practice data
+> while provisioning, you may start a stream in a separate terminal. Do not use this stream for
+> controlled Demo 4 acceptance:
 >
 > ```powershell
-> .\Run-TrafficSimulator.ps1 -Tenant analytics -Forever
+> .\Run-TrafficSimulator.ps1 -Tenant marvel -Forever
 > ```
 >
-> It auto-detects your deployment's Cosmos and virtual environment (needs only `az login`) — run it bare to be prompted for the tenant. **`analytics`** is the shared demo tenant, so you can select it in the portal to watch this stream. Leave it running; press **Ctrl+C** when you finish Activity 5. *(Turns written before the mirror exists are picked up by its initial snapshot, so starting early is exactly right.)*
+> It auto-detects your deployment's Cosmos and virtual environment (needs only `az login`) — run
+> it bare to be prompted for the tenant. Select **`marvel`** for the learner stream. Leave it
+> running; press **Ctrl+C** when you finish Activity 5. *(Turns written before the mirror exists are
+> picked up by its initial snapshot, so starting early is exactly right.)*
 
 > **Prerequisites:** you have run `azd up` for this workshop, and you are signed in with `az login` (and `azd auth login`) as a user with permission to create Fabric workspaces. Microsoft Fabric must be enabled for your tenant.
 
@@ -124,11 +176,14 @@ Refresh your workspace. Confirm you see both:
 - the **`optimization-apply-loop`** User Data Function — the translytical Apply/Revert capability used in Activity 6 (provisioning injected your Cosmos endpoint/database and installed `azure-cosmos`), and
 - the **`TravelAssistantAnalyticsReport`** report and semantic model — deployed from source, pointed at your mirror, and query-validated by the script (no Power BI Desktop required). If validation fails, provisioning stops instead of reporting a false success.
 
-Your `azd up` deployment already **seeded the demo tenant, `analytics`**, into your Cosmos `OptimizationTurns` / `Messages` / `Trips` containers (~120 sessions with a realistic mix of converted and abandoned outcomes). The mirror replicates it within a minute — so there is **nothing extra for you to run**; the notebook has data waiting.
+Your deployment seeds the Marvel learner data into Cosmos and the mirror replicates it.
 
 ### Step 5 — Open the notebook and read the mirror
 
-Open the **`ConversionFunnelReverseETL`** notebook. Confirm the pre-filled connection parameters (`COSMOS_ENDPOINT`, `COSMOS_DATABASE`, `SQL_EP`, `SQL_DB`, `TENANT_ID`) are populated from your deployment — you do **not** paste any of them — and set only `TENANT = "analytics"` (which app tenant to analyze).
+Open the **`ConversionFunnelReverseETL`** notebook. Confirm the pre-filled connection parameters
+(`COSMOS_ENDPOINT`, `COSMOS_DATABASE`, `SQL_EP`, `SQL_DB`, `TENANT_ID`) are populated from your
+deployment — you do **not** paste any of them — and set only `TENANT = "marvel"` (the learner
+dataset to analyze).
 
 > **Don't run anything yet.** You'll make two small edits first — the `cause` classification (**Activity 3**) and the reverse-ETL write (**Activity 4**) — and then run the **whole notebook in one step**. Sections **3** and **5** are the `TODO` cells you'll edit; everything else is provided.
 
@@ -181,7 +236,7 @@ That's reverse-ETL: Fabric-computed intelligence, landed back in the operational
 
 > **The rest of the surface, same pattern (provided).** Below TODO 2, the notebook's **Section 5b** (agent-path cost), **Section 5c** (turn metrics), **Section 5d** (agent scorecard), **Section 6** (memory intelligence), and **Section 7** (the LLM analyst) are **provided** and reverse-ETL *themselves* the same way — one `df.write.format("cosmos.oltp")` each — extending the loop to the agent-collaboration, per-agent, cost, memory, recommendation, ranked-opportunity, and SLO dimensions. They emit the same flat report contract as the maintainer twin `analytics/fabric/compute_insights.py`, so the portal's **Reverse-ETL (notebook)** source and Power BI consume a consistent schema whichever producer ran.
 
-> **Section 5d — the agent scorecard (per-agent health).** This section reads the mirrored **`NodeExecutions`** container — the per-agent node-grain you captured in **[Module 07, Hook 3](./Module-07.md#activity-2-instrument-your-app)** — and scores every agent across **cost efficiency**, **model selection**, and **workflow efficiency**, reverse-ETL'ing `agent_scorecard` rows that the portal's **Agents** tab renders. It prices with the same mirrored **Configuration** rates as the rest of the notebook, so the scorecard cost matches the portal. The pre-seeded **`analytics`** tenant already carries node-grain, so this renders even if you skipped the Module 07 hook; run the hook to see **your own** traffic scored here too.
+> **Section 5d — the agent scorecard (per-agent health).** This section reads the mirrored **`NodeExecutions`** container — the per-agent node-grain you captured in **[Module 07, Hook 3](./Module-07.md#activity-2-instrument-your-app)** — and scores every agent across **cost efficiency**, **model selection**, and **workflow efficiency**, reverse-ETL'ing `agent_scorecard` rows that the portal's **Agents** tab renders. It prices with the same mirrored **Configuration** rates as the rest of the notebook, so the scorecard cost matches the portal. Run the hook to see your Marvel traffic scored here.
 
 > **The L4/L5 connection.** At Level 2 you *read* this insight. At **Level 4/5**, the system reads it and **acts** — e.g. the agent sees "biggest leak = city_friction" and routes a prompt-fix proposal into human review. Reverse-ETL is the mechanism that makes self-optimizing agents possible: without a path back to the operational store, analytical intelligence just sits in a dashboard.
 
@@ -194,7 +249,7 @@ Both TODO edits are in place, so run the entire notebook top-to-bottom in **one 
 
 After each reverse-ETL section, the notebook overwrites a small `notebook_run_status` row in
 `OptimizationInsights`. If Fabric reports only a generic Spark cancellation, query
-`id = "run-status::analytics"`; its `last_completed_stage` identifies the last successful boundary
+`id = "run-status::marvel"`; its `last_completed_stage` identifies the last successful boundary
 (`core_reverse_etl`, `agent_path`, `turn_metrics`, `agent_scorecard`, `memory_intelligence`, or
 `complete`). Do not treat a partially populated portal as a successful Run all.
 
@@ -214,7 +269,11 @@ Then open the **web analytics portal** (if it isn't already running):
 python -m http.server 8060 --directory analytics\dashboard
 ```
 
-Open <http://localhost:8060>, set **Dataset → analytics**, then switch **Source → Reverse-ETL (notebook)** and click **Refresh**. The ordering matters: **run the notebook first, then switch the Source toggle**. In this mode the portal reads the Travel API's `/optimizations/*` endpoints, and the API renders from the notebook-produced `OptimizationInsights` rows instead of recomputing from raw turns.
+Open <http://localhost:8060>, set **Dataset → marvel**, then switch **Source → Reverse-ETL
+(notebook)** and click **Refresh**. The ordering matters: **run the notebook first, then switch the
+Source toggle**. In this mode the portal reads the Travel API's `/optimizations/*` endpoints, and
+the API renders from the notebook-produced `OptimizationInsights` rows instead of recomputing from
+raw turns.
 
 Now walk **every tab** — each is rendered from a row your notebook wrote. For each: *what it shows* · **which notebook section produced it**.
 
@@ -275,9 +334,8 @@ The report combines two kinds of data:
 - **DirectQuery over mirrored operational tables** — for example `OptimizationTurns`, `Trips`, and `OptimizationPolicies`.
 - **Reverse-ETL rows in `OptimizationInsights`** — recommendation cards, agent scorecards, memory intelligence, funnel results, SLO settings, and measured savings.
 
-`Provision-Fabric.ps1` deployed the source-controlled PBIR report and TMDL semantic model, hydrated
-their mirror/UDF/workspace placeholders, configured DirectQuery SSO, and ran a validation query.
-The report is therefore deployment-specific without being manually edited.
+Provisioning connected and validated the report, so it is ready to use without manual Power BI
+Desktop editing.
 
 ### Walk the seven Power BI pages
 
@@ -311,7 +369,7 @@ Compare model distribution, trivial-turn share, baseline vs actual cost, and cos
 
 ![Power BI Memory page](./media/Module-09/pbi-04-memory.png)
 
-Review global memory volume, scored memories, average salience, supersession rate, type/health donuts, and salience distribution.
+Review memory volume, scored memories, average salience, supersession rate, type/health donuts, and salience distribution.
 
 #### Agents
 
@@ -362,23 +420,24 @@ On the report's **Optimizations** page:
 3. Click **Apply**.
 4. Wait up to a minute for the Cosmos change to reach the Fabric mirror, then refresh the report. The selected recommendation should read **ACTIVE**, **Apply** should be disabled, and **Revert** should be enabled.
 
-### Generate policy-aware traffic
+### Generate controlled Analytics traffic
 
 Power BI changes policy state; it does **not** generate synthetic traffic. Traffic generation is intentionally kept out of the UDF because it is a demo-maintenance/API operation, not an analytical writeback.
 
-If the simulator from Activity 2 is still running with `-Assume auto`, it detects the policy change and switches from the baseline premium-only mix to the tiered model mix. Otherwise run a short experiment from the repository root:
-
-```powershell
-.\analytics\scripts\Run-TrafficSimulator.ps1 -Tenant analytics -Rate 120 -Minutes 2 -Assume auto
-```
-
-If you are using the hosted **`02_completed`** application, you can instead open the web analytics portal's **gear menu → Generate traffic**. That button is capability-detected and is intentionally hidden when the running API does not expose the demo endpoint.
+<!-- BEGIN PRESENTER REFERENCE -->
+For controlled Demo 4, stop any learner practice stream first. In the completed/reference solution,
+use the web analytics portal's **gear menu → Generate traffic** or the controlled CLI path with the
+exact defaults: tenant `analytics`, fixture `controlled-demo4-v1`, burst
+`controlled-demo4-after-v1`, inclusive anchor `2026-09-24T13:00:00Z`, 200 turns, 20 minutes,
+nano=20, mini=110, premium=70.
 
 After traffic is generated:
 
 1. Wait about one minute for Mirroring.
 2. Refresh Power BI's **Portfolio Overview** and **Model Selection** pages. The raw mirrored turn/model visuals move through DirectQuery.
-3. Rerun the Fabric notebook (**Run all**) to recompute the reverse-ETL snapshot.
+3. Explicitly Recompute. In the learner exercise this means notebook **Run all**; in Portal Live
+   mode use **Recompute insights**. In Prepared Fabric / Power BI mode, do not run the full
+   notebook on stage unless separately rehearsed.
 4. Refresh the web portal with **Source → Reverse-ETL (notebook)** and refresh Power BI. Recommendation, memory, agent, business, and measured-saving visuals now read the new snapshot.
 
 ### Which web gear actions belong in Power BI?
@@ -387,13 +446,33 @@ After traffic is generated:
 |---|---|---|
 | **Generate traffic** | Use `Run-TrafficSimulator.ps1`; hosted completed demo may use the web gear action | Generates synthetic operational records; not a policy writeback. |
 | **Recompute insights** | Rerun the Fabric notebook | Reverse-ETL is the learning objective and authoritative analytical path. |
-| **Freshen turn times** | No report action | Demo-only timestamp maintenance. |
+| **Freshen turn times** | No report action | Prohibited during controlled Demo 4. |
 | **Reset to baseline** | No report action; use the web completed-demo tool when needed | Broad destructive demo reset should not be exposed as a report button. |
 | **Apply/Revert policy** | **Power BI data-function buttons** | Small, scoped, reversible operational write—appropriate for a UDF. |
 
 More User Data Function details: [`analytics/fabric/udf/README.md`](../../analytics/fabric/udf/README.md).
 
 *Stuck? Compare against `analytics/fabric/ConversionFunnelReverseETL_solution.ipynb`.*
+
+### Controlled state, validity, and labels
+
+| Source data | Policy context | Exact display state |
+|---|---|---|
+| Marvel all-premium | active or reverted | `Not Applied · Before` |
+| Analytics all-premium | active | `Policy Active · Awaiting Traffic · Before` |
+| Complete Analytics burst | active | `Applied · After` |
+| Complete Analytics burst | reverted | `Policy Reverted · After Traffic Captured` |
+
+Incomplete, missing, duplicate, conflicting, malformed-token, unknown-deployment, or
+wrong-model-mix expected rows are invalid, never successful Before/After. Revert affects future
+policy behavior, not captured After data.
+
+Controlled Analytics burst saving is **Measured**. Recommendation/card/volume values are
+**Projected** or **Estimated**. Policy, memory, and shared scope are **Global** where applicable.
+A shared result visible under Marvel must still identify Analytics measurement while Marvel
+remains Before. Memory retention is a separate optional global extension, not required for this
+module or Demo 4; measured memory saving remains `$0` until actual recall telemetry exists.
+<!-- END PRESENTER REFERENCE -->
 
 ## Activity 7: The LLM Analyst (Propose, Dispose)
 
@@ -472,8 +551,8 @@ Sample trace ids you may cite: ['trace-1','trace-2']
 ## Test Your Work
 
 - [ ] The read cell prints non-zero counts for `turns`, `trips`, `messages` from the **mirror**.
-- [ ] Your `cause` classification runs and the cause breakdown looks sane (biggest bucket ≈ `city_friction` on `analytics`).
-- [ ] Your reverse-ETL write completes: `OptimizationInsights` has `funnel_stage` / `abandonment_cause` / `conversion_kpi` rows for the tenant, plus a scenario-keyed `optimization_result` row for `model-selection` (under the reserved key `tenantId="_global_optimizations"`).
+- [ ] Your `cause` classification runs and the cause breakdown looks sane for the Marvel data you generated.
+- [ ] Your reverse-ETL write completes: `OptimizationInsights` has `funnel_stage` / `abandonment_cause` / `conversion_kpi` rows for Marvel, plus a scenario-keyed `optimization_result` row for `model-selection`.
 - [ ] After running the notebook, the web analytics portal with **Source → Reverse-ETL (notebook)** shows **every tab** — Overview, Optimizations, Model Selection, Memory, Agents, Business, and Governance — rendered from the notebook snapshot, with no portal edits.
 - [ ] Power BI shows the same seven analytical areas and its data-driven Recommendations table displays every `recommendation_card` row.
 - [ ] On Power BI's **Optimizations** page, selecting `model-selection` populates the detail panel; Apply/Revert enablement matches the current policy state.

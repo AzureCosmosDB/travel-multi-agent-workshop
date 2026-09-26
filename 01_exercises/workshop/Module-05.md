@@ -25,6 +25,7 @@ By the end of this module, you'll be able to visualize the complete execution pa
 4. [Activity 4: Adding Tracing to MCP Tools](#activity-4-adding-tracing-to-mcp-tools)
 5. [Activity 5: Adding Tracing to Database Calls](#activity-5-adding-tracing-to-database-calls)
 6. [Activity 6: Test Your Work and Viewing Traces in LangSmith](#activity-6-test-your-work-and-viewing-traces-in-langsmith)
+7. [Activity 7: Trace a Safe Existing-Trip Mutation](#activity-7-trace-a-safe-existing-trip-mutation)
 
 ---
 
@@ -706,6 +707,29 @@ You should see a new run/trace. You can see in the trace that the app starts at 
 
 - You can try sending more messages to the chat assistant, and keep exploring the traces.
 - The **Runs** tab show you details about every turn, and the **Threads** tab show the entire session having all the turns.
+
+## Activity 7: Trace a Safe Existing-Trip Mutation
+
+Use one general scenario: ask the assistant to add a **hotel, restaurant or other meal, or
+activity** to an existing trip whose status is `planning`. Breakfast is a valid meal example, but
+it is not the only scenario.
+
+Before sending the request, record the planning trip's ID, dates, status, itinerary, and the user's
+trip count. Then inspect the trace and verify this sequence:
+
+1. The server resolves the **authoritative** existing trip identity before the model proposes a
+   mutation. If zero or multiple plausible planning trips exist, the assistant asks one focused
+   clarification question; it does not create or mutate a trip.
+2. Place discovery returns a **concrete candidate** with a real place identity. A placeholder name
+   is not persisted.
+3. The itinerary path must read the existing trip state before it writes.
+4. The update **merges only** the requested change and preserves the trip ID, dates, `planning`
+   status, and unrelated itinerary fields.
+5. After the request, the user's trip count is unchanged and no duplicate trip exists.
+
+This is an authoritative-resource invariant, not just a prompt preference. The trace should show
+the orchestration decision, while the server-side binding and merge rules prevent a model-supplied
+ID or partial itinerary from replacing trusted state.
 
 ## Troubleshooting
 

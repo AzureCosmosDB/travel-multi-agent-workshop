@@ -501,14 +501,14 @@
     "userId": "tony",
     "tenantId": "marvel",
     "destination": "Barcelona, Spain",
-    "startDate": "2026-03-10",
-    "endDate": "2026-03-11",
+    "startDate": "2026-10-03",
+    "endDate": "2026-10-04",
     "tripDuration": 2,
     "status": "planning",
     "days": [
       {
         "dayNumber": 1,
-        "date": "2026-03-10",
+        "date": "2026-10-03",
         "morning": {
           "activity": "Sagrada Familia",
           "time": "09:00-11:30",
@@ -541,7 +541,7 @@
       },
       {
         "dayNumber": 2,
-        "date": "2026-03-11",
+        "date": "2026-10-04",
         "morning": {
           "activity": "La Rambla and Gothic Quarter",
           "time": "09:00-12:00",
@@ -561,6 +561,6 @@
         }
       }
     ],
-    "createdAt": "2025-10-17T13:00:00Z"
+    "createdAt": "2026-09-23T00:00:00Z"
   }
 ]

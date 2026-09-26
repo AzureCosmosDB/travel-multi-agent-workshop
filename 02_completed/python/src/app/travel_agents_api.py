@@ -19,7 +19,7 @@ from datetime import datetime
 from fastapi import BackgroundTasks, HTTPException, Body, Response
 from fastapi.responses import StreamingResponse
 from langchain_core.messages import HumanMessage, ToolMessage, AIMessage
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import List, Dict, Optional, Any, AsyncIterator
 from enum import Enum
 from starlette.middleware.cors import CORSMiddleware
@@ -50,11 +50,12 @@ from src.app.services.azure_cosmos_db import (
     sessions_container, messages_container, trips_container,
     places_container, debug_logs_container,
     aget_checkpoint_saver, close_async_cosmos_client, adelete_checkpoints_for_thread,
-    create_session_record, get_session_by_id,
+    create_session_record, delete_session_record, get_session_by_id,
     append_message, get_session_messages, query_places_hybrid,
-    get_trip, query_places_with_theme, query_places_filtered,
+    create_trip, delete_trip_record, get_trip, resolve_trip_for_request,
+    query_places_with_theme, query_places_filtered,
     patch_active_agent, update_session_activity,
-    create_user, get_all_users, get_user_by_id,
+    create_user, get_all_users, get_user_by_id, update_user_preferences,
     store_debug_log, get_debug_log, query_debug_logs
 )
 from src.app.travel_agents import (
@@ -64,7 +65,24 @@ from src.app.travel_agents import (
     _current_user_preference_vector,
 )
 from src.app.services import optimization
-from src.app.services.agent_memory import get_memory_client
+from src.app.services.agent_memory import (
+    MemoryNotFoundError,
+    delete_memory_by_id,
+    get_memory_client,
+)
+from src.app.traveller_context import (
+    add_active_trip_context,
+    build_traveller_context,
+    extract_summary_embedding,
+    use_traveller_context,
+)
+from src.app.trip_planning import (
+    StartTripConflictError,
+    TripRequestValidationError,
+    TripSessionNotFoundError,
+    start_trip_with_compensation,
+    validate_trip_request,
+)
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -134,6 +152,7 @@ class MessageModel(BaseModel):
 class TripStatus(str, Enum):
     PLANNING = "planning"
     BOOKED = "booked"
+    CONFIRMED = "confirmed"
     COMPLETED = "completed"
     CANCELLED = "cancelled"
 
@@ -143,6 +162,7 @@ class Trip(BaseModel):
     tripId: str
     userId: str
     tenantId: str
+    sessionId: Optional[str] = None
     destination: str  # "Paris, France"
     startDate: str  # "2025-11-15"
     endDate: str  # "2025-11-19"
@@ -150,6 +170,32 @@ class Trip(BaseModel):
     days: List[Dict] = []  # Day-by-day itinerary
     status: str = TripStatus.PLANNING
     createdAt: Optional[str] = None
+
+
+class TripCreateRequest(BaseModel):
+    destination: str
+    startDate: str
+    endDate: str
+    sessionId: Optional[str] = None
+
+
+class StartTripRequest(BaseModel):
+    requestId: Optional[str] = Field(
+        default=None,
+        min_length=8,
+        max_length=128,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+    )
+    destination: str
+    startDate: str
+    endDate: str
+    activeAgent: str = "orchestrator"
+    title: Optional[str] = None
+
+
+class StartTripResponse(BaseModel):
+    session: Session
+    trip: Trip
 
 
 class Memory(BaseModel):
@@ -229,6 +275,8 @@ class User(BaseModel):
     address: Optional[Dict[str, Any]] = None
     email: Optional[str] = None
     createdAt: str
+    preferences: Optional[Dict[str, str]] = None
+    updatedAt: Optional[str] = None
 
 
 class CreateUserRequest(BaseModel):
@@ -240,6 +288,17 @@ class CreateUserRequest(BaseModel):
     phone: Optional[str] = None
     address: Optional[Dict[str, Any]] = None
     email: Optional[str] = None
+
+
+class UserPreferences(BaseModel):
+    budget: Optional[str] = None
+    mobility: Optional[str] = None
+    dietary: Optional[str] = None
+    timeOfDay: Optional[str] = None
+
+
+class UpdateUserPreferencesRequest(BaseModel):
+    preferences: UserPreferences
 
 
 # ============================================================================
@@ -584,30 +643,57 @@ async def _load_checkpoint_history(config: dict) -> list:
     return _extract_checkpoint_messages(checkpoints[-1])
 
 
-async def _fetch_user_preference_vector(client: Any, user_id: str) -> list[float] | None:
-    """Fetch the user_summary embedding for preference-vector biasing in discover_places.
+async def _fetch_current_traveller_context(
+    client: Any,
+    tenant_id: str,
+    user_id: str,
+) -> tuple[dict[str, Any], list[float] | None]:
+    """Resolve safe profile identity and the existing memory summary for one turn."""
+    try:
+        profile_document = await asyncio.to_thread(
+            get_user_by_id,
+            user_id,
+            tenant_id,
+        )
+    except Exception as exc:
+        logger.warning(
+            "current traveller profile lookup failed tenant=%s user=%s: %s",
+            tenant_id,
+            user_id,
+            exc,
+        )
+        profile_document = None
 
-    Returns None when the user has no summary yet, the summary lacks an embedding,
-    or any error occurs -- preference biasing is best-effort, never a request blocker.
-    """
-    if not user_id:
-        return None
+    if profile_document is None:
+        logger.warning(
+            "current traveller profile unavailable tenant=%s user=%s; "
+            "using route identity only",
+            tenant_id,
+            user_id,
+        )
+
     try:
         summary = await client.get_user_summary(user_id)
     except Exception as exc:
         logger.warning("user_summary lookup failed for user=%s: %s", user_id, exc)
-        return None
+        summary = None
+
     if summary is None:
-        return None
-    if isinstance(summary, list):
-        if not summary:
-            return None
-        summary = summary[0]
-    embedding = summary.get("embedding") if isinstance(summary, dict) else None
-    return embedding if isinstance(embedding, list) else None
+        logger.info("No current user summary available for user=%s", user_id)
+
+    return (
+        build_traveller_context(profile_document, user_id, summary),
+        extract_summary_embedding(summary),
+    )
 
 
-def _thread_config(tenant_id: str, user_id: str, thread_id: str, pref_vector: list[float] | None = None) -> dict:
+def _thread_config(
+    tenant_id: str,
+    user_id: str,
+    thread_id: str,
+    pref_vector: list[float] | None = None,
+    active_trip_id: str | None = None,
+) -> dict:
     configurable = {
         "thread_id": thread_id,
         "checkpoint_ns": "",
@@ -618,6 +704,8 @@ def _thread_config(tenant_id: str, user_id: str, thread_id: str, pref_vector: li
     }
     if pref_vector is not None:
         configurable["user_preference_vector"] = pref_vector
+    if active_trip_id:
+        configurable["active_trip_id"] = active_trip_id
     return {"configurable": configurable}
 
 
@@ -716,6 +804,24 @@ app.include_router(optimization_agent_router)
 # Health & Status Endpoints
 # ============================================================================
 
+async def _resolve_active_trip_context(
+    tenant_id: str,
+    user_id: str,
+    thread_id: str,
+    user_message: str,
+    traveller_context: dict[str, Any],
+) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+    """Resolve the request trip and expose only its safe prompt projection."""
+    active_trip = await asyncio.to_thread(
+        resolve_trip_for_request,
+        tenant_id,
+        user_id,
+        thread_id,
+        user_message,
+    )
+    return active_trip, add_active_trip_context(traveller_context, active_trip)
+
+
 @app.get(
     "/health",
     summary="Health Check",
@@ -793,6 +899,41 @@ def create_chat_session(tenantId: str, userId: str, activeAgent: str, title: str
         raise HTTPException(status_code=500, detail=f"Failed to create session: {str(e)}")
 
 
+@app.post(
+    "/tenant/{tenantId}/user/{userId}/start-trip",
+    tags=[TRIP_TAG],
+    summary="Start Trip",
+    description="Atomically create a chat session and its bound blank trip",
+    response_model=StartTripResponse,
+    status_code=201,
+)
+def start_trip(tenantId: str, userId: str, request: StartTripRequest):
+    try:
+        session, trip = start_trip_with_compensation(
+            tenant_id=tenantId,
+            user_id=userId,
+            destination=request.destination,
+            start_date=request.startDate,
+            end_date=request.endDate,
+            active_agent=request.activeAgent,
+            title=request.title,
+            request_id=request.requestId,
+            create_session=create_session_record,
+            create_trip=create_trip,
+            get_trip=get_trip,
+            delete_trip=delete_trip_record,
+            delete_session=delete_session_record,
+        )
+        return StartTripResponse(session=Session(**session), trip=Trip(**trip))
+    except TripRequestValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    except StartTripConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except Exception as exc:
+        logger.error("Error starting trip: %s", exc)
+        raise HTTPException(status_code=500, detail=f"Failed to start trip: {str(exc)}")
+
+
 @app.get(
     "/tenant/{tenantId}/user/{userId}/sessions",
     tags=[SESSION_TAG],
@@ -837,6 +978,20 @@ def get_user_sessions(tenantId: str, userId: str):
     except Exception as e:
         logger.error(f"Error fetching sessions: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to fetch sessions: {str(e)}")
+
+
+@app.get(
+    "/tenant/{tenantId}/user/{userId}/sessions/{sessionId}",
+    tags=[SESSION_TAG],
+    summary="Get Session",
+    description="Retrieve one conversation session by route identity",
+    response_model=Session,
+)
+def get_chat_session(tenantId: str, userId: str, sessionId: str):
+    session = get_session_by_id(sessionId, tenantId, userId)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return Session(**session)
 
 
 @app.get(
@@ -1276,16 +1431,36 @@ async def chat_event_generator(
 
     base_config = _thread_config(tenant_id, user_id, thread_id)
     checkpoint_history = trim_history(await _load_checkpoint_history(base_config))
-    pref_vector = await _fetch_user_preference_vector(client, user_id)
+    traveller_context, pref_vector = await _fetch_current_traveller_context(
+        client,
+        tenant_id,
+        user_id,
+    )
     messages: list[Any] = list(checkpoint_history)
     messages.append(HumanMessage(content=user_message))
-    config = _thread_config(tenant_id, user_id, thread_id, pref_vector)
+    active_trip, traveller_context = await _resolve_active_trip_context(
+        tenant_id,
+        user_id,
+        thread_id,
+        user_message,
+        traveller_context,
+    )
+    config = _thread_config(
+        tenant_id,
+        user_id,
+        thread_id,
+        pref_vector,
+        active_trip_id=active_trip.get("tripId") if active_trip else None,
+    )
 
     # Model selection — record which complexity tier / deployment this turn routed
     # to. The supervisor picks its own model per turn via its model selector, so we
     # only need to look up the tier here for analytics. No active policy -> "default".
     try:
-        deployment, complexity_tier = optimization.select_deployment_for_turn(messages)
+        deployment, complexity_tier = optimization.select_deployment_for_turn(
+            messages,
+            tenant_id=tenant_id,
+        )
         dbg["complexity_tier"] = complexity_tier
         dbg["model_deployment"] = deployment
         if complexity_tier != "default":
@@ -1305,77 +1480,78 @@ async def chat_event_generator(
     last_output_text = ""
     token = _current_user_preference_vector.set(pref_vector)
     try:
-        async for event in workflow.astream_events(
-            {"messages": messages},
-            config=config,
-            version="v2",
-        ):
-            kind = event.get("event")
-            if kind == "on_tool_start":
-                dbg["tools"].append({"name": event.get("name")})
-                yield {
-                    "event": "tool_call_start",
-                    "tool": event.get("name"),
-                    "args": event.get("data", {}).get("input"),
-                }
-            elif kind == "on_tool_end":
-                yield {"event": "tool_call_done", "tool": event.get("name")}
-            elif kind == "on_chain_start":
-                node_name = event.get("name")
-                if node_name in _AGENT_NODES and node_name not in dbg["nodes"]:
-                    dbg["nodes"].append(node_name)
-                if node_name in ("supervisor", "find_places", "create_or_update_itinerary"):
-                    yield {"event": "thinking", "node": node_name}
-            elif kind == "on_chat_model_end":
-                usage = _extract_msg_usage(event.get("data", {}).get("output"))
-                if usage:
-                    dbg["input_tokens"] += usage["input_tokens"]
-                    dbg["output_tokens"] += usage["output_tokens"]
-                    dbg["total_tokens"] += usage["total_tokens"]
-                    dbg["cached_tokens"] += usage["cached_tokens"]
-                    if usage["model_name"] != "Unknown":
-                        dbg["model_name"] = usage["model_name"]
-                    if usage["finish_reason"] != "Unknown":
-                        dbg["finish_reason"] = usage["finish_reason"]
-                    if usage["system_fingerprint"] != "Unknown":
-                        dbg["system_fingerprint"] = usage["system_fingerprint"]
-                    # Node-grain capture (ADR-0010 §Layer 1 / B1): keep per-agent
-                    # attribution instead of discarding it. The aggregate above is a rollup.
-                    #
-                    # In the v2 ReAct architecture the sub-agents (find_places,
-                    # itinerary, recall_memories) run *nested* inside the supervisor's
-                    # tool node, so `langgraph_node` only reports the raw graph node
-                    # ("agent" for the supervisor's own model call, "tools" for the
-                    # nested sub-agent calls). `_subagent_config` stamps the semantic
-                    # name into metadata["sub_agent"], so prefer that for attribution
-                    # and fall back to mapping the supervisor's own "agent" node.
-                    md = event.get("metadata") or {}
-                    node_name = md.get("langgraph_node")
-                    agent = md.get("sub_agent") or (
-                        "supervisor" if node_name == "agent" else node_name
-                    )
-                    if agent:
-                        dbg["node_execs"].append({
-                            "seq": len(dbg["node_execs"]),
-                            "agent": agent,
-                            "langgraph_node": node_name,
-                            "model_deployment": dbg.get("model_deployment", usage["model_name"]),
-                            "model_name": usage["model_name"],
-                            "input_tokens": usage["input_tokens"],
-                            "output_tokens": usage["output_tokens"],
-                            "total_tokens": usage["total_tokens"],
-                            "cached_tokens": usage["cached_tokens"],
-                        })
-            elif kind == "on_chat_model_stream":
-                chunk = event.get("data", {}).get("chunk")
-                delta = _message_content_to_text(getattr(chunk, "content", ""))
-                if delta:
-                    accumulated.append(delta)
-                    yield {"event": "token", "delta": delta}
-            elif kind == "on_chain_end":
-                candidate = _last_ai_text_from_value(event.get("data", {}).get("output"))
-                if candidate:
-                    last_output_text = candidate
+        with use_traveller_context(traveller_context):
+            async for event in workflow.astream_events(
+                {"messages": messages},
+                config=config,
+                version="v2",
+            ):
+                kind = event.get("event")
+                if kind == "on_tool_start":
+                    dbg["tools"].append({"name": event.get("name")})
+                    yield {
+                        "event": "tool_call_start",
+                        "tool": event.get("name"),
+                        "args": event.get("data", {}).get("input"),
+                    }
+                elif kind == "on_tool_end":
+                    yield {"event": "tool_call_done", "tool": event.get("name")}
+                elif kind == "on_chain_start":
+                    node_name = event.get("name")
+                    if node_name in _AGENT_NODES and node_name not in dbg["nodes"]:
+                        dbg["nodes"].append(node_name)
+                    if node_name in ("supervisor", "find_places", "create_or_update_itinerary"):
+                        yield {"event": "thinking", "node": node_name}
+                elif kind == "on_chat_model_end":
+                    usage = _extract_msg_usage(event.get("data", {}).get("output"))
+                    if usage:
+                        dbg["input_tokens"] += usage["input_tokens"]
+                        dbg["output_tokens"] += usage["output_tokens"]
+                        dbg["total_tokens"] += usage["total_tokens"]
+                        dbg["cached_tokens"] += usage["cached_tokens"]
+                        if usage["model_name"] != "Unknown":
+                            dbg["model_name"] = usage["model_name"]
+                        if usage["finish_reason"] != "Unknown":
+                            dbg["finish_reason"] = usage["finish_reason"]
+                        if usage["system_fingerprint"] != "Unknown":
+                            dbg["system_fingerprint"] = usage["system_fingerprint"]
+                        # Node-grain capture (ADR-0010 §Layer 1 / B1): keep per-agent
+                        # attribution instead of discarding it. The aggregate above is a rollup.
+                        #
+                        # In the v2 ReAct architecture the sub-agents (find_places,
+                        # itinerary, recall_memories) run *nested* inside the supervisor's
+                        # tool node, so `langgraph_node` only reports the raw graph node
+                        # ("agent" for the supervisor's own model call, "tools" for the
+                        # nested sub-agent calls). `_subagent_config` stamps the semantic
+                        # name into metadata["sub_agent"], so prefer that for attribution
+                        # and fall back to mapping the supervisor's own "agent" node.
+                        md = event.get("metadata") or {}
+                        node_name = md.get("langgraph_node")
+                        agent = md.get("sub_agent") or (
+                            "supervisor" if node_name == "agent" else node_name
+                        )
+                        if agent:
+                            dbg["node_execs"].append({
+                                "seq": len(dbg["node_execs"]),
+                                "agent": agent,
+                                "langgraph_node": node_name,
+                                "model_deployment": dbg.get("model_deployment", usage["model_name"]),
+                                "model_name": usage["model_name"],
+                                "input_tokens": usage["input_tokens"],
+                                "output_tokens": usage["output_tokens"],
+                                "total_tokens": usage["total_tokens"],
+                                "cached_tokens": usage["cached_tokens"],
+                            })
+                elif kind == "on_chat_model_stream":
+                    chunk = event.get("data", {}).get("chunk")
+                    delta = _message_content_to_text(getattr(chunk, "content", ""))
+                    if delta:
+                        accumulated.append(delta)
+                        yield {"event": "token", "delta": delta}
+                elif kind == "on_chain_end":
+                    candidate = _last_ai_text_from_value(event.get("data", {}).get("output"))
+                    if candidate:
+                        last_output_text = candidate
     finally:
         _current_user_preference_vector.reset(token)
 
@@ -1572,6 +1748,57 @@ async def summarize_session_name(
 # ============================================================================
 # Trip Management Endpoints
 # ============================================================================
+
+@app.post(
+    "/tenant/{tenantId}/user/{userId}/trips",
+    tags=[TRIP_TAG],
+    summary="Create Trip",
+    description="Create a blank planning trip, optionally bound to a chat session",
+    response_model=Trip,
+    status_code=201,
+)
+def create_trip_endpoint(tenantId: str, userId: str, request: TripCreateRequest):
+    try:
+        destination = validate_trip_request(
+            tenant_id=tenantId,
+            user_id=userId,
+            destination=request.destination,
+            start_date=request.startDate,
+            end_date=request.endDate,
+            session_id=request.sessionId,
+            get_session=get_session_by_id,
+        )
+    except TripRequestValidationError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=str(exc),
+        )
+    except TripSessionNotFoundError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail=str(exc),
+        )
+
+    try:
+        trip_id = create_trip(
+            user_id=userId,
+            tenant_id=tenantId,
+            destination=destination,
+            start_date=request.startDate,
+            end_date=request.endDate,
+            days=[],
+            session_id=request.sessionId,
+        )
+        trip = get_trip(trip_id, userId, tenantId)
+        if not trip:
+            raise RuntimeError("Created trip could not be read")
+        return Trip(**trip)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error creating trip: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to create trip: {str(e)}")
+
 
 @app.get(
     "/tenant/{tenantId}/user/{userId}/trips",
@@ -1779,12 +2006,15 @@ async def delete_memory(user_id: str, memory_id: str, thread_id: Optional[str] =
 
     try:
         client = await get_memory_client()
-        await client.delete_cosmos(
+        await delete_memory_by_id(
+            client,
             memory_id=memory_id,
-            thread_id=thread_id,
             user_id=user_id,
+            thread_id=thread_id,
         )
         return Response(status_code=204)
+    except MemoryNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
     except Exception as e:
         logger.error(f"Error deleting memory: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to delete memory: {str(e)}")
@@ -2233,6 +2463,34 @@ def get_user(tenantId: str, userId: str):
     except Exception as e:
         logger.error(f"Error retrieving user: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.patch(
+    "/tenant/{tenantId}/users/{userId}/preferences",
+    tags=["User Management"],
+    summary="Update User Travel Preferences",
+    description="Merge travel preferences into an existing user profile",
+    response_model=User
+)
+def patch_user_preferences(
+    tenantId: str,
+    userId: str,
+    request: UpdateUserPreferencesRequest
+):
+    preferences = request.preferences.model_dump(exclude_none=True)
+    if not preferences:
+        raise HTTPException(status_code=422, detail="At least one preference is required")
+
+    try:
+        user_data = update_user_preferences(userId, tenantId, preferences)
+        if not user_data:
+            raise HTTPException(status_code=404, detail=f"User not found: {userId}")
+        return User(**user_data)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating preferences for user {userId}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to update user preferences: {e}")
 
 
 # ============================================================================

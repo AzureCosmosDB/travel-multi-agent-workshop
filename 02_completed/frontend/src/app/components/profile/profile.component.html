@@ -76,10 +76,13 @@
       
       <button 
         (click)="savePreferences()"
+        [disabled]="isSavingPreferences"
         class="mt-6 w-full px-4 py-2 rounded-xl bg-cosmos-primary text-white hover:bg-blue-600 transition"
       >
-        Save Preferences
+        {{ isSavingPreferences ? 'Saving...' : 'Save Preferences' }}
       </button>
+      <p *ngIf="preferenceMessage" class="mt-3 text-sm text-green-700">{{ preferenceMessage }}</p>
+      <p *ngIf="preferenceError" class="mt-3 text-sm text-red-700">{{ preferenceError }}</p>
     </div>
     
     <!-- Right Column: Memories & Past Highlights -->

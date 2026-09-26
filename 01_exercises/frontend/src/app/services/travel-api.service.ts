@@ -1,7 +1,7 @@
 import { Injectable } from '@angular/core';
 import { HttpClient, HttpHeaders, HttpParams } from '@angular/common/http';
 import { Observable, BehaviorSubject } from 'rxjs';
-import { tap } from 'rxjs/operators';
+import { map, tap } from 'rxjs/operators';
 import {
   Thread,
   Message,
@@ -9,11 +9,14 @@ import {
   Trip,
   Memory,
   UserSummary,
+  TravelPreferences,
   ChatCompletionResponse,
   PlaceSearchRequest,
   User,
   City,
-  PlaceFilterRequest
+  PlaceFilterRequest,
+  StartTripRequest,
+  StartTripResponse
 } from '../models/travel.models';
 
 @Injectable({
@@ -110,6 +113,13 @@ export class TravelApiService {
       `${this.baseUrl}/tenant/${this.tenantId}/user/${this.userId}/sessions/${threadId}`,
       { headers: this.getHeaders() }
     ).pipe(
+      map(thread => {
+        const returnedId = thread.sessionId || thread.threadId;
+        if (returnedId !== threadId) {
+          throw new Error(`Session identity mismatch: requested ${threadId}, received ${returnedId}`);
+        }
+        return thread;
+      }),
       tap(thread => this.currentThreadSubject.next(thread))
     );
   }
@@ -216,6 +226,23 @@ export class TravelApiService {
   // ============================================================================
   // Trips
   // ============================================================================
+
+  startTrip(request: StartTripRequest): Observable<StartTripResponse> {
+    return this.http.post<StartTripResponse>(
+      `${this.baseUrl}/tenant/${this.tenantId}/user/${this.userId}/start-trip`,
+      request,
+      { headers: this.getHeaders() }
+    ).pipe(
+      tap(response => {
+        this.currentThreadSubject.next(response.session);
+        const sessionId = response.session.sessionId || response.session.threadId;
+        const threads = this.threadsSubject.value.filter(
+          thread => (thread.sessionId || thread.threadId) !== sessionId
+        );
+        this.threadsSubject.next([response.session, ...threads]);
+      })
+    );
+  }
 
   getTrips(): Observable<Trip[]> {
     return this.http.get<Trip[]>(
@@ -335,6 +362,30 @@ export class TravelApiService {
     );
   }
 
+  getUserProfile(): Observable<User> {
+    return this.http.get<User>(
+      `${this.baseUrl}/tenant/${this.tenantId}/users/${this.userId}`,
+      { headers: this.getHeaders() }
+    ).pipe(
+      tap(user => this.cacheCurrentUser(user))
+    );
+  }
+
+  updatePreferences(preferences: TravelPreferences): Observable<User> {
+    return this.http.patch<User>(
+      `${this.baseUrl}/tenant/${this.tenantId}/users/${this.userId}/preferences`,
+      { preferences },
+      { headers: this.getHeaders() }
+    ).pipe(
+      tap(user => this.cacheCurrentUser(user))
+    );
+  }
+
+  private cacheCurrentUser(user: User): void {
+    this.currentUserSubject.next(user);
+    localStorage.setItem('currentUser', JSON.stringify(user));
+  }
+
   createUser(user: Partial<User>): Observable<User> {
     const userRequest = {
       userId: user.userId!,
@@ -394,4 +445,3 @@ export class TravelApiService {
     );
   }
 }
-

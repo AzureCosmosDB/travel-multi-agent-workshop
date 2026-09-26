@@ -328,6 +328,7 @@ yarn-error.log*
 !**/*template*.json
 !**/package*.json
 !python/data/*.json
+!frontend/tsconfig.preferences-spec.json
 
 # MacOS
 .DS_Store

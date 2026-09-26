@@ -1,0 +1,47 @@
+{
+  "generic_names": [
+    "args",
+    "config",
+    "data",
+    "error",
+    "event",
+    "item",
+    "main",
+    "record",
+    "result",
+    "state",
+    "value"
+  ],
+  "ignored_scopes": [
+    ".git",
+    ".local",
+    "01_exercises/frontend/node_modules",
+    "02_completed/frontend/node_modules",
+    "01_exercises/venv",
+    "02_completed/venv"
+  ],
+  "minimum_symbol_length": 4,
+  "production_scopes": [
+    "01_exercises/python/src",
+    "01_exercises/frontend/src",
+    "02_completed/python/src",
+    "02_completed/frontend/src",
+    "02_completed/mcp_server",
+    "analytics/fabric",
+    "analytics/powerbi",
+    "analytics/scripts"
+  ],
+  "test_scopes": [
+    "01_exercises/python/tests",
+    "01_exercises/frontend/src",
+    "02_completed/python/tests",
+    "02_completed/frontend/src",
+    "analytics/fabric/tests",
+    "analytics/scripts/tests"
+  ],
+  "validator_scopes": [
+    "analytics/scripts",
+    "analytics/fabric",
+    "analytics/powerbi"
+  ]
+}

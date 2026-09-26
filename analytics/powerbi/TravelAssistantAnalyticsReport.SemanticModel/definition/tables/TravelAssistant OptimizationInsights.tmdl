@@ -95,13 +95,108 @@ table 'TravelAssistant OptimizationInsights'
 			```
 		lineageTag: 9c98ee84-e3c5-4967-9625-89c35f704e0e
 
+	measure 'Demo Policy Status Raw' =
+			VAR _tenant = SELECTEDVALUE('Demo Tenant'[Tenant Key], "analytics")
+			VAR _policyId = _tenant & "::model-selection"
+			RETURN
+			    CALCULATE(
+			        MAX('TravelAssistant OptimizationPolicies'[status]),
+			        REMOVEFILTERS('TravelAssistant OptimizationPolicies'),
+			        'TravelAssistant OptimizationPolicies'[id] = _policyId
+			    )
+
+	measure 'Demo Dataset Phase' =
+			VAR _tenant = SELECTEDVALUE('Demo Tenant'[Tenant Key], "analytics")
+			VAR _total = COUNTROWS('TravelAssistant OptimizationTurns')
+			VAR _premium =
+			    CALCULATE(
+			        COUNTROWS('TravelAssistant OptimizationTurns'),
+			        'TravelAssistant OptimizationTurns'[model_deployment] = "gpt-5.1"
+			    )
+			VAR _mini =
+			    CALCULATE(
+			        COUNTROWS('TravelAssistant OptimizationTurns'),
+			        'TravelAssistant OptimizationTurns'[model_deployment] = "gpt-5-mini"
+			    )
+			VAR _nano =
+			    CALCULATE(
+			        COUNTROWS('TravelAssistant OptimizationTurns'),
+			        'TravelAssistant OptimizationTurns'[model_deployment] = "gpt-5-nano"
+			    )
+			VAR _baseline = _total = 200 && _premium = 200 && _mini = 0 && _nano = 0
+			VAR _after =
+			    _tenant = "analytics" &&
+			    _total = 400 && _premium = 270 && _mini = 110 && _nano = 20
+			RETURN
+			    SWITCH(TRUE(), _baseline, "before", _after, "after", "invalid")
+
+	measure 'Demo Dataset Display State' =
+			VAR _tenant = SELECTEDVALUE('Demo Tenant'[Tenant Key], "analytics")
+			VAR _phase = [Demo Dataset Phase]
+			VAR _policy = LOWER([Demo Policy Status Raw])
+			RETURN
+			    SWITCH(
+			        TRUE(),
+			        _phase = "invalid", "Invalid controlled dataset",
+			        _tenant = "marvel", "Not Applied · Before",
+			        _phase = "before" && _policy = "active", "Policy Active · Awaiting Traffic · Before",
+			        _phase = "before", "Not Applied · Before",
+			        _phase = "after" && _policy = "active", "Applied · After",
+			        _phase = "after" && _policy = "reverted", "Policy Reverted · After Traffic Captured",
+			        "Invalid controlled dataset"
+			    )
+
+	measure 'Demo State Valid' =
+			[Demo Dataset Phase] <> "invalid"
+
+	measure 'Demo State Reason' =
+			VAR _phase = [Demo Dataset Phase]
+			VAR _tenant = SELECTEDVALUE('Demo Tenant'[Tenant Key], "analytics")
+			RETURN
+			    SWITCH(
+			        TRUE(),
+			        _phase = "before", "complete all-premium " & _tenant & " baseline",
+			        _phase = "after", "complete deterministic Analytics after burst",
+			        "turn counts or model distribution do not match the controlled fixture"
+			    )
+
+	measure 'Model Result Scope Label' =
+			VAR _kind =
+			    CALCULATE(
+			        MAX('TravelAssistant OptimizationInsights'[measurement_kind]),
+			        'TravelAssistant OptimizationInsights'[type] = "optimization_result",
+			        'TravelAssistant OptimizationInsights'[scenario] = "model-selection"
+			    )
+			VAR _burst =
+			    CALCULATE(
+			        MAX('TravelAssistant OptimizationInsights'[burst_version]),
+			        'TravelAssistant OptimizationInsights'[type] = "optimization_result",
+			        'TravelAssistant OptimizationInsights'[scenario] = "model-selection"
+			    )
+			RETURN
+			    IF(
+			        ISBLANK(_kind),
+			        BLANK(),
+			        _kind & " — Analytics controlled burst " & _burst
+			    )
+
+	measure 'Memory Result Scope Label' = "Measured — Global memory recall telemetry"
+
 	measure 'Open Opportunities' = CALCULATE(COUNTROWS('TravelAssistant OptimizationInsights'), 'TravelAssistant OptimizationInsights'[type] = "recommendation_card")
 		formatString: 0
 
 	measure 'Est Saving USD' = CALCULATE(SUM('TravelAssistant OptimizationInsights'[estimated_saving_usd]), 'TravelAssistant OptimizationInsights'[type] = "recommendation_card")
 		formatString: \$#,0.00;(\$#,0.00);\$#,0.00
 
-	measure 'Measured Saving USD' = CALCULATE(SUM('TravelAssistant OptimizationInsights'[saving_usd]), 'TravelAssistant OptimizationInsights'[type] = "optimization_result")
+	measure 'Measured Saving USD' =
+			VAR _tenant = SELECTEDVALUE('Demo Tenant'[Tenant Key], "analytics")
+			RETURN
+			    CALCULATE(
+			        SUM('TravelAssistant OptimizationInsights'[saving_usd]),
+			        'TravelAssistant OptimizationInsights'[type] = "optimization_result",
+			        'TravelAssistant OptimizationInsights'[scenario] = "model-selection",
+			        'TravelAssistant OptimizationInsights'[measurement_tenant] = _tenant
+			    )
 		formatString: \$#,0.00;(\$#,0.00);\$#,0.00
 
 	measure 'Opportunity Total Spend' = CALCULATE(MAX('TravelAssistant OptimizationInsights'[baseline_cost_usd]), 'TravelAssistant OptimizationInsights'[type] = "agent_opportunity")
@@ -115,7 +210,30 @@ table 'TravelAssistant OptimizationInsights'
 	measure 'Opportunity Saving USD' = CALCULATE(SUM('TravelAssistant OptimizationInsights'[saving_usd]), 'TravelAssistant OptimizationInsights'[type] = "agent_opportunity")
 		formatString: \$#,0.00;(\$#,0.00);\$#,0.00
 
-	measure 'Opportunity Saving Display' = "🟢 " & FORMAT(MAX('TravelAssistant OptimizationInsights'[saving_usd]), "$#,0.00")
+	measure 'Opportunity Selected Tenant Row' =
+			VAR _tenant = SELECTEDVALUE('Demo Tenant'[Tenant Key], "analytics")
+			VAR _rowTenant =
+			    SELECTEDVALUE('TravelAssistant OptimizationInsights'[Report Tenant Key])
+			RETURN IF(_rowTenant = _tenant, 1, 0)
+		formatString: 0
+
+	measure 'Opportunity Saving Display' =
+			VAR _matchingRows =
+			    CALCULATE(
+			        COUNTROWS('TravelAssistant OptimizationInsights'),
+			        'TravelAssistant OptimizationInsights'[type] = "agent_opportunity"
+			    )
+			VAR _saving =
+			    CALCULATE(
+			        MAX('TravelAssistant OptimizationInsights'[saving_usd]),
+			        'TravelAssistant OptimizationInsights'[type] = "agent_opportunity"
+			    )
+			RETURN
+			    IF(
+			        _matchingRows = 0 || ISBLANK(_saving),
+			        BLANK(),
+			        "🟢 " & FORMAT(_saving, "$#,0.00")
+			    )
 
 	measure 'Opportunity Apply Mode Display' =
 			VAR _mode = UPPER(MAX('TravelAssistant OptimizationInsights'[apply_mode]))
@@ -129,24 +247,48 @@ table 'TravelAssistant OptimizationInsights'
 			    )
 
 	measure 'Opportunity State Display' =
+			VAR _datasetState = [Demo Dataset Display State]
 			VAR _state = UPPER(MAX('TravelAssistant OptimizationInsights'[status]))
 			RETURN
 			    SWITCH(
-			        _state,
-			        "ACTIVE", "🟢 ACTIVE",
-			        "PROPOSED", "🔵 PROPOSED",
-			        "NOT APPLIED", "⚪ NOT APPLIED",
-			        "APPROVED", "🟢 APPROVED",
-			        "DEPLOYED", "🟢 DEPLOYED",
+			        TRUE(),
+			        CONTAINSSTRING(_datasetState, "Not Applied"), "⚪ NOT APPLIED",
+			        CONTAINSSTRING(_datasetState, "Awaiting Traffic"), "🟢 ACTIVE",
+			        _datasetState = "Applied · After", "🟢 ACTIVE",
+			        CONTAINSSTRING(_datasetState, "Policy Reverted"), "🟡 REVERTED",
+			        _state = "ACTIVE", "🟢 ACTIVE",
+			        _state = "PROPOSED", "🔵 PROPOSED",
+			        _state = "NOT APPLIED", "⚪ NOT APPLIED",
+			        _state = "APPROVED", "🟢 APPROVED",
+			        _state = "DEPLOYED", "🟢 DEPLOYED",
 			        _state
 			    )
 
 	measure 'Recommendation Panel' =
+			VAR _tenant = SELECTEDVALUE('Demo Tenant'[Tenant Key], "analytics")
+			VAR _scenario = MAX('TravelAssistant OptimizationInsights'[scenario])
+			VAR _policyId =
+			    IF(_scenario = "model-selection", _tenant & "::model-selection", _scenario)
 			VAR _dimension = MAX('TravelAssistant OptimizationInsights'[dimension])
 			VAR _evidence = MAX('TravelAssistant OptimizationInsights'[evidence_line])
 			VAR _caveat = MAX('TravelAssistant OptimizationInsights'[caveat])
 			VAR _mode = MAX('TravelAssistant OptimizationInsights'[apply_mode])
-			VAR _state = MAX('TravelAssistant OptimizationInsights'[status])
+			VAR _policyState =
+			    CALCULATE(
+			        MAX('TravelAssistant OptimizationPolicies'[status]),
+			        REMOVEFILTERS('TravelAssistant OptimizationPolicies'),
+			        'TravelAssistant OptimizationPolicies'[id] = _policyId
+			    )
+			VAR _insightState = MAX('TravelAssistant OptimizationInsights'[status])
+			VAR _rawState =
+			    LOWER(
+			        IF(
+			            LOWER(_mode) IN {"policy", "auto"},
+			            COALESCE(_policyState, _insightState),
+			            _insightState
+			        )
+			    )
+			VAR _state = IF(_rawState = "reverted", "not_proposed", _rawState)
 			VAR _saving = MAX('TravelAssistant OptimizationInsights'[estimated_saving_usd])
 			VAR _modeLabel =
 			    SWITCH(
@@ -158,23 +300,25 @@ table 'TravelAssistant OptimizationInsights'
 			        "diagnostic", "🔵 DIAGNOSTIC",
 			        UPPER(SUBSTITUTE(_mode, "_", " "))
 			    )
+			VAR _datasetState = [Demo Dataset Display State]
 			VAR _stateLabel =
 			    SWITCH(
-			        LOWER(_state),
+			        _state,
 			        "active", "🟢 ACTIVE",
 			        "new", "🔵 PROPOSED",
 			        "proposed", "🔵 PROPOSED",
 			        "not_proposed", "⚪ NOT APPLIED",
-			        "reverted", "⚪ NOT APPLIED",
 			        "insight", "🔵 INSIGHT",
 			        UPPER(SUBSTITUTE(_state, "_", " "))
 			    )
+			VAR _truthfulStateLabel =
+			    IF(_scenario = "model-selection", _datasetState, _stateLabel)
 			VAR _savingLabel = IF(_saving > 0, FORMAT(_saving, "$#,0.0000"), "—")
 			RETURN
 			    _dimension & UNICHAR(10) &
 			    _evidence & UNICHAR(10) &
 			    IF(NOT ISBLANK(_caveat), _caveat & UNICHAR(10), "") &
-			    _modeLabel & "  ·  " & _stateLabel & "     🟢 Est. saving  " & _savingLabel
+			    _modeLabel & "  ·  " & _truthfulStateLabel & "     Projected saving  " & _savingLabel
 
 	measure 'Recommendation Dimension' = MAX('TravelAssistant OptimizationInsights'[dimension])
 
@@ -194,8 +338,27 @@ table 'TravelAssistant OptimizationInsights'
 			)
 
 	measure 'Recommendation Footer' =
+			VAR _tenant = SELECTEDVALUE('Demo Tenant'[Tenant Key], "analytics")
+			VAR _scenario = MAX('TravelAssistant OptimizationInsights'[scenario])
+			VAR _policyId =
+			    IF(_scenario = "model-selection", _tenant & "::model-selection", _scenario)
 			VAR _mode = LOWER(MAX('TravelAssistant OptimizationInsights'[apply_mode]))
-			VAR _state = LOWER(MAX('TravelAssistant OptimizationInsights'[status]))
+			VAR _policyState =
+			    CALCULATE(
+			        MAX('TravelAssistant OptimizationPolicies'[status]),
+			        REMOVEFILTERS('TravelAssistant OptimizationPolicies'),
+			        'TravelAssistant OptimizationPolicies'[id] = _policyId
+			    )
+			VAR _insightState = MAX('TravelAssistant OptimizationInsights'[status])
+			VAR _rawState =
+			    LOWER(
+			        IF(
+			            _mode IN {"policy", "auto"},
+			            COALESCE(_policyState, _insightState),
+			            _insightState
+			        )
+			    )
+			VAR _state = IF(_rawState = "reverted", "not_proposed", _rawState)
 			VAR _saving = MAX('TravelAssistant OptimizationInsights'[estimated_saving_usd])
 			VAR _modeLabel =
 			    SWITCH(
@@ -207,6 +370,7 @@ table 'TravelAssistant OptimizationInsights'
 			        "diagnostic", "🔵 DIAGNOSTIC",
 			        UPPER(SUBSTITUTE(_mode, "_", " "))
 			    )
+			VAR _datasetState = [Demo Dataset Display State]
 			VAR _stateLabel =
 			    SWITCH(
 			        _state,
@@ -217,8 +381,10 @@ table 'TravelAssistant OptimizationInsights'
 			        "insight", "🔵 INSIGHT",
 			        UPPER(SUBSTITUTE(_state, "_", " "))
 			    )
+			VAR _truthfulStateLabel =
+			    IF(_scenario = "model-selection", _datasetState, _stateLabel)
 			VAR _savingLabel = IF(_saving > 0, FORMAT(_saving, "$#,0.0000"), "—")
-			RETURN _modeLabel & "    " & _stateLabel & "    Est. saving " & _savingLabel
+			RETURN _modeLabel & "    " & _truthfulStateLabel & "    Projected saving " & _savingLabel
 
 	measure 'Recommendation Mode Display' =
 			VAR _mode = LOWER(MAX('TravelAssistant OptimizationInsights'[apply_mode]))
@@ -234,16 +400,19 @@ table 'TravelAssistant OptimizationInsights'
 			    )
 
 	measure 'Recommendation State Display' =
+			VAR _tenant = SELECTEDVALUE('Demo Tenant'[Tenant Key], "analytics")
 			VAR _scenario = MAX('TravelAssistant OptimizationInsights'[scenario])
+			VAR _policyId =
+			    IF(_scenario = "model-selection", _tenant & "::model-selection", _scenario)
 			VAR _mode = LOWER(MAX('TravelAssistant OptimizationInsights'[apply_mode]))
 			VAR _policyState =
 			    CALCULATE(
 			        MAX('TravelAssistant OptimizationPolicies'[status]),
 			        REMOVEFILTERS('TravelAssistant OptimizationPolicies'),
-			        'TravelAssistant OptimizationPolicies'[scenario] = _scenario
+			        'TravelAssistant OptimizationPolicies'[id] = _policyId
 			    )
 			VAR _insightState = MAX('TravelAssistant OptimizationInsights'[status])
-			VAR _state =
+			VAR _rawState =
 			    LOWER(
 			        IF(
 			            _mode IN {"policy", "auto"},
@@ -251,20 +420,35 @@ table 'TravelAssistant OptimizationInsights'
 			            _insightState
 			        )
 			    )
+			VAR _state = IF(_rawState = "reverted", "not_proposed", _rawState)
 			RETURN
-			    SWITCH(
-			        _state,
-			        "active", "🟢 ACTIVE",
-			        "new", "🔵 PROPOSED",
-			        "proposed", "🔵 PROPOSED",
-			        "not_proposed", "⚪ NOT APPLIED",
-			        "insight", "🔵 INSIGHT",
-			        UPPER(SUBSTITUTE(_state, "_", " "))
+			    IF(
+			        _scenario = "model-selection",
+			        [Demo Dataset Display State],
+			        SWITCH(
+			            _state,
+			            "active", "🟢 ACTIVE",
+			            "new", "🔵 PROPOSED",
+			            "proposed", "🔵 PROPOSED",
+			            "not_proposed", "⚪ NOT APPLIED",
+			            "insight", "🔵 INSIGHT",
+			            UPPER(SUBSTITUTE(_state, "_", " "))
+			        )
 			    )
 
 	measure 'Recommendation Saving Display' =
+			VAR _matchingRows =
+			    CALCULATE(
+			        COUNTROWS('TravelAssistant OptimizationInsights'),
+			        'TravelAssistant OptimizationInsights'[type] = "recommendation_card"
+			    )
 			VAR _saving = MAX('TravelAssistant OptimizationInsights'[estimated_saving_usd])
-			RETURN IF(_saving > 0, FORMAT(_saving, "$#,0.0000"), "—")
+			RETURN
+			    IF(
+			        _matchingRows = 0,
+			        BLANK(),
+			        IF(_saving > 0, FORMAT(_saving, "$#,0.0000"), "—")
+			    )
 
 	measure 'Selected Recommendation Scenario' =
 			VAR _selected = SELECTEDVALUE('TravelAssistant OptimizationInsights'[scenario])
@@ -350,7 +534,10 @@ table 'TravelAssistant OptimizationInsights'
 			    )
 
 	measure 'Selected Recommendation Status' =
+			VAR _tenant = SELECTEDVALUE('Demo Tenant'[Tenant Key], "analytics")
 			VAR _scenario = [Selected Recommendation Scenario]
+			VAR _policyId =
+			    IF(_scenario = "model-selection", _tenant & "::model-selection", _scenario)
 			VAR _mode =
 			    CALCULATE(
 			        MAX('TravelAssistant OptimizationInsights'[apply_mode]),
@@ -362,7 +549,7 @@ table 'TravelAssistant OptimizationInsights'
 			    CALCULATE(
 			        MAX('TravelAssistant OptimizationPolicies'[status]),
 			        REMOVEFILTERS('TravelAssistant OptimizationPolicies'),
-			        'TravelAssistant OptimizationPolicies'[scenario] = _scenario
+			        'TravelAssistant OptimizationPolicies'[id] = _policyId
 			    )
 			VAR _insightState =
 			    CALCULATE(
@@ -371,7 +558,7 @@ table 'TravelAssistant OptimizationInsights'
 			        'TravelAssistant OptimizationInsights'[scenario] = _scenario,
 			        'TravelAssistant OptimizationInsights'[type] = "recommendation_card"
 			    )
-			RETURN
+			VAR _rawState =
 			    LOWER(
 			        IF(
 			            LOWER(_mode) IN {"policy", "auto"},
@@ -379,6 +566,7 @@ table 'TravelAssistant OptimizationInsights'
 			            _insightState
 			        )
 			    )
+			RETURN IF(_rawState = "reverted", "not_proposed", _rawState)
 
 	measure 'Apply Enabled Scenario' =
 			IF(
@@ -405,11 +593,17 @@ table 'TravelAssistant OptimizationInsights'
 	measure 'Selected Action Label' =
 			VAR _scenario = [Selected Action Scenario]
 			VAR _status = UPPER([Selected Recommendation Status])
+			VAR _statusLabel =
+			    SWITCH(
+			        _status,
+			        "NOT_PROPOSED", "NOT APPLIED",
+			        SUBSTITUTE(_status, "_", " ")
+			    )
 			RETURN
 			    IF(
 			        ISBLANK(_scenario),
 			        "Selected recommendation is read-only",
-			        "Selected: " & _scenario & " · " & _status
+			        "Selected: " & _scenario & " · " & _statusLabel
 			    )
 
 	measure 'Apply Action Label' =
@@ -426,10 +620,26 @@ table 'TravelAssistant OptimizationInsights'
 			    "Revert"
 			)
 
-	measure 'MS Saving USD' = CALCULATE(MAX('TravelAssistant OptimizationInsights'[saving_usd]), 'TravelAssistant OptimizationInsights'[type] = "optimization_result", 'TravelAssistant OptimizationInsights'[scenario] = "model-selection")
+	measure 'MS Saving USD' =
+			VAR _tenant = SELECTEDVALUE('Demo Tenant'[Tenant Key], "analytics")
+			RETURN
+			    CALCULATE(
+			        MAX('TravelAssistant OptimizationInsights'[saving_usd]),
+			        'TravelAssistant OptimizationInsights'[type] = "optimization_result",
+			        'TravelAssistant OptimizationInsights'[scenario] = "model-selection",
+			        'TravelAssistant OptimizationInsights'[measurement_tenant] = _tenant
+			    )
 		formatString: \$#,0.00;(\$#,0.00);\$#,0.00
 
-	measure 'MS Turns' = CALCULATE(MAX('TravelAssistant OptimizationInsights'[turns]), 'TravelAssistant OptimizationInsights'[type] = "optimization_result", 'TravelAssistant OptimizationInsights'[scenario] = "model-selection")
+	measure 'MS Turns' =
+			VAR _tenant = SELECTEDVALUE('Demo Tenant'[Tenant Key], "analytics")
+			RETURN
+			    CALCULATE(
+			        MAX('TravelAssistant OptimizationInsights'[turns]),
+			        'TravelAssistant OptimizationInsights'[type] = "optimization_result",
+			        'TravelAssistant OptimizationInsights'[scenario] = "model-selection",
+			        'TravelAssistant OptimizationInsights'[measurement_tenant] = _tenant
+			    )
 		formatString: #,0
 
 	measure 'Per-Turn Saving USD' = DIVIDE([MS Saving USD], [MS Turns])
@@ -454,7 +664,7 @@ table 'TravelAssistant OptimizationInsights'
 			VAR _saving = [MS Saving USD]
 			VAR _pct = CALCULATE(MAX('TravelAssistant OptimizationInsights'[saving_pct]), 'TravelAssistant OptimizationInsights'[type] = "optimization_result", 'TravelAssistant OptimizationInsights'[scenario] = "model-selection")
 			VAR _turns = [MS Turns]
-			RETURN "Measured saving " & FORMAT(_saving, "$#,0.00") & " (" & FORMAT(_pct / 100, "0.0%") & ") across " & FORMAT(_turns, "#,0") & " turns."
+			RETURN [Model Result Scope Label] & " · " & FORMAT(_saving, "$#,0.00") & " (" & FORMAT(_pct / 100, "0.0%") & ") across " & FORMAT(_turns, "#,0") & " turns."
 
 	measure 'Comparison Cost USD' =
 			SWITCH(
@@ -596,6 +806,68 @@ table 'TravelAssistant OptimizationInsights'
 		lineageTag: e7868eee-7838-40c1-a44b-feb1705c58e4
 		summarizeBy: none
 		sourceColumn: tenantId
+
+		annotation SummarizationSetBy = Automatic
+
+	column policy_status
+		dataType: string
+		sourceProviderType: varchar(8000)
+		summarizeBy: none
+		sourceColumn: policy_status
+
+	column dataset_phase
+		dataType: string
+		sourceProviderType: varchar(8000)
+		summarizeBy: none
+		sourceColumn: dataset_phase
+
+	column display_state
+		dataType: string
+		sourceProviderType: varchar(8000)
+		summarizeBy: none
+		sourceColumn: display_state
+
+	column state_valid
+		dataType: boolean
+		sourceProviderType: bit
+		summarizeBy: none
+		sourceColumn: state_valid
+
+	column state_reason
+		dataType: string
+		sourceProviderType: varchar(8000)
+		summarizeBy: none
+		sourceColumn: state_reason
+
+	column measurement_kind
+		dataType: string
+		sourceProviderType: varchar(8000)
+		summarizeBy: none
+		sourceColumn: measurement_kind
+
+	column measurement_scope
+		dataType: string
+		sourceProviderType: varchar(8000)
+		summarizeBy: none
+		sourceColumn: measurement_scope
+
+	column measurement_tenant
+		dataType: string
+		sourceProviderType: varchar(8000)
+		summarizeBy: none
+		sourceColumn: measurement_tenant
+
+	column burst_version
+		dataType: string
+		sourceProviderType: varchar(8000)
+		summarizeBy: none
+		sourceColumn: burst_version
+
+	column 'Report Tenant Key'
+		dataType: string
+		sourceProviderType: varchar(8000)
+		summarizeBy: none
+		sourceColumn: Report Tenant Key
 
 		annotation SummarizationSetBy = Automatic
 
@@ -1081,8 +1353,24 @@ table 'TravelAssistant OptimizationInsights'
 		source =
 				let
 				    Source = Sql.Database(MirrorSQLEndpoint, MirrorDatabase),
-				    TravelAssistant_OptimizationInsights = Source{[Schema="TravelAssistant",Item="OptimizationInsights"]}[Data]
+				    TravelAssistant_OptimizationInsights = Source{[Schema="TravelAssistant",Item="OptimizationInsights"]}[Data],
+				    TenantRows = Table.AddColumn(
+				        Table.SelectRows(
+				            TravelAssistant_OptimizationInsights,
+				            each [tenantId] <> "_global_optimizations" and [tenantId] <> "_global_memory"
+				        ),
+				        "Report Tenant Key",
+				        each [tenantId],
+				        type text
+				    ),
+				    GlobalRows = Table.SelectRows(
+				        TravelAssistant_OptimizationInsights,
+				        each [tenantId] = "_global_optimizations" or [tenantId] = "_global_memory"
+				    ),
+				    AnalyticsGlobals = Table.AddColumn(GlobalRows, "Report Tenant Key", each "analytics", type text),
+				    MarvelGlobals = Table.AddColumn(GlobalRows, "Report Tenant Key", each "marvel", type text),
+				    ReportRows = Table.Combine({TenantRows, AnalyticsGlobals, MarvelGlobals})
 				in
-				    TravelAssistant_OptimizationInsights
+				    ReportRows
 
 	annotation PBI_ResultType = Table
